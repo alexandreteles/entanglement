@@ -38,8 +38,8 @@ pub struct AppliedPatch {
 
 /// Stream regular files below a repository directory using Git ignore rules.
 ///
-/// Hidden files are included unless ignored. The iterator skips `.git`, does
-/// not follow symbolic links, and returns traversal errors to the caller.
+/// Hidden files are included unless ignored. The iterator skips `.git`, follows
+/// symbolic links, and returns traversal errors to the caller.
 pub fn discover(
     path: &Path,
 ) -> crate::Result<impl Iterator<Item = crate::Result<PathBuf>> + Send + use<>> {
@@ -51,7 +51,7 @@ pub fn discover(
     }
     let walk = WalkBuilder::new(path)
         .hidden(false)
-        .follow_links(false)
+        .follow_links(true)
         .require_git(false)
         .git_ignore(true)
         .ignore(false)
@@ -64,6 +64,34 @@ pub fn discover(
         Ok(_) => None,
         Err(error) => Some(Err(error.into())),
     }))
+}
+
+/// Return the resolved identity of a path, including a path that does not exist.
+///
+/// Existing path components are resolved with the filesystem. If the final
+/// path does not exist, resolve its nearest existing ancestor and append the
+/// remaining path components. Return an I/O error for a broken symbolic link
+/// or another path resolution error.
+pub(crate) fn path_identity(path: &Path) -> crate::Result<PathBuf> {
+    let absolute = std::path::absolute(path)?;
+    let mut ancestor = absolute.as_path();
+    loop {
+        match fs::canonicalize(ancestor) {
+            Ok(mut resolved) => {
+                resolved.extend(absolute.strip_prefix(ancestor)?.components());
+                return Ok(resolved);
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                if fs::symlink_metadata(ancestor)
+                    .is_ok_and(|metadata| metadata.file_type().is_symlink())
+                {
+                    return Err(error.into());
+                }
+                ancestor = ancestor.parent().ok_or(error)?;
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
 }
 
 /// Read a unified diff from a file or standard input.

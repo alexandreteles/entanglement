@@ -23,6 +23,7 @@ enum Target {
     Module(ModuleKey),
     External,
     Ambiguous(Vec<SymbolId>),
+    Unresolved,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -30,6 +31,8 @@ struct FileContext {
     crate_root: PathBuf,
     module: Vec<String>,
 }
+
+type ModuleRoute = (usize, FileContext, PathBuf, BTreeSet<PathBuf>);
 
 #[derive(Clone, Debug)]
 struct Symbol {
@@ -54,7 +57,7 @@ struct ImportEntry {
 }
 
 struct Index {
-    contexts: Vec<FileContext>,
+    contexts: Vec<Vec<FileContext>>,
     symbols: BTreeMap<ModuleKey, BTreeMap<String, Vec<Symbol>>>,
     modules: BTreeSet<ModuleKey>,
     imports: Vec<ImportEntry>,
@@ -78,7 +81,19 @@ pub(crate) fn resolve(facts: &mut [FileFacts]) {
                 path: reference.path.clone(),
                 start_byte: reference.start_byte,
                 end_byte: reference.end_byte,
-                resolution: index.resolve_reference(file_index, context, reference, fact),
+                resolution: index.to_resolution(
+                    context
+                        .iter()
+                        .map(|context| {
+                            match index.resolve_reference(file_index, context, reference, fact) {
+                                Resolution::Exact(symbol) => Target::Symbol(symbol),
+                                Resolution::Ambiguous(symbols) => Target::Ambiguous(symbols),
+                                Resolution::External => Target::External,
+                                Resolution::Unresolved => Target::Unresolved,
+                            }
+                        })
+                        .collect(),
+                ),
             })
             .collect();
     }
@@ -101,54 +116,55 @@ impl Index {
 
     fn add_symbols(&mut self, facts: &[FileFacts]) {
         for (file_index, fact) in facts.iter().enumerate() {
-            let context = &self.contexts[file_index];
-            let file_module = joined_path(&context.module, &fact.module.0);
-            self.modules.insert(ModuleKey {
-                crate_root: context.crate_root.clone(),
-                path: Vec::new(),
-            });
-            if !file_module.is_empty() {
+            for context in &self.contexts[file_index] {
+                let file_module = joined_path(&context.module, &fact.module.0);
                 self.modules.insert(ModuleKey {
                     crate_root: context.crate_root.clone(),
-                    path: file_module.clone(),
+                    path: Vec::new(),
                 });
-            }
-
-            for definition in &fact.definitions {
-                let module = joined_path(&file_module, &definition.module.0);
-                let module_key = ModuleKey {
-                    crate_root: context.crate_root.clone(),
-                    path: module.clone(),
-                };
-                if definition.kind == DefinitionKind::Module {
-                    let mut child = module_key.clone();
-                    child.path.push(definition.name.clone());
-                    self.modules.insert(module_key.clone());
-                    self.modules.insert(child);
-                }
-                if !is_resolvable_kind(&definition.kind) {
-                    continue;
-                }
-                let id = SymbolId {
-                    file: fact.analysis.path.clone(),
-                    module: ModulePath(module),
-                    name: definition.name.clone(),
-                    kind: definition.kind.clone(),
-                    start_byte: definition.start_byte,
-                };
-                self.symbols
-                    .entry(module_key)
-                    .or_default()
-                    .entry(definition.name.clone())
-                    .or_default()
-                    .push(Symbol {
-                        id,
-                        file: file_index,
-                        scope_start: definition.scope_start,
-                        scope_end: definition.scope_end,
-                        is_local: is_local_definition(fact, definition),
-                        is_public: definition.is_public,
+                if !file_module.is_empty() {
+                    self.modules.insert(ModuleKey {
+                        crate_root: context.crate_root.clone(),
+                        path: file_module.clone(),
                     });
+                }
+
+                for definition in &fact.definitions {
+                    let module = joined_path(&file_module, &definition.module.0);
+                    let module_key = ModuleKey {
+                        crate_root: context.crate_root.clone(),
+                        path: module.clone(),
+                    };
+                    if definition.kind == DefinitionKind::Module {
+                        let mut child = module_key.clone();
+                        child.path.push(definition.name.clone());
+                        self.modules.insert(module_key.clone());
+                        self.modules.insert(child);
+                    }
+                    if !is_resolvable_kind(&definition.kind) {
+                        continue;
+                    }
+                    let id = SymbolId {
+                        file: fact.analysis.path.clone(),
+                        module: ModulePath(module),
+                        name: definition.name.clone(),
+                        kind: definition.kind.clone(),
+                        start_byte: definition.start_byte,
+                    };
+                    self.symbols
+                        .entry(module_key)
+                        .or_default()
+                        .entry(definition.name.clone())
+                        .or_default()
+                        .push(Symbol {
+                            id,
+                            file: file_index,
+                            scope_start: definition.scope_start,
+                            scope_end: definition.scope_end,
+                            is_local: is_local_definition(fact, definition),
+                            is_public: definition.is_public,
+                        });
+                }
             }
         }
         for names in self.symbols.values_mut() {
@@ -161,30 +177,31 @@ impl Index {
 
     fn add_imports(&mut self, facts: &[FileFacts]) {
         for (file_index, fact) in facts.iter().enumerate() {
-            let context = &self.contexts[file_index];
-            let file_module = joined_path(&context.module, &fact.module.0);
-            for import in &fact.imports {
-                let Some((name, path)) = import_name_and_path(import) else {
-                    continue;
-                };
-                self.imports.push(ImportEntry {
-                    file: file_index,
-                    module: ModuleKey {
-                        crate_root: context.crate_root.clone(),
-                        path: joined_path(&file_module, &import.module.0),
-                    },
-                    name,
-                    path,
-                    scope_start: import.scope_start,
-                    scope_end: import.scope_end,
-                    is_local: is_local_scope(
-                        fact,
-                        import.scope_start,
-                        import.scope_end,
-                        import.start_byte,
-                    ),
-                    is_public: import.is_public,
-                });
+            for context in &self.contexts[file_index] {
+                let file_module = joined_path(&context.module, &fact.module.0);
+                for import in &fact.imports {
+                    let Some((name, path)) = import_name_and_path(import) else {
+                        continue;
+                    };
+                    self.imports.push(ImportEntry {
+                        file: file_index,
+                        module: ModuleKey {
+                            crate_root: context.crate_root.clone(),
+                            path: joined_path(&file_module, &import.module.0),
+                        },
+                        name,
+                        path,
+                        scope_start: import.scope_start,
+                        scope_end: import.scope_end,
+                        is_local: is_local_scope(
+                            fact,
+                            import.scope_start,
+                            import.scope_end,
+                            import.start_byte,
+                        ),
+                        is_public: import.is_public,
+                    });
+                }
             }
         }
         self.imports.sort_by(|left, right| {
@@ -336,10 +353,12 @@ impl Index {
                 .flat_map(|module| self.lookup_name(file, access_module, position, module, segment))
                 .collect::<Vec<_>>();
             let targets = unique_targets(targets);
-            if targets
-                .iter()
-                .any(|target| matches!(target, Target::Ambiguous(_) | Target::External))
-            {
+            if targets.iter().any(|target| {
+                matches!(
+                    target,
+                    Target::Ambiguous(_) | Target::External | Target::Unresolved
+                )
+            }) {
                 return targets;
             }
             modules = targets
@@ -512,19 +531,22 @@ impl Index {
     }
 }
 
-fn file_contexts(facts: &[FileFacts]) -> Vec<FileContext> {
-    let by_path = facts.iter().enumerate().fold(
-        BTreeMap::<PathBuf, Vec<usize>>::new(),
-        |mut paths, (index, fact)| {
-            paths.entry(fact.path.clone()).or_default().push(index);
-            paths
-        },
-    );
+fn file_contexts(facts: &[FileFacts]) -> Vec<Vec<FileContext>> {
+    let mut by_path = BTreeMap::<PathBuf, usize>::new();
+    for (index, fact) in facts.iter().enumerate() {
+        for path in &fact.aliases {
+            by_path.insert(path.clone(), index);
+        }
+    }
     let mut roots = facts
         .iter()
         .enumerate()
-        .filter(|(_, fact)| is_crate_root(&fact.path))
-        .map(|(index, fact)| (fact.path.clone(), index))
+        .flat_map(|(index, fact)| {
+            fact.aliases
+                .iter()
+                .filter(|path| is_crate_root(path))
+                .map(move |path| (path.clone(), index))
+        })
         .collect::<Vec<_>>();
     roots.sort_by(|left, right| left.0.cmp(&right.0));
 
@@ -534,9 +556,11 @@ fn file_contexts(facts: &[FileFacts]) -> Vec<FileContext> {
         pending.push_back((
             index,
             FileContext {
-                crate_root: root_path,
+                crate_root: facts[index].target.clone(),
                 module: Vec::new(),
             },
+            root_path,
+            BTreeSet::from([facts[index].target.clone()]),
         ));
     }
     let mut visited = BTreeSet::new();
@@ -550,31 +574,36 @@ fn file_contexts(facts: &[FileFacts]) -> Vec<FileContext> {
 
     let mut incoming = BTreeSet::new();
     for fact in facts {
-        for declaration in fact.definitions.iter().filter(|definition| {
-            definition.kind == DefinitionKind::Module && definition.external_module
-        }) {
-            let relative_module = joined_path(&fact.module.0, &declaration.module.0);
-            let targets = module_files(&fact.path, &relative_module, &declaration.name)
-                .into_iter()
-                .filter_map(|path| by_path.get(&path))
-                .flatten()
-                .copied()
-                .collect::<BTreeSet<_>>();
-            if targets.len() == 1 {
-                incoming.insert(*targets.first().expect("One target is present"));
+        for path in &fact.aliases {
+            for declaration in fact.definitions.iter().filter(|definition| {
+                definition.kind == DefinitionKind::Module && definition.external_module
+            }) {
+                let relative_module = joined_path(&fact.module.0, &declaration.module.0);
+                let targets = module_files(path, &relative_module, &declaration.name)
+                    .iter()
+                    .filter_map(|path| by_path.get(path))
+                    .copied()
+                    .collect::<BTreeSet<_>>();
+                if targets.len() == 1 {
+                    incoming.insert(*targets.first().expect("One target is present"));
+                }
             }
         }
     }
 
     for index in 0..facts.len() {
         if assignments[index].is_empty() && !incoming.contains(&index) {
-            pending.push_back((
-                index,
-                FileContext {
-                    crate_root: facts[index].path.clone(),
-                    module: Vec::new(),
-                },
-            ));
+            for path in &facts[index].aliases {
+                pending.push_back((
+                    index,
+                    FileContext {
+                        crate_root: facts[index].target.clone(),
+                        module: Vec::new(),
+                    },
+                    path.clone(),
+                    BTreeSet::from([facts[index].target.clone()]),
+                ));
+            }
         }
     }
     walk_module_graph(
@@ -588,27 +617,34 @@ fn file_contexts(facts: &[FileFacts]) -> Vec<FileContext> {
     facts
         .iter()
         .enumerate()
-        .map(
-            |(index, fact)| match assignments[index].iter().collect::<Vec<_>>().as_slice() {
-                [context] => (*context).clone(),
-                _ => FileContext {
-                    crate_root: fact.path.clone(),
+        .map(|(index, fact)| {
+            let contexts = assignments[index].iter().cloned().collect::<Vec<_>>();
+            let same_crate = contexts.first().is_some_and(|first| {
+                contexts
+                    .iter()
+                    .all(|context| context.crate_root == first.crate_root)
+            });
+            if same_crate {
+                contexts
+            } else {
+                vec![FileContext {
+                    crate_root: fact.target.clone(),
                     module: Vec::new(),
-                },
-            },
-        )
+                }]
+            }
+        })
         .collect()
 }
 
 fn walk_module_graph(
     facts: &[FileFacts],
-    by_path: &BTreeMap<PathBuf, Vec<usize>>,
-    pending: &mut VecDeque<(usize, FileContext)>,
-    visited: &mut BTreeSet<(usize, FileContext)>,
+    by_path: &BTreeMap<PathBuf, usize>,
+    pending: &mut VecDeque<ModuleRoute>,
+    visited: &mut BTreeSet<ModuleRoute>,
     assignments: &mut [BTreeSet<FileContext>],
 ) {
-    while let Some((file, context)) = pending.pop_front() {
-        if !visited.insert((file, context.clone())) {
+    while let Some((file, context, path, ancestry)) = pending.pop_front() {
+        if !visited.insert((file, context.clone(), path.clone(), ancestry.clone())) {
             continue;
         }
         assignments[file].insert(context.clone());
@@ -619,21 +655,32 @@ fn walk_module_graph(
             let module = joined_path(&file_module, &declaration.module.0);
             let child_module = joined_path(&module, std::slice::from_ref(&declaration.name));
             let relative_module = joined_path(&facts[file].module.0, &declaration.module.0);
-            let candidates = module_files(&facts[file].path, &relative_module, &declaration.name)
+            let candidates = module_files(&path, &relative_module, &declaration.name)
                 .into_iter()
-                .filter_map(|path| by_path.get(&path))
-                .flatten()
-                .copied()
+                .filter_map(|path| by_path.get(&path).map(|file| (path, *file)))
                 .collect::<BTreeSet<_>>();
-            if candidates.len() == 1 {
-                let child_file = *candidates.first().expect("One candidate is present");
-                pending.push_back((
-                    child_file,
-                    FileContext {
-                        crate_root: context.crate_root.clone(),
-                        module: child_module,
-                    },
-                ));
+            let targets = candidates
+                .iter()
+                .map(|(_, child_file)| child_file)
+                .collect::<BTreeSet<_>>();
+            if targets.len() == 1 {
+                for (child_path, child_file) in candidates {
+                    let target = &facts[child_file].target;
+                    if ancestry.contains(target) {
+                        continue;
+                    }
+                    let mut child_ancestry = ancestry.clone();
+                    child_ancestry.insert(target.clone());
+                    pending.push_back((
+                        child_file,
+                        FileContext {
+                            crate_root: context.crate_root.clone(),
+                            module: child_module.clone(),
+                        },
+                        child_path,
+                        child_ancestry,
+                    ));
+                }
             }
         }
     }
@@ -728,7 +775,7 @@ fn target_symbols(target: &Target) -> Vec<SymbolId> {
     match target {
         Target::Symbol(symbol) => vec![symbol.clone()],
         Target::Ambiguous(symbols) => symbols.clone(),
-        Target::Module(_) | Target::External => Vec::new(),
+        Target::Module(_) | Target::External | Target::Unresolved => Vec::new(),
     }
 }
 

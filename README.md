@@ -27,8 +27,11 @@ git diff -- src/main.rs | entanglement candidate . --diff -
 | `candidate` | One directory or source file and `--diff` | Apply the diff in memory. Analyze the source files before and after the change. Use the surrounding repository for a file input. |
 
 The file search includes hidden files unless Git ignore rules exclude them.
-It skips `.git` and does not follow symbolic links. The `candidate` command
-also includes old files named in the diff, even if Git ignore rules exclude them.
+It skips `.git` and follows symbolic links to files and directories. It
+analyzes each file on disk once and keeps all discovered paths for module
+resolution. The `candidate` command also includes old files named in the diff,
+even if Git ignore rules exclude them. A broken link or a directory link cycle
+causes an error.
 
 For a `candidate` file input, use the nearest directory with `Cargo.toml` or
 `.git` to resolve code references. If there is no such directory, use the root
@@ -43,8 +46,13 @@ not write source files.
 A unified diff can contain several change blocks, called hunks. For a
 directory input, it can change several files. It can create, delete, or
 rename files. The unchanged lines in each hunk must match the source.
-Diff paths must stay below the selected root directory. They must not
-contain symbolic links. The program does not accept binary patches.
+Diff paths must stay below the selected root as written. They can pass through
+symbolic links, including links to targets outside that root. The program does
+not accept binary patches. A patch with the same old and new paths keeps the
+file's report path and aliases. A deletion removes the file and all its
+aliases. A rename removes the old file and its aliases, then adds the new path.
+A create or rename fails if its destination already exists. This includes a
+symbolic link.
 
 | Metric | Counting rule in Entanglement | Paper or publication |
 | --- | --- | --- |
@@ -65,6 +73,9 @@ when applicable.
 
 Code reference results have one of four states: exact, ambiguous, external,
 or unresolved. References that need type inference or trait dispatch stay
+unresolved. The same file on disk can appear in several modules in one crate.
+The resolver combines reference results from these module contexts. If the
+contexts resolve a name to different symbols, the result is ambiguous or
 unresolved. If several crate roots declare the same source file, references
 from that file to other files stay unresolved. The resolver does not select
 one crate.
