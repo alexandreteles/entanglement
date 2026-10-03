@@ -90,7 +90,8 @@ fn run(command: cli::Command) -> Result<model::AnalysisResult> {
 /// directory target accepts patches relative to that directory. Reject empty
 /// diffs and attempts to overwrite another file. Never write source bytes.
 fn analyze_patch(path: &Path, diff: &Path, single: bool) -> Result<model::AnalysisResult> {
-    let patches = input::parse_diff(&input::read_diff(diff)?)?;
+    let diff = input::read_diff(diff)?;
+    let patches = input::parse_diff(&diff)?;
     validate_patches(&patches)?;
     let (root, paths) = patch_sources(path, &patches, single)?;
     let mut parsed = analysis::analyze_paths(paths)?;

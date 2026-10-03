@@ -7,6 +7,7 @@ use std::fs;
 use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
 
+use diffy::patch_set::{ParseOptions, PatchKind, PatchSet};
 use ignore::WalkBuilder;
 use tree_sitter::{InputEdit, Point};
 
@@ -15,13 +16,12 @@ use tree_sitter::{InputEdit, Point};
 /// Paths are relative to the repository root. `old_path` is `None` for a new
 /// file. `new_path` is `None` for a deleted file. A rename has both paths.
 /// Hunk data stays private; use [`apply_patch`] to apply it.
-#[derive(Clone, Debug)]
-pub struct FilePatch {
+pub struct FilePatch<'a> {
     /// The safe path of the file before the patch, if the file exists.
     pub old_path: Option<PathBuf>,
     /// The safe path of the file after the patch, if the file exists.
     pub new_path: Option<PathBuf>,
-    hunks: Vec<Hunk>,
+    patch: diffy::Patch<'a, [u8]>,
 }
 
 /// Source bytes and ordered edits for one patched file.
@@ -35,21 +35,6 @@ pub struct AppliedPatch {
     pub source: Vec<u8>,
     /// Tree-sitter edits in the order used to produce `source`.
     pub edits: Vec<InputEdit>,
-}
-
-#[derive(Clone, Debug)]
-struct Hunk {
-    old_start: usize,
-    old_count: usize,
-    new_start: usize,
-    new_count: usize,
-    lines: Vec<HunkLine>,
-}
-
-#[derive(Clone, Debug)]
-struct HunkLine {
-    old: Option<Vec<u8>>,
-    new: Option<Vec<u8>>,
 }
 
 /// Stream regular files below a repository directory using Git ignore rules.
@@ -103,63 +88,40 @@ pub fn read_diff(path: &Path) -> crate::Result<String> {
 /// It supports multiple files, creations, deletions, grouped hunks, and the
 /// standard no-newline marker. It rejects unsafe paths, malformed hunk counts,
 /// and binary patches. The function does not read or change source files.
-pub fn parse_diff(text: &str) -> crate::Result<Vec<FilePatch>> {
-    let lines: Vec<&[u8]> = text
-        .as_bytes()
-        .split_inclusive(|byte| *byte == b'\n')
-        .collect();
-    let mut patches = Vec::new();
-    let mut index = 0;
-
-    while index < lines.len() {
-        let header = control_line(lines[index]);
-        if !header.starts_with(b"--- ") {
-            if header.starts_with(b"GIT binary patch") || header.starts_with(b"Binary files ") {
-                return Err(invalid("binary patches are not supported"));
-            }
-            index += 1;
-            continue;
-        }
-
-        let old_path = parse_file_path(&header[4..], b"a/")?;
-        index += 1;
-        let Some(new_header) = lines.get(index).map(|line| control_line(line)) else {
-            return Err(invalid("unified diff has no new-file header"));
-        };
-        if !new_header.starts_with(b"+++ ") {
-            return Err(invalid("unified diff has an invalid new-file header"));
-        }
-        let new_path = parse_file_path(&new_header[4..], b"b/")?;
-        index += 1;
-
-        let mut hunks = Vec::new();
-        while index < lines.len() {
-            let header = control_line(lines[index]);
-            if header.starts_with(b"@@ ") {
-                let (hunk, next_index) = parse_hunk(&lines, index)?;
-                hunks.push(hunk);
-                index = next_index;
-            } else if header.starts_with(b"--- ")
-                || header.starts_with(b"diff --git ")
-                || header.starts_with(b"GIT binary patch")
-                || header.starts_with(b"Binary files ")
-            {
-                break;
-            } else {
-                index += 1;
-            }
-        }
-
-        if old_path.is_none() && new_path.is_none() {
-            return Err(invalid("a patch cannot create and delete a file at once"));
-        }
-        patches.push(FilePatch {
-            old_path,
-            new_path,
-            hunks,
-        });
+pub fn parse_diff(text: &str) -> crate::Result<Vec<FilePatch<'_>>> {
+    let hunk_headers = text.lines().filter(|line| line.starts_with("@@ ")).count();
+    if text
+        .lines()
+        .any(|line| line.starts_with("GIT binary patch") || line.starts_with("Binary files "))
+    {
+        return Err(invalid("binary patches are not supported"));
     }
 
+    let mut hunk_count = 0;
+    let patches = PatchSet::parse_bytes(text.as_bytes(), ParseOptions::unidiff())
+        .map(|file| {
+            let PatchKind::Text(patch) = file?.into_patch() else {
+                return Err(invalid("binary patches are not supported"));
+            };
+            let (Some(old), Some(new)) = (patch.original(), patch.modified()) else {
+                return Err(invalid("unified diff has an invalid file header"));
+            };
+            let old_path = parse_file_path(old, b"a/")?;
+            let new_path = parse_file_path(new, b"b/")?;
+            if old_path.is_none() && new_path.is_none() {
+                return Err(invalid("a patch cannot create and delete a file at once"));
+            }
+            hunk_count += patch.hunks().len();
+            Ok(FilePatch {
+                old_path,
+                new_path,
+                patch,
+            })
+        })
+        .collect::<crate::Result<Vec<_>>>()?;
+    if hunk_count != hunk_headers {
+        return Err(invalid("unified diff has an invalid hunk header"));
+    }
     Ok(patches)
 }
 
@@ -170,15 +132,17 @@ pub fn parse_diff(text: &str) -> crate::Result<Vec<FilePatch>> {
 /// source, then applies hunks in order. It returns an error if a hunk does not
 /// match, if the hunk positions are invalid, or if an edit range is invalid.
 /// It does not write to disk.
-pub fn apply_patch(source: &[u8], patch: &FilePatch) -> crate::Result<AppliedPatch> {
+pub fn apply_patch(source: &[u8], patch: &FilePatch<'_>) -> crate::Result<AppliedPatch> {
     let mut result = source.to_vec();
-    let mut edits = Vec::with_capacity(patch.hunks.len());
+    let mut edits = Vec::with_capacity(patch.patch.hunks().len());
     let mut line_delta = 0_isize;
     let mut previous_old_end = 0_usize;
 
-    for hunk in &patch.hunks {
-        let old_line = hunk_line_index(hunk.old_start, hunk.old_count)?;
-        let new_line = hunk_line_index(hunk.new_start, hunk.new_count)?;
+    for hunk in patch.patch.hunks() {
+        let old = hunk.old_range();
+        let new = hunk.new_range();
+        let old_line = hunk_line_index(old.start(), old.len())?;
+        let new_line = hunk_line_index(new.start(), new.len())?;
         if old_line < previous_old_end {
             return Err(invalid("unified diff hunks overlap or are out of order"));
         }
@@ -189,11 +153,8 @@ pub fn apply_patch(source: &[u8], patch: &FilePatch) -> crate::Result<AppliedPat
             return Err(invalid("unified diff hunk positions do not match"));
         }
 
-        let current_line = old_line
-            .checked_add_signed(line_delta)
-            .ok_or_else(|| invalid("unified diff hunk position is out of range"))?;
-        let start_byte = line_start(&result, current_line)?;
-        let old_bytes = hunk_bytes(&hunk.lines, true);
+        let start_byte = line_start(&result, new_line)?;
+        let old_bytes = hunk_bytes(hunk.lines(), true);
         let end_byte = start_byte
             .checked_add(old_bytes.len())
             .ok_or_else(|| invalid("unified diff byte range is out of range"))?;
@@ -202,18 +163,16 @@ pub fn apply_patch(source: &[u8], patch: &FilePatch) -> crate::Result<AppliedPat
                 "unified diff context does not match the source file",
             ));
         }
-        apply_hunk(&mut result, start_byte, &hunk.lines, &mut edits)?;
+        apply_hunk(&mut result, start_byte, hunk.lines(), &mut edits)?;
 
-        let changed_lines = isize::try_from(hunk.new_count)
-            .and_then(|new_count| {
-                isize::try_from(hunk.old_count).map(|old_count| new_count - old_count)
-            })
+        let changed_lines = isize::try_from(new.len())
+            .and_then(|new_count| isize::try_from(old.len()).map(|old_count| new_count - old_count))
             .map_err(|_| invalid("unified diff line count is out of range"))?;
         line_delta = line_delta
             .checked_add(changed_lines)
             .ok_or_else(|| invalid("unified diff line count is out of range"))?;
         previous_old_end = old_line
-            .checked_add(hunk.old_count)
+            .checked_add(old.len())
             .ok_or_else(|| invalid("unified diff hunk position is out of range"))?;
     }
 
@@ -223,139 +182,11 @@ pub fn apply_patch(source: &[u8], patch: &FilePatch) -> crate::Result<AppliedPat
     })
 }
 
-fn parse_hunk(lines: &[&[u8]], start: usize) -> crate::Result<(Hunk, usize)> {
-    let header = control_line(lines[start]);
-    let (old_start, old_count, new_start, new_count) = parse_hunk_header(header)?;
-    let mut old_seen = 0_usize;
-    let mut new_seen = 0_usize;
-    let mut hunk_lines: Vec<HunkLine> = Vec::new();
-    let mut index = start + 1;
-
-    while old_seen < old_count || new_seen < new_count {
-        let Some(line) = lines.get(index) else {
-            return Err(invalid("unified diff ends inside a hunk"));
-        };
-        if line.starts_with(b"\\ No newline at end of file") {
-            mark_no_newline(&mut hunk_lines)?;
-            index += 1;
-            continue;
-        }
-        let Some((&kind, content)) = line.split_first() else {
-            return Err(invalid("unified diff has an empty hunk line"));
-        };
-        let content = content.to_vec();
-        match kind {
-            b' ' => {
-                old_seen += 1;
-                new_seen += 1;
-                hunk_lines.push(HunkLine {
-                    old: Some(content.clone()),
-                    new: Some(content),
-                });
-            }
-            b'+' => {
-                new_seen += 1;
-                hunk_lines.push(HunkLine {
-                    old: None,
-                    new: Some(content),
-                });
-            }
-            b'-' => {
-                old_seen += 1;
-                hunk_lines.push(HunkLine {
-                    old: Some(content),
-                    new: None,
-                });
-            }
-            _ => return Err(invalid("unified diff has an invalid hunk line")),
-        }
-        if old_seen > old_count || new_seen > new_count {
-            return Err(invalid(
-                "unified diff hunk line counts do not match its header",
-            ));
-        }
-        index += 1;
-    }
-
-    while lines
-        .get(index)
-        .is_some_and(|line| control_line(line).starts_with(b"\\ No newline at end of file"))
-    {
-        mark_no_newline(&mut hunk_lines)?;
-        index += 1;
-    }
-
-    Ok((
-        Hunk {
-            old_start,
-            old_count,
-            new_start,
-            new_count,
-            lines: hunk_lines,
-        },
-        index,
-    ))
-}
-
-fn parse_hunk_header(line: &[u8]) -> crate::Result<(usize, usize, usize, usize)> {
-    let Some(rest) = line.strip_prefix(b"@@ -") else {
-        return Err(invalid("unified diff has an invalid hunk header"));
-    };
-    let Some(plus) = rest.iter().position(|byte| *byte == b'+') else {
-        return Err(invalid("unified diff has an invalid hunk header"));
-    };
-    let old = rest
-        .get(..plus)
-        .and_then(|range| range.strip_suffix(b" "))
-        .ok_or_else(|| invalid("unified diff has an invalid hunk header"))?;
-    let new = rest
-        .get(plus + 1..)
-        .and_then(|range| range.split(|byte| *byte == b' ').next())
-        .ok_or_else(|| invalid("unified diff has an invalid hunk header"))?;
-    let Some(after_new) = rest.get(plus + 1 + new.len()..) else {
-        return Err(invalid("unified diff has an invalid hunk header"));
-    };
-    if !after_new.starts_with(b" @@") {
-        return Err(invalid("unified diff has an invalid hunk header"));
-    }
-    let (old_start, old_count) = parse_range(old)?;
-    let (new_start, new_count) = parse_range(new)?;
-    if (old_count > 0 && old_start == 0) || (new_count > 0 && new_start == 0) {
-        return Err(invalid("unified diff line numbers must start at one"));
-    }
-    Ok((old_start, old_count, new_start, new_count))
-}
-
-fn parse_range(range: &[u8]) -> crate::Result<(usize, usize)> {
-    let mut parts = range.split(|byte| *byte == b',');
-    let start = parse_usize(parts.next().unwrap_or_default())?;
-    let count = match parts.next() {
-        Some(count) => parse_usize(count)?,
-        None => 1,
-    };
-    if parts.next().is_some() {
-        return Err(invalid("unified diff has an invalid hunk range"));
-    }
-    Ok((start, count))
-}
-
-fn parse_usize(value: &[u8]) -> crate::Result<usize> {
-    let text = std::str::from_utf8(value).map_err(|_| invalid("unified diff has a bad number"))?;
-    text.parse()
-        .map_err(|_| invalid("unified diff has a bad number"))
-}
-
 fn parse_file_path(raw: &[u8], prefix: &[u8]) -> crate::Result<Option<PathBuf>> {
-    let raw = raw.split(|byte| *byte == b'\t').next().unwrap_or_default();
-    let path = if raw.starts_with(b"\"") {
-        parse_quoted_path(raw)?
-    } else {
-        raw.to_vec()
-    };
-    if path == b"/dev/null" {
+    if raw == b"/dev/null" {
         return Ok(None);
     }
-    let path = path.strip_prefix(prefix).unwrap_or(&path);
+    let path = raw.strip_prefix(prefix).unwrap_or(raw);
     let path = std::str::from_utf8(path).map_err(|_| invalid("diff path is not valid UTF-8"))?;
     if path.is_empty() || path.contains('\0') || path.contains('\\') {
         return Err(invalid("diff contains an unsafe file path"));
@@ -384,81 +215,13 @@ fn parse_file_path(raw: &[u8], prefix: &[u8]) -> crate::Result<Option<PathBuf>> 
     Ok(Some(safe_path))
 }
 
-fn parse_quoted_path(raw: &[u8]) -> crate::Result<Vec<u8>> {
-    let mut result = Vec::new();
-    let mut index = 1;
-    while let Some(&byte) = raw.get(index) {
-        match byte {
-            b'"' => {
-                if raw[index + 1..]
-                    .iter()
-                    .any(|byte| !byte.is_ascii_whitespace())
-                {
-                    return Err(invalid("diff has data after a quoted path"));
-                }
-                return Ok(result);
-            }
-            b'\\' => {
-                index += 1;
-                let Some(&escaped) = raw.get(index) else {
-                    return Err(invalid("diff has an unfinished path escape"));
-                };
-                match escaped {
-                    b'"' | b'\\' => result.push(escaped),
-                    b't' => result.push(b'\t'),
-                    b'n' => result.push(b'\n'),
-                    b'r' => result.push(b'\r'),
-                    b'0'..=b'7' => {
-                        let end = (index + 3).min(raw.len());
-                        let digits = &raw[index..end];
-                        if digits.iter().any(|digit| !(b'0'..=b'7').contains(digit)) {
-                            return Err(invalid("diff has an invalid octal path escape"));
-                        }
-                        let value = std::str::from_utf8(digits)
-                            .ok()
-                            .and_then(|digits| u8::from_str_radix(digits, 8).ok())
-                            .ok_or_else(|| invalid("diff has an invalid octal path escape"))?;
-                        result.push(value);
-                        index = end - 1;
-                    }
-                    _ => return Err(invalid("diff has an invalid path escape")),
-                }
-            }
-            _ => result.push(byte),
-        }
-        index += 1;
-    }
-    Err(invalid("diff has an unfinished quoted path"))
-}
-
-fn mark_no_newline(lines: &mut [HunkLine]) -> crate::Result<()> {
-    let Some(line) = lines.last_mut() else {
-        return Err(invalid("no-newline marker has no hunk line"));
-    };
-    if let Some(old) = &mut line.old {
-        remove_line_feed(old);
-    }
-    if let Some(new) = &mut line.new {
-        remove_line_feed(new);
-    }
-    Ok(())
-}
-
-fn remove_line_feed(bytes: &mut Vec<u8>) {
-    if bytes.last() == Some(&b'\n') {
-        bytes.pop();
-    }
-}
-
-fn hunk_bytes(lines: &[HunkLine], old: bool) -> Vec<u8> {
+fn hunk_bytes(lines: &[diffy::Line<'_, [u8]>], old: bool) -> Vec<u8> {
     lines
         .iter()
-        .filter_map(|line| {
-            if old {
-                line.old.as_ref()
-            } else {
-                line.new.as_ref()
-            }
+        .filter_map(|line| match (old, line) {
+            (true, diffy::Line::Context(bytes) | diffy::Line::Delete(bytes)) => Some(*bytes),
+            (false, diffy::Line::Context(bytes) | diffy::Line::Insert(bytes)) => Some(*bytes),
+            _ => None,
         })
         .flatten()
         .copied()
@@ -468,20 +231,21 @@ fn hunk_bytes(lines: &[HunkLine], old: bool) -> Vec<u8> {
 fn apply_hunk(
     source: &mut Vec<u8>,
     start_byte: usize,
-    lines: &[HunkLine],
+    lines: &[diffy::Line<'_, [u8]>],
     edits: &mut Vec<InputEdit>,
 ) -> crate::Result<()> {
+    // The caller validated the complete old hunk image before applying it.
     let mut cursor = start_byte;
     let mut index = 0;
     while index < lines.len() {
-        if lines[index].old.is_some() && lines[index].new.is_some() {
-            cursor += lines[index].old.as_ref().map_or(0, Vec::len);
+        if let diffy::Line::Context(bytes) = lines[index] {
+            cursor += bytes.len();
             index += 1;
             continue;
         }
 
         let run_start = index;
-        while index < lines.len() && !(lines[index].old.is_some() && lines[index].new.is_some()) {
+        while index < lines.len() && !matches!(lines[index], diffy::Line::Context(_)) {
             index += 1;
         }
         let old_bytes = hunk_bytes(&lines[run_start..index], true);
@@ -489,18 +253,13 @@ fn apply_hunk(
         let end_byte = cursor
             .checked_add(old_bytes.len())
             .ok_or_else(|| invalid("unified diff byte range is out of range"))?;
-        if source.get(cursor..end_byte) != Some(old_bytes.as_slice()) {
-            return Err(invalid(
-                "unified diff context does not match the source file",
-            ));
-        }
+        let new_end_byte = cursor
+            .checked_add(new_bytes.len())
+            .ok_or_else(|| invalid("unified diff byte range is out of range"))?;
         if old_bytes != new_bytes {
             let start_position = point_at(source, cursor);
             let old_end_position = point_at(source, end_byte);
             let new_end_position = point_after(start_position, &new_bytes);
-            let new_end_byte = cursor
-                .checked_add(new_bytes.len())
-                .ok_or_else(|| invalid("unified diff byte range is out of range"))?;
             edits.push(InputEdit {
                 start_byte: cursor,
                 old_end_byte: end_byte,
@@ -509,15 +268,9 @@ fn apply_hunk(
                 old_end_position,
                 new_end_position,
             });
-            let mut updated = Vec::with_capacity(source.len() - old_bytes.len() + new_bytes.len());
-            updated.extend_from_slice(&source[..cursor]);
-            updated.extend_from_slice(&new_bytes);
-            updated.extend_from_slice(&source[end_byte..]);
-            *source = updated;
+            drop(source.splice(cursor..end_byte, new_bytes.iter().copied()));
         }
-        cursor = cursor
-            .checked_add(new_bytes.len())
-            .ok_or_else(|| invalid("unified diff byte range is out of range"))?;
+        cursor = new_end_byte;
     }
     Ok(())
 }
@@ -537,12 +290,10 @@ fn line_start(source: &[u8], line_index: usize) -> crate::Result<usize> {
         return Ok(0);
     }
     let mut line_count = 0;
-    for (index, byte) in source.iter().enumerate() {
-        if *byte == b'\n' {
-            line_count += 1;
-            if line_count == line_index {
-                return Ok(index + 1);
-            }
+    for index in memchr::memchr_iter(b'\n', source) {
+        line_count += 1;
+        if line_count == line_index {
+            return Ok(index + 1);
         }
     }
     if line_count + usize::from(source.last().is_some_and(|byte| *byte != b'\n')) == line_index {
@@ -556,39 +307,81 @@ fn line_start(source: &[u8], line_index: usize) -> crate::Result<usize> {
 
 fn point_at(source: &[u8], byte: usize) -> Point {
     let prefix = &source[..byte];
-    let row = prefix.iter().filter(|byte| **byte == b'\n').count();
-    let column = prefix
-        .iter()
-        .rposition(|byte| *byte == b'\n')
-        .map_or(prefix.len(), |newline| prefix.len() - newline - 1);
+    let row = memchr::memchr_iter(b'\n', prefix).count();
+    let column =
+        memchr::memrchr(b'\n', prefix).map_or(prefix.len(), |newline| prefix.len() - newline - 1);
     Point { row, column }
 }
 
 fn point_after(start: Point, inserted: &[u8]) -> Point {
-    let newlines = inserted.iter().filter(|byte| **byte == b'\n').count();
-    if newlines == 0 {
-        Point {
-            row: start.row,
-            column: start.column + inserted.len(),
-        }
-    } else {
-        Point {
-            row: start.row + newlines,
-            column: inserted
-                .iter()
-                .rposition(|byte| *byte == b'\n')
-                .map_or(start.column + inserted.len(), |newline| {
-                    inserted.len() - newline - 1
-                }),
-        }
+    let end = point_at(inserted, inserted.len());
+    Point {
+        row: start.row + end.row,
+        column: if end.row == 0 {
+            start.column + end.column
+        } else {
+            end.column
+        },
     }
-}
-
-fn control_line(line: &[u8]) -> &[u8] {
-    let line = line.strip_suffix(b"\n").unwrap_or(line);
-    line.strip_suffix(b"\r").unwrap_or(line)
 }
 
 fn invalid(message: impl Into<String>) -> crate::Error {
     io::Error::new(io::ErrorKind::InvalidData, message.into()).into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn applies_exact_context_and_no_newline_edits() {
+        let patch = parse_diff("--- f.rs\n+++ f.rs\n@@ -1 +1 @@\n-old\n+new\n").unwrap();
+        assert_eq!(apply_patch(b"old\n", &patch[0]).unwrap().source, b"new\n");
+        assert!(apply_patch(b"other\n", &patch[0]).is_err());
+
+        let patch = parse_diff(
+            "--- f.rs\n+++ f.rs\n@@ -1 +1 @@\n-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file\n",
+        )
+        .unwrap();
+        assert_eq!(apply_patch(b"old", &patch[0]).unwrap().source, b"new");
+    }
+
+    #[test]
+    fn keeps_separate_edit_blocks_and_positions() {
+        let text = "--- f.rs\n+++ f.rs\n@@ -1,3 +1,3 @@\n-a\n+AA\n keep\n-b\n+B\n";
+        let patch = parse_diff(text).unwrap();
+        let applied = apply_patch(b"a\nkeep\nb\n", &patch[0]).unwrap();
+        assert_eq!(applied.source, b"AA\nkeep\nB\n");
+        assert_eq!(
+            applied
+                .edits
+                .iter()
+                .map(|edit| (edit.start_byte, edit.old_end_byte, edit.new_end_byte))
+                .collect::<Vec<_>>(),
+            [(0, 2, 3), (8, 10, 10)]
+        );
+        assert_eq!(applied.edits[1].start_position, Point { row: 2, column: 0 });
+    }
+
+    #[test]
+    fn decodes_quoted_paths_and_rejects_unsafe_or_binary_patches() {
+        let patch = parse_diff(
+            r#"--- "a/src/caf\303\251.rs"
++++ "b/src/caf\303\251.rs"
+@@ -1 +1 @@
+-old
++new
+"#,
+        )
+        .unwrap();
+        assert_eq!(patch[0].old_path.as_deref(), Some(Path::new("src/café.rs")));
+        assert!(parse_diff("--- a/../escape.rs\n+++ b/../escape.rs\n").is_err());
+        assert!(parse_diff("GIT binary patch\n").is_err());
+    }
+
+    #[test]
+    fn rejects_unsupported_adjacent_split_hunks() {
+        let patch = "--- a/f.rs\n+++ b/f.rs\n@@ -1 +1 @@\n-old\n+new\n@@ -1,0 +2 @@\n+extra\n";
+        assert!(parse_diff(patch).is_err());
+    }
 }

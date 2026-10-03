@@ -15,7 +15,6 @@ const ANALYSIS_QUERY: &str = include_str!("../queries/rust.scm");
 pub(super) struct Analyzer {
     query: Query,
     captures: Captures,
-    fields: HashMap<String, u16>,
 }
 
 struct Captures {
@@ -45,19 +44,17 @@ struct InjectionProperties {
     priority: i32,
 }
 
-#[derive(Debug, Clone)]
-struct NodeFact {
-    parent: Option<usize>,
-    field: Option<String>,
-    kind: String,
-    range: Range<usize>,
-    text: Option<String>,
+#[derive(Default)]
+struct NodeGraph<'a> {
+    nodes: HashMap<usize, tree_sitter::Node<'a>>,
+    source: &'a [u8],
 }
 
-#[derive(Default)]
-struct NodeGraph {
-    nodes: HashMap<usize, NodeFact>,
-    children: HashMap<usize, Vec<usize>>,
+impl NodeGraph<'_> {
+    fn text(&self, id: usize) -> Option<String> {
+        let node = *self.nodes.get(&id)?;
+        (node.child_count() == 0).then(|| node_text(node, self.source))
+    }
 }
 
 #[derive(Clone)]
@@ -116,10 +113,10 @@ struct ModuleSpan {
 }
 
 #[derive(Default)]
-struct CaptureFacts {
+struct CaptureFacts<'a> {
     events: Vec<SyntaxEvent>,
     parents: HashMap<usize, Option<usize>>,
-    graph: NodeGraph,
+    graph: NodeGraph<'a>,
     functions: Vec<FunctionScope>,
     definitions: Vec<RawDefinition>,
     import_roots: Vec<usize>,
@@ -143,25 +140,6 @@ impl Analyzer {
                 .capture_index_for_name(name)
                 .expect("required capture")
         };
-        let fields = [
-            "path",
-            "name",
-            "argument",
-            "list",
-            "alias",
-            "pattern",
-            "body",
-            "type",
-            "consequence",
-            "condition",
-        ]
-        .into_iter()
-        .filter_map(|name| {
-            language
-                .field_id_for_name(name)
-                .map(|field_id| (name.to_owned(), field_id.get()))
-        })
-        .collect();
         let roles = [
             ("syntax.node", SyntaxRole::Node),
             ("comment", SyntaxRole::Comment),
@@ -261,11 +239,7 @@ impl Analyzer {
                 })
                 .collect(),
         };
-        Ok(Self {
-            query,
-            captures,
-            fields,
-        })
+        Ok(Self { query, captures })
     }
 }
 
@@ -273,11 +247,17 @@ impl LanguageHandler for Analyzer {
     fn capture(&self, tree: &Tree, source: &[u8]) -> Result<CapturedTree> {
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&self.query, tree.root_node(), source);
-        let mut facts = CaptureFacts::default();
+        let mut facts = CaptureFacts {
+            graph: NodeGraph {
+                nodes: HashMap::new(),
+                source,
+            },
+            ..Default::default()
+        };
 
         while let Some(query_match) = matches.next() {
             let captures = query_match.captures();
-            facts.record_syntax(&self.captures, &self.fields, captures, source);
+            facts.record_syntax(&self.captures, captures, source);
             facts.record_tags(&self.captures, captures, source);
             facts.record_injection(&self.captures, query_match.pattern_index, captures, source);
         }
@@ -285,12 +265,11 @@ impl LanguageHandler for Analyzer {
     }
 }
 
-impl CaptureFacts {
+impl<'a> CaptureFacts<'a> {
     fn record_syntax(
         &mut self,
         query: &Captures,
-        fields: &HashMap<String, u16>,
-        captures: &[tree_sitter::QueryCapture<'_>],
+        captures: &[tree_sitter::QueryCapture<'a>],
         source: &[u8],
     ) {
         for capture in captures {
@@ -298,18 +277,7 @@ impl CaptureFacts {
             let parent = node.parent().map(|parent| parent.id());
             if capture.index == query.syntax_node {
                 self.parents.insert(node.id(), parent);
-                self.graph.nodes.insert(
-                    node.id(),
-                    NodeFact {
-                        parent,
-                        field: node
-                            .parent()
-                            .and_then(|parent| node_field(parent, node, fields)),
-                        kind: node.kind().to_owned(),
-                        range: node.start_byte()..node.end_byte(),
-                        text: (node.child_count() == 0).then(|| node_text(node, source)),
-                    },
-                );
+                self.graph.nodes.insert(node.id(), node);
             }
             if let Some(role) = query.roles.get(&capture.index) {
                 self.events.push(event(*role, node));
@@ -416,7 +384,6 @@ impl CaptureFacts {
     }
 
     fn normalize(mut self, tree: &Tree) -> Result<CapturedTree> {
-        self.graph.finish();
         deduplicate(&mut self.definitions, |item| {
             (item.range.start, item.range.end)
         });
@@ -516,7 +483,7 @@ impl CaptureFacts {
     fn use_ranges(&self) -> Vec<Range<usize>> {
         self.import_roots
             .iter()
-            .filter_map(|id| self.graph.nodes.get(id).map(|node| node.range.clone()))
+            .filter_map(|id| self.graph.nodes.get(id).map(tree_sitter::Node::byte_range))
             .collect()
     }
 
@@ -529,7 +496,7 @@ impl CaptureFacts {
                         self.graph
                             .nodes
                             .get(&local.owner)
-                            .map(|node| vec![node.range.clone()])
+                            .map(|node| vec![node.byte_range()])
                             .unwrap_or_default()
                     },
                     |pattern| {
@@ -636,7 +603,7 @@ impl CaptureFacts {
                 (!segments.is_empty()).then_some(RawReference {
                     node_id: path.node_id,
                     path: segments,
-                    range: node.range.clone(),
+                    range: node.byte_range(),
                     kind: path.kind,
                 })
             })
@@ -658,23 +625,6 @@ impl CaptureFacts {
                     .any(|outer| outer != &inner.range && contains(outer, &inner.range))
             })
             .collect()
-    }
-}
-
-impl NodeGraph {
-    fn finish(&mut self) {
-        for (id, node) in &self.nodes {
-            if let Some(parent) = node.parent {
-                self.children.entry(parent).or_default().push(*id);
-            }
-        }
-        for children in self.children.values_mut() {
-            children.sort_by_key(|id| {
-                self.nodes.get(id).map_or((usize::MAX, usize::MAX), |node| {
-                    (node.range.start, node.range.end)
-                })
-            });
-        }
     }
 }
 
@@ -766,18 +716,13 @@ fn is_method(node: tree_sitter::Node<'_>) -> bool {
     })
 }
 
-fn has_visibility(node_id: usize, graph: &NodeGraph) -> bool {
-    graph
-        .children
-        .get(&node_id)
-        .into_iter()
-        .flatten()
-        .any(|child| {
-            graph
-                .nodes
-                .get(child)
-                .is_some_and(|node| node.kind == "visibility_modifier")
-        })
+fn has_visibility(node_id: usize, graph: &NodeGraph<'_>) -> bool {
+    let Some(node) = graph.nodes.get(&node_id) else {
+        return false;
+    };
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .any(|child| child.kind() == "visibility_modifier")
 }
 
 fn capture_node_id(captures: &[tree_sitter::QueryCapture<'_>], id: u32) -> Option<usize> {
@@ -821,7 +766,12 @@ fn injection_from_match(
     })
 }
 
-fn flatten_import(root: usize, is_public: bool, graph: &NodeGraph, imports: &mut Vec<RawImport>) {
+fn flatten_import(
+    root: usize,
+    is_public: bool,
+    graph: &NodeGraph<'_>,
+    imports: &mut Vec<RawImport>,
+) {
     let Some(argument) = child_field(root, "argument", graph) else {
         return;
     };
@@ -832,13 +782,13 @@ fn flatten_use_node(
     node_id: usize,
     prefix: &[String],
     is_public: bool,
-    graph: &NodeGraph,
+    graph: &NodeGraph<'_>,
     imports: &mut Vec<RawImport>,
 ) {
-    let Some(node) = graph.nodes.get(&node_id) else {
+    let Some(node) = graph.nodes.get(&node_id).copied() else {
         return;
     };
-    match node.kind.as_str() {
+    match node.kind() {
         "scoped_use_list" => {
             let mut path = prefix.to_vec();
             if let Some(path_node) = child_field(node_id, "path", graph) {
@@ -849,9 +799,10 @@ fn flatten_use_node(
             }
         }
         "use_list" => {
-            for child in graph.children.get(&node_id).into_iter().flatten() {
-                if is_use_node(*child, graph) {
-                    flatten_use_node(*child, prefix, is_public, graph, imports);
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if is_use_node(child.id(), graph) {
+                    flatten_use_node(child.id(), prefix, is_public, graph, imports);
                 }
             }
         }
@@ -860,16 +811,15 @@ fn flatten_use_node(
             if let Some(path_node) = child_field(node_id, "path", graph) {
                 path.extend(path_segments(path_node, graph));
             }
-            let alias = child_field(node_id, "alias", graph)
-                .and_then(|alias| graph.nodes.get(&alias))
-                .and_then(|alias| alias.text.clone());
+            let alias = child_field(node_id, "alias", graph).and_then(|alias| graph.text(alias));
             push_import(node_id, node, path, alias, is_public, imports);
         }
         "use_wildcard" => {
             let mut path = prefix.to_vec();
-            for child in graph.children.get(&node_id).into_iter().flatten() {
-                if is_path_node(*child, graph) {
-                    path.extend(path_segments(*child, graph));
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if is_path_node(child.id(), graph) {
+                    path.extend(path_segments(child.id(), graph));
                 }
             }
             path.push("*".into());
@@ -888,7 +838,7 @@ fn flatten_use_node(
 
 fn push_import(
     node_id: usize,
-    node: &NodeFact,
+    node: tree_sitter::Node<'_>,
     path: Vec<String>,
     alias: Option<String>,
     is_public: bool,
@@ -901,15 +851,15 @@ fn push_import(
         node_id,
         path,
         alias,
-        range: node.range.clone(),
+        range: node.byte_range(),
         is_public,
     });
 }
 
-fn is_use_node(id: usize, graph: &NodeGraph) -> bool {
+fn is_use_node(id: usize, graph: &NodeGraph<'_>) -> bool {
     graph.nodes.get(&id).is_some_and(|node| {
         matches!(
-            node.kind.as_str(),
+            node.kind(),
             "scoped_use_list"
                 | "use_as_clause"
                 | "use_list"
@@ -923,10 +873,10 @@ fn is_use_node(id: usize, graph: &NodeGraph) -> bool {
     })
 }
 
-fn is_path_node(id: usize, graph: &NodeGraph) -> bool {
+fn is_path_node(id: usize, graph: &NodeGraph<'_>) -> bool {
     graph.nodes.get(&id).is_some_and(|node| {
         matches!(
-            node.kind.as_str(),
+            node.kind(),
             "scoped_identifier"
                 | "scoped_type_identifier"
                 | "identifier"
@@ -938,17 +888,16 @@ fn is_path_node(id: usize, graph: &NodeGraph) -> bool {
     })
 }
 
-fn child_field(node_id: usize, field: &str, graph: &NodeGraph) -> Option<usize> {
-    graph.children.get(&node_id)?.iter().copied().find(|child| {
-        graph
-            .nodes
-            .get(child)
-            .is_some_and(|node| node.field.as_deref() == Some(field))
-    })
+fn child_field(node_id: usize, field: &str, graph: &NodeGraph<'_>) -> Option<usize> {
+    graph
+        .nodes
+        .get(&node_id)?
+        .child_by_field_name(field)
+        .map(|node| node.id())
 }
 
-fn path_segments(node_id: usize, graph: &NodeGraph) -> Vec<String> {
-    let Some(node) = graph.nodes.get(&node_id) else {
+fn path_segments(node_id: usize, graph: &NodeGraph<'_>) -> Vec<String> {
+    let Some(node) = graph.nodes.get(&node_id).copied() else {
         return Vec::new();
     };
     if let (Some(path), Some(name)) = (
@@ -956,31 +905,28 @@ fn path_segments(node_id: usize, graph: &NodeGraph) -> Vec<String> {
         child_field(node_id, "name", graph),
     ) {
         let mut segments = path_segments(path, graph);
-        if let Some(name) = graph.nodes.get(&name).and_then(|name| name.text.clone()) {
+        if let Some(name) = graph.text(name) {
             segments.push(name);
         }
         return segments;
     }
     if is_path_node(node_id, graph) {
-        return node.text.clone().into_iter().collect();
+        return graph.text(node_id).into_iter().collect();
     }
-    graph
-        .children
-        .get(&node_id)
-        .into_iter()
-        .flatten()
-        .filter(|child| is_path_node(**child, graph))
-        .flat_map(|child| path_segments(*child, graph))
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .filter(|child| is_path_node(child.id(), graph))
+        .flat_map(|child| path_segments(child.id(), graph))
         .collect()
 }
 
-fn local_bindings(local: &RawLocal, graph: &NodeGraph) -> Vec<LocalBinding> {
+fn local_bindings(local: &RawLocal, graph: &NodeGraph<'_>) -> Vec<LocalBinding> {
     let names = local.pattern.map_or_else(
         || {
             graph
                 .nodes
                 .get(&local.owner)
-                .map(|node| vec![("self".to_owned(), node.range.clone())])
+                .map(|node| vec![("self".to_owned(), node.byte_range())])
                 .unwrap_or_default()
         },
         |pattern| binding_names(pattern, graph),
@@ -994,14 +940,14 @@ fn local_bindings(local: &RawLocal, graph: &NodeGraph) -> Vec<LocalBinding> {
             };
             let end = nearest_kind(local.owner, "block", graph)
                 .and_then(|id| graph.nodes.get(&id))
-                .map_or(declaration.range.end, |block| block.range.end);
+                .map_or(declaration.end_byte(), tree_sitter::Node::end_byte);
             return names
                 .into_iter()
                 .map(|(name, range)| LocalBinding {
                     name,
                     start_byte: range.start,
                     end_byte: range.end,
-                    scope_start: declaration.range.end,
+                    scope_start: declaration.end_byte(),
                     scope_end: end,
                 })
                 .collect();
@@ -1020,58 +966,55 @@ fn local_bindings(local: &RawLocal, graph: &NodeGraph) -> Vec<LocalBinding> {
             name,
             start_byte: range.start,
             end_byte: range.end,
-            scope_start: scope.range.start,
-            scope_end: scope.range.end,
+            scope_start: scope.start_byte(),
+            scope_end: scope.end_byte(),
         })
         .collect()
 }
 
-fn binding_names(root: usize, graph: &NodeGraph) -> Vec<(String, Range<usize>)> {
+fn binding_names(root: usize, graph: &NodeGraph<'_>) -> Vec<(String, Range<usize>)> {
     let mut names = Vec::new();
     let mut pending = vec![root];
     while let Some(id) = pending.pop() {
         let Some(node) = graph.nodes.get(&id) else {
             continue;
         };
-        if (matches!(node.kind.as_str(), "identifier" | "self")
-            || node.kind == "shorthand_field_identifier" && node.field.as_deref() == Some("name"))
-            && let Some(name) = &node.text
+        if (matches!(node.kind(), "identifier" | "self")
+            || node.kind() == "shorthand_field_identifier" && is_field(*node, "name"))
+            && let Some(name) = graph.text(id)
         {
-            names.push((name.clone(), node.range.clone()));
+            names.push((name, node.byte_range()));
         }
-        pending.extend(
-            graph
-                .children
-                .get(&id)
-                .into_iter()
-                .flatten()
-                .filter(|child| {
-                    graph.nodes.get(child).is_some_and(|child| {
-                        !matches!(child.field.as_deref(), Some("type" | "condition"))
-                    })
-                })
-                .copied(),
-        );
+        let mut cursor = node.walk();
+        pending.extend(node.children(&mut cursor).filter_map(|child| {
+            (!is_field(child, "type") && !is_field(child, "condition")).then_some(child.id())
+        }));
     }
     names
 }
 
-fn nearest_kind(mut id: usize, kind: &str, graph: &NodeGraph) -> Option<usize> {
+fn is_field(node: tree_sitter::Node<'_>, field: &str) -> bool {
+    node.parent()
+        .and_then(|parent| parent.child_by_field_name(field))
+        .is_some_and(|first| first.id() == node.id())
+}
+
+fn nearest_kind(mut id: usize, kind: &str, graph: &NodeGraph<'_>) -> Option<usize> {
     loop {
-        if graph.nodes.get(&id).is_some_and(|node| node.kind == kind) {
+        if graph.nodes.get(&id).is_some_and(|node| node.kind() == kind) {
             return Some(id);
         }
-        id = graph.nodes.get(&id)?.parent?;
+        id = graph.nodes.get(&id)?.parent()?.id();
     }
 }
 
-fn condition_scope(mut id: usize, graph: &NodeGraph) -> Option<usize> {
+fn condition_scope(mut id: usize, graph: &NodeGraph<'_>) -> Option<usize> {
     loop {
         let node = graph.nodes.get(&id)?;
-        match node.kind.as_str() {
+        match node.kind() {
             "if_expression" => return child_field(id, "consequence", graph),
             "while_expression" => return child_field(id, "body", graph),
-            _ => id = node.parent?,
+            _ => id = node.parent()?.id(),
         }
     }
 }
@@ -1098,43 +1041,27 @@ fn relative_module(position: usize, modules: &[ModuleSpan]) -> ModulePath {
 fn lexical_scope(
     node_id: usize,
     skip_self: bool,
-    graph: &NodeGraph,
+    graph: &NodeGraph<'_>,
     root: &Range<usize>,
 ) -> (usize, usize) {
     let mut current = graph.nodes.get(&node_id).and_then(|node| {
         if skip_self {
-            node.parent
+            node.parent().map(|parent| parent.id())
         } else {
             Some(node_id)
         }
     });
     while let Some(id) = current {
         if let Some(node) = graph.nodes.get(&id) {
-            if matches!(
-                node.kind.as_str(),
-                "block" | "declaration_list" | "source_file"
-            ) {
-                return (node.range.start, node.range.end);
+            if matches!(node.kind(), "block" | "declaration_list" | "source_file") {
+                return (node.start_byte(), node.end_byte());
             }
-            current = node.parent;
+            current = node.parent().map(|parent| parent.id());
         } else {
             break;
         }
     }
     (root.start, root.end)
-}
-
-fn node_field(
-    parent: tree_sitter::Node<'_>,
-    child: tree_sitter::Node<'_>,
-    fields: &HashMap<String, u16>,
-) -> Option<String> {
-    fields.iter().find_map(|(name, field)| {
-        parent
-            .child_by_field_id(*field)
-            .is_some_and(|candidate| candidate.id() == child.id())
-            .then(|| name.clone())
-    })
 }
 
 fn deduplicate<T, K: Eq + std::hash::Hash>(values: &mut Vec<T>, key: impl Fn(&T) -> K) {
