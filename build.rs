@@ -1,40 +1,26 @@
+use cargo_metadata::MetadataCommand;
 use std::{
     collections::{BTreeSet, HashSet},
     env, fs,
     path::{Component, Path, PathBuf},
-    process::Command,
 };
 use tree_sitter_loader::{Grammar, PathsJSON, TreeSitterJSON};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let output = Command::new(env::var_os("CARGO").ok_or("CARGO is absent")?)
-        .args(["metadata", "--offline", "--locked", "--format-version", "1"])
-        .output()?;
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).into_owned().into());
-    }
-    let metadata: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    let metadata = MetadataCommand::new()
+        .cargo_path(env::var_os("CARGO").ok_or("CARGO is absent")?)
+        .other_options(vec!["--offline".into(), "--locked".into()])
+        .exec()?;
     let mut generated = String::from("pub const GRAMMAR_ROOTS: &[&str] = &[\n");
     let mut assets = String::from("pub const GRAMMAR_ASSETS: &[(&str, &str, &[u8])] = &[\n");
     let mut roots = HashSet::new();
-    for package in metadata["packages"]
-        .as_array()
-        .ok_or("Cargo packages are absent")?
-    {
-        let manifest = PathBuf::from(
-            package["manifest_path"]
-                .as_str()
-                .ok_or("No manifest path")?,
-        );
+    for package in metadata.packages {
+        let manifest = package.manifest_path.into_std_path_buf();
         let package_root = manifest.parent().ok_or("No grammar directory")?;
         if !package_root.join("tree-sitter.json").is_file() {
             continue;
         }
-        let root = format!(
-            "grammars/{}-{}",
-            package["name"].as_str().ok_or("No package name")?,
-            package["version"].as_str().ok_or("No package version")?
-        );
+        let root = format!("grammars/{}-{}", package.name, package.version);
         if !roots.insert(root.clone()) {
             return Err(format!("Duplicate grammar package path: {root}").into());
         }
