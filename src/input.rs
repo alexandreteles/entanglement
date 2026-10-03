@@ -7,7 +7,6 @@ use std::fs;
 use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
 
-use diffy::patch_set::{ParseOptions, PatchKind, PatchSet};
 use ignore::WalkBuilder;
 use tree_sitter::{InputEdit, Point};
 
@@ -21,7 +20,7 @@ pub struct FilePatch<'a> {
     pub old_path: Option<PathBuf>,
     /// The safe path of the file after the patch, if the file exists.
     pub new_path: Option<PathBuf>,
-    patch: diffy::Patch<'a, [u8]>,
+    hunks: Vec<diffy::Patch<'a, [u8]>>,
 }
 
 /// Source bytes and ordered edits for one patched file.
@@ -89,7 +88,6 @@ pub fn read_diff(path: &Path) -> crate::Result<String> {
 /// standard no-newline marker. It rejects unsafe paths, malformed hunk counts,
 /// and binary patches. The function does not read or change source files.
 pub fn parse_diff(text: &str) -> crate::Result<Vec<FilePatch<'_>>> {
-    let hunk_headers = text.lines().filter(|line| line.starts_with("@@ ")).count();
     if text
         .lines()
         .any(|line| line.starts_with("GIT binary patch") || line.starts_with("Binary files "))
@@ -97,13 +95,19 @@ pub fn parse_diff(text: &str) -> crate::Result<Vec<FilePatch<'_>>> {
         return Err(invalid("binary patches are not supported"));
     }
 
-    let mut hunk_count = 0;
-    let patches = PatchSet::parse_bytes(text.as_bytes(), ParseOptions::unidiff())
-        .map(|file| {
-            let PatchKind::Text(patch) = file?.into_patch() else {
-                return Err(invalid("binary patches are not supported"));
-            };
-            let (Some(old), Some(new)) = (patch.original(), patch.modified()) else {
+    let mut patches = Vec::new();
+    let mut remaining = text.as_bytes();
+    while !remaining.is_empty() {
+        let (line, rest) = take_line(remaining);
+        if line.starts_with(b"--- ") {
+            let (modified, rest) = take_line(rest);
+            if !modified.starts_with(b"+++ ") {
+                return Err(invalid("unified diff has an invalid file header"));
+            }
+            let header_len = remaining.len() - rest.len();
+            let header = diffy::Patch::from_bytes(&remaining[..header_len])
+                .map_err(|_| invalid("unified diff has an invalid file header"))?;
+            let (Some(old), Some(new)) = (header.original(), header.modified()) else {
                 return Err(invalid("unified diff has an invalid file header"));
             };
             let old_path = parse_file_path(old, b"a/")?;
@@ -111,18 +115,75 @@ pub fn parse_diff(text: &str) -> crate::Result<Vec<FilePatch<'_>>> {
             if old_path.is_none() && new_path.is_none() {
                 return Err(invalid("a patch cannot create and delete a file at once"));
             }
-            hunk_count += patch.hunks().len();
-            Ok(FilePatch {
+            patches.push(FilePatch {
                 old_path,
                 new_path,
-                patch,
-            })
-        })
-        .collect::<crate::Result<Vec<_>>>()?;
-    if hunk_count != hunk_headers {
-        return Err(invalid("unified diff has an invalid hunk header"));
+                hunks: Vec::new(),
+            });
+            remaining = rest;
+        } else if line.starts_with(b"+++ ") {
+            return Err(invalid("unified diff has an invalid file header"));
+        } else if line.starts_with(b"@@ ") {
+            if patches.is_empty() {
+                return Err(invalid("unified diff has an invalid hunk header"));
+            }
+            // Parse one hunk at a time: diffy compares raw coordinates, but a
+            // zero-count range is positioned by its normalized endpoint.
+            let hunk =
+                parse_hunk(remaining).ok_or_else(|| invalid("unified diff has an invalid hunk"))?;
+            let line_count = hunk.hunks()[0].lines().len();
+            let mut consumed = line.len();
+            // Consume validated payload records so header-like source lines
+            // cannot be mistaken for the next file's headers.
+            for _ in 0..line_count {
+                let (line, _) = take_line(&remaining[consumed..]);
+                if line.is_empty() {
+                    return Err(invalid("unified diff has an invalid hunk"));
+                }
+                consumed += line.len();
+                if remaining[consumed..].starts_with(b"\\ No newline at end of file") {
+                    let (marker, _) = take_line(&remaining[consumed..]);
+                    consumed += marker.len();
+                }
+            }
+            patches
+                .last_mut()
+                .ok_or_else(|| invalid("unified diff has an invalid hunk header"))?
+                .hunks
+                .push(hunk);
+            remaining = &remaining[consumed..];
+        } else {
+            remaining = rest;
+        }
+    }
+    if patches.is_empty() {
+        return Err(invalid("unified diff contains no file patches"));
     }
     Ok(patches)
+}
+
+fn take_line(input: &[u8]) -> (&[u8], &[u8]) {
+    match memchr::memchr(b'\n', input) {
+        Some(end) => input.split_at(end + 1),
+        None => (input, &[]),
+    }
+}
+
+fn parse_hunk(input: &[u8]) -> Option<diffy::Patch<'_, [u8]>> {
+    let end = memchr::memmem::find(input, b"\n@@ ").map(|index| index + 1);
+    let parse_one = |section| {
+        let patch = diffy::Patch::from_bytes(section).ok()?;
+        (patch.hunks().len() == 1).then_some(patch)
+    };
+    let mut section = &input[..end.unwrap_or(input.len())];
+    loop {
+        if let Some(patch) = parse_one(section) {
+            return Some(patch);
+        }
+        // A file header can look like another deletion after a no-newline line.
+        let header = memchr::memmem::rfind(section, b"\n--- ")? + 1;
+        section = &section[..header];
+    }
 }
 
 /// Apply one file patch to source bytes and return Tree-sitter edits.
@@ -134,11 +195,11 @@ pub fn parse_diff(text: &str) -> crate::Result<Vec<FilePatch<'_>>> {
 /// It does not write to disk.
 pub fn apply_patch(source: &[u8], patch: &FilePatch<'_>) -> crate::Result<AppliedPatch> {
     let mut result = source.to_vec();
-    let mut edits = Vec::with_capacity(patch.patch.hunks().len());
+    let mut edits = Vec::with_capacity(patch.hunks.len());
     let mut line_delta = 0_isize;
     let mut previous_old_end = 0_usize;
 
-    for hunk in patch.patch.hunks() {
+    for hunk in patch.hunks.iter().flat_map(|patch| patch.hunks()) {
         let old = hunk.old_range();
         let new = hunk.new_range();
         let old_line = hunk_line_index(old.start(), old.len())?;
@@ -380,8 +441,56 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unsupported_adjacent_split_hunks() {
-        let patch = "--- a/f.rs\n+++ b/f.rs\n@@ -1 +1 @@\n-old\n+new\n@@ -1,0 +2 @@\n+extra\n";
-        assert!(parse_diff(patch).is_err());
+    fn applies_adjacent_hunks_with_zero_length_ranges_across_files() {
+        let patch = concat!(
+            "--- a/replace.rs\n+++ b/replace.rs\n",
+            "@@ -1 +1 @@\n-old\n+new\n",
+            "@@ -1,0 +2 @@\n+extra\n",
+            "--- a/insert.rs\n+++ b/insert.rs\n",
+            "@@ -1,0 +2 @@\n+added\n",
+            "@@ -2 +2,0 @@\n-remove\n",
+            "--- a/header-like.rs\n+++ b/header-like.rs\n",
+            "@@ -1,2 +1,2 @@\n--- old\n+++ new\n ++ plus\n",
+            "--- a/no-newline.rs\n+++ b/no-newline.rs\n",
+            "@@ -1 +1 @@\n-old\n\\ No newline at end of file\n",
+            "+new\n\\ No newline at end of file\n",
+            "--- a/header-only.rs\n+++ b/header-only.rs\n",
+            "--- a/another-header-only.rs\n+++ b/another-header-only.rs\n",
+        );
+        let patches = parse_diff(patch).unwrap();
+        assert_eq!(patches.len(), 6);
+        assert_eq!(
+            apply_patch(b"old\ntail\n", &patches[0]).unwrap().source,
+            b"new\nextra\ntail\n"
+        );
+        assert_eq!(
+            apply_patch(b"head\nremove\ntail\n", &patches[1])
+                .unwrap()
+                .source,
+            b"head\nadded\ntail\n"
+        );
+        assert_eq!(
+            apply_patch(b"-- old\n++ plus\n", &patches[2])
+                .unwrap()
+                .source,
+            b"++ new\n++ plus\n"
+        );
+        assert_eq!(apply_patch(b"old", &patches[3]).unwrap().source, b"new");
+    }
+
+    #[test]
+    fn rejects_overlapping_and_out_of_order_hunks() {
+        let overlap = concat!(
+            "--- f.rs\n+++ f.rs\n@@ -1,2 +1,2 @@\n a\n b\n",
+            "@@ -2 +2 @@\n-b\n+B\n",
+        );
+        let order = concat!(
+            "--- f.rs\n+++ f.rs\n@@ -2 +2 @@\n-b\n+B\n",
+            "@@ -1 +1 @@\n-a\n+A\n",
+        );
+        for text in [overlap, order] {
+            let patch = parse_diff(text).unwrap();
+            assert!(apply_patch(b"a\nb\n", &patch[0]).is_err());
+        }
     }
 }

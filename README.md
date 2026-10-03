@@ -46,9 +46,7 @@ Neither command writes source files.
 Unified diffs can contain several hunks and files. They can create, delete,
 or rename files. Hunk context must match the source. Paths must stay below
 the selected root and must not contain symbolic links. Binary patches are
-not supported. Some adjacent insertion/deletion hunks must be coalesced; the
-diff parser rejects those equivalent split-hunk encodings. Invalid input
-produces an error and a failed exit status.
+not supported. Invalid input produces an error and a failed exit status.
 
 NLOC counts rows with non-comment terminal syntax. Complexity starts at one
 for each function and adds control-flow decisions. Each increment retains its
