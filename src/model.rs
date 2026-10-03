@@ -207,6 +207,11 @@ pub struct MetricDelta<T, D = i64> {
 
 #[derive(Debug, Clone)]
 pub(crate) struct FileFacts {
+    /// The resolved identity of the source file.
+    pub target: PathBuf,
+    /// All logical paths that name this source file.
+    pub aliases: Vec<PathBuf>,
+    /// The selected logical path for the report.
     pub path: PathBuf,
     pub module: ModulePath,
     pub definitions: Vec<Definition>,

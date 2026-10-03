@@ -10,6 +10,7 @@ use rayon::prelude::*;
 use tree_sitter::{InputEdit, Parser, Range as TsRange, Tree};
 
 use crate::Result;
+use crate::input;
 use crate::languages::{CapturedTree, InjectionRequest, LanguageChoice, Registry};
 use crate::metrics::{
     SyntaxEvent, SyntaxRole,
@@ -84,6 +85,13 @@ impl Worker {
         edits: &[InputEdit],
         choice: LanguageChoice,
     ) -> Result<ParsedFile> {
+        let target = input::path_identity(path)?;
+        let aliases = previous
+            .filter(|file| file.facts.target == target)
+            .map_or_else(
+                || vec![path.to_path_buf()],
+                |file| file.facts.aliases.clone(),
+            );
         let reusable = previous.filter(|file| {
             file.language == choice.id && (!edits.is_empty() || file.source == source)
         });
@@ -107,7 +115,9 @@ impl Worker {
             &mut old_trees,
             0,
         )?;
-        let facts = build_facts(path, source, &choice, summaries, &injections);
+        let mut facts = build_facts(path, source, &choice, summaries, &injections);
+        facts.target = target;
+        facts.aliases = aliases;
         Ok(ParsedFile {
             source: source.to_vec(),
             language: choice.id,
@@ -242,23 +252,29 @@ impl Worker {
     }
 }
 
-/// Stream file paths into parallel workers and sort completed reports.
+/// Analyze each supported target once and keep its logical paths as aliases.
 pub(crate) fn analyze_paths<I>(paths: I) -> Result<Vec<ParsedFile>>
 where
     I: IntoIterator<Item = Result<PathBuf>>,
     I::IntoIter: Send,
 {
-    let parsed: Vec<_> = paths
+    let mut groups = BTreeMap::<PathBuf, BTreeSet<PathBuf>>::new();
+    for path in paths {
+        let path = path?;
+        groups
+            .entry(input::path_identity(&path)?)
+            .or_default()
+            .insert(path);
+    }
+
+    let parsed: Vec<_> = groups
         .into_iter()
         .par_bridge()
         .map_init(
             || Worker::new().map_err(|error| error.to_string()),
-            |worker, item| match item {
-                Err(error) => Err(error),
-                Ok(path) => match worker {
-                    Ok(worker) => worker.analyze_path(&path),
-                    Err(error) => Err(error.clone().into()),
-                },
+            |worker, (target, aliases)| match worker {
+                Ok(worker) => worker.analyze_target(target, aliases.into_iter().collect()),
+                Err(error) => Err(error.clone().into()),
             },
         )
         .collect::<Result<Vec<_>>>()?;
@@ -272,9 +288,33 @@ impl Worker {
         let Some(choice) = self.select_file(path)? else {
             return Ok(None);
         };
-        let source = fs::read(path)?;
+        let target = input::path_identity(path)?;
+        let source = fs::read(&target)?;
         self.analyze_selected_source(path, &source, None, &[], choice)
             .map(Some)
+    }
+
+    fn analyze_target(
+        &mut self,
+        target: PathBuf,
+        aliases: Vec<PathBuf>,
+    ) -> Result<Option<ParsedFile>> {
+        let selected = aliases
+            .iter()
+            .find_map(|path| {
+                self.select_file(path)
+                    .transpose()
+                    .map(|choice| choice.map(|choice| (path, choice)))
+            })
+            .transpose()?;
+        let Some((path, choice)) = selected else {
+            return Ok(None);
+        };
+        let source = fs::read(&target)?;
+        let mut parsed = self.analyze_selected_source(path, &source, None, &[], choice)?;
+        parsed.facts.target = target;
+        parsed.facts.aliases = aliases;
+        Ok(Some(parsed))
     }
 }
 
@@ -452,6 +492,8 @@ fn build_facts(
         locals.extend(item.locals);
     }
     FileFacts {
+        target: path.to_path_buf(),
+        aliases: vec![path.to_path_buf()],
         path: path.to_path_buf(),
         module: ModulePath::default(),
         definitions,
