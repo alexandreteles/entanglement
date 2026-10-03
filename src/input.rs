@@ -70,6 +70,7 @@ pub fn discover(
         .follow_links(false)
         .require_git(false)
         .git_ignore(true)
+        .ignore(false)
         .filter_entry(|entry| entry.file_name() != ".git")
         .build();
     Ok(walk.filter_map(|entry| match entry {
