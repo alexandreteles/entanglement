@@ -30,8 +30,10 @@ git diff -- src/main.rs | entanglement candidate . --diff -
 ```
 
 `file` analyzes one complete file. `repo` discovers regular files below a
-directory and analyzes files with a registered grammar in parallel.
-Discovery does not follow symbolic links.
+directory using Git ignore rules and analyzes supported files in parallel.
+Hidden files are included unless ignored, `.git` is skipped, and discovery does
+not follow symbolic links. `candidate` also analyzes explicitly patched old
+files when ignore rules would otherwise hide them.
 
 `patch` applies one unified diff to a selected source file in memory.
 `candidate` applies a unified diff to a directory or selected file in memory.

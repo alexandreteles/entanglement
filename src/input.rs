@@ -7,6 +7,7 @@ use std::fs;
 use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
 
+use ignore::WalkBuilder;
 use tree_sitter::{InputEdit, Point};
 
 /// A file change from a unified diff.
@@ -51,37 +52,33 @@ struct HunkLine {
     new: Option<Vec<u8>>,
 }
 
-/// Return all regular files below a repository directory in stable order.
+/// Stream regular files below a repository directory using Git ignore rules.
 ///
-/// The function visits subdirectories and includes hidden files. It does not
-/// follow symbolic links. It returns an error if `path` is not a directory or
-/// the operating system cannot read an entry.
-pub fn discover(path: &Path) -> crate::Result<Vec<PathBuf>> {
+/// Hidden files are included unless ignored. The iterator skips `.git`, does
+/// not follow symbolic links, and returns traversal errors to the caller.
+pub fn discover(
+    path: &Path,
+) -> crate::Result<impl Iterator<Item = crate::Result<PathBuf>> + Send + use<>> {
     if !path.is_dir() {
         return Err(invalid(format!(
             "repository path is not a directory: {}",
             path.display()
         )));
     }
-
-    let mut pending = vec![path.to_path_buf()];
-    let mut files = Vec::new();
-
-    while let Some(directory) = pending.pop() {
-        for entry in fs::read_dir(directory)? {
-            let entry = entry?;
-            let kind = entry.file_type()?;
-            let entry_path = entry.path();
-            if kind.is_dir() {
-                pending.push(entry_path);
-            } else if kind.is_file() {
-                files.push(entry_path);
-            }
+    let walk = WalkBuilder::new(path)
+        .hidden(false)
+        .follow_links(false)
+        .require_git(false)
+        .git_ignore(true)
+        .filter_entry(|entry| entry.file_name() != ".git")
+        .build();
+    Ok(walk.filter_map(|entry| match entry {
+        Ok(entry) if entry.file_type().is_some_and(|kind| kind.is_file()) => {
+            Some(Ok(entry.into_path()))
         }
-    }
-
-    files.sort();
-    Ok(files)
+        Ok(_) => None,
+        Err(error) => Some(Err(error.into())),
+    }))
 }
 
 /// Read a unified diff from a file or standard input.

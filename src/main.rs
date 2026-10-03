@@ -7,13 +7,14 @@ mod model;
 mod resolver;
 mod ui;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
 use tree_sitter::InputEdit;
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 type Result<T> = std::result::Result<T, Error>;
+type SourcePaths = Box<dyn Iterator<Item = Result<PathBuf>> + Send>;
 
 /// Run the selected command and write its report to standard output.
 ///
@@ -51,12 +52,14 @@ fn run(command: cli::Command) -> Result<model::AnalysisResult> {
     match command {
         cli::Command::File { path } => {
             let path = std::fs::canonicalize(path)?;
-            let parsed = analysis::Worker::new()?.analyze_source(
-                &path,
-                &std::fs::read(&path)?,
-                None,
-                &[],
-            )?;
+            let parsed = analysis::Worker::new()?
+                .analyze_path(&path)?
+                .ok_or_else(|| {
+                    std::io::Error::other(format!(
+                        "No registered grammar supports {}",
+                        path.display()
+                    ))
+                })?;
             let mut facts = vec![parsed.facts];
             resolver::resolve(&mut facts);
             Ok(model::AnalysisResult {
@@ -66,7 +69,7 @@ fn run(command: cli::Command) -> Result<model::AnalysisResult> {
         }
         cli::Command::Repo { path } => {
             let path = std::fs::canonicalize(path)?;
-            let mut facts: Vec<_> = analysis::analyze_paths(&input::discover(&path)?)?
+            let mut facts: Vec<_> = analysis::analyze_paths(input::discover(&path)?)?
                 .into_iter()
                 .map(|parsed| parsed.facts)
                 .collect();
@@ -90,7 +93,7 @@ fn analyze_patch(path: &Path, diff: &Path, single: bool) -> Result<model::Analys
     let patches = input::parse_diff(&input::read_diff(diff)?)?;
     validate_patches(&patches)?;
     let (root, paths) = patch_sources(path, &patches, single)?;
-    let mut parsed = analysis::analyze_paths(&paths)?;
+    let mut parsed = analysis::analyze_paths(paths)?;
     if single && parsed.is_empty() {
         return Err("The selected file has no supported language".into());
     }
@@ -137,7 +140,7 @@ fn patch_sources(
     path: &Path,
     patches: &[input::FilePatch],
     single: bool,
-) -> Result<(PathBuf, Vec<PathBuf>)> {
+) -> Result<(PathBuf, SourcePaths)> {
     let target = std::fs::canonicalize(path)?;
     if single && !target.is_file() {
         return Err("PATCH requires a source file".into());
@@ -161,19 +164,32 @@ fn patch_sources(
     } else {
         target.clone()
     };
-    let paths = if target.is_file() && single {
-        vec![target.clone()]
-    } else if target.is_file() {
-        let repository = target
-            .ancestors()
-            .skip(1)
-            .find(|directory| {
-                directory.join("Cargo.toml").is_file() || directory.join(".git").exists()
-            })
-            .unwrap_or(&root);
-        input::discover(repository)?
+    let paths: SourcePaths = if target.is_file() && single {
+        Box::new(std::iter::once(Ok(target.clone())))
     } else {
-        input::discover(&root)?
+        let repository = if target.is_file() {
+            target
+                .ancestors()
+                .skip(1)
+                .find(|directory| {
+                    directory.join("Cargo.toml").is_file() || directory.join(".git").exists()
+                })
+                .unwrap_or(&root)
+        } else {
+            &root
+        };
+        let paths = input::discover(repository)?;
+        let old_paths: Vec<_> = patches
+            .iter()
+            .filter_map(|patch| patch.old_path.as_ref())
+            .map(|path| patch_path(&root, path))
+            .collect::<Result<_>>()?;
+        let forced_paths: HashSet<_> = old_paths.iter().cloned().collect();
+        Box::new(
+            paths
+                .filter(move |path| !path.as_ref().is_ok_and(|path| forced_paths.contains(path)))
+                .chain(old_paths.into_iter().map(Ok)),
+        )
     };
     Ok((root, paths))
 }
@@ -256,12 +272,16 @@ fn apply_file_patch(
     };
     let applied = input::apply_patch(&source, patch)?;
     let new_file = match &new_path {
-        Some(path) if worker.supports(path, &applied.source)? => Some(worker.analyze_source(
-            path,
-            &applied.source,
-            old_index.map(|index| &parsed[index]),
-            &applied.edits,
-        )?),
+        Some(path) => match worker.select_file(path)? {
+            Some(choice) => Some(worker.analyze_selected_source(
+                path,
+                &applied.source,
+                old_index.map(|index| &parsed[index]),
+                &applied.edits,
+                choice,
+            )?),
+            None => None,
+        },
         None if !applied.source.is_empty() => {
             return Err("A deletion patch must remove the complete file".into());
         }
