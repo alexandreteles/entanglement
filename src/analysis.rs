@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use rayon::prelude::*;
 use tree_sitter::{InputEdit, Parser, Range as TsRange, Tree};
@@ -24,7 +25,7 @@ const MAX_INJECTION_DEPTH: usize = 64;
 
 /// Keep parser state for one file task and reuse it for later files.
 pub(crate) struct Worker {
-    registry: Registry,
+    registry: Arc<Registry>,
     parsers: HashMap<String, Parser>,
 }
 
@@ -64,33 +65,25 @@ impl Worker {
     /// Create a worker with the registered grammars and empty parser state.
     pub fn new() -> Result<Self> {
         Ok(Self {
-            registry: Registry::new()?,
+            registry: Registry::shared()?,
             parsers: HashMap::new(),
         })
     }
 
-    /// Return whether Tree-sitter has an analyzer for this file.
-    pub fn supports(&mut self, path: &Path, source: &[u8]) -> Result<bool> {
-        Ok(self.registry.select_file(path, source)?.is_some())
+    /// Select a registered grammar from Tree-sitter metadata.
+    pub(crate) fn select_file(&self, path: &Path) -> Result<Option<LanguageChoice>> {
+        self.registry.select_file(path)
     }
 
-    /// Parse a file and derive metrics and resolution facts.
-    ///
-    /// `previous` may hold the prior parse of this file. Apply each `InputEdit`
-    /// to its trees in order before the parser reuses them. The method does not
-    /// write source bytes. It returns an error when no registered analyzer can
-    /// parse `path`, or when Tree-sitter cannot parse an edited tree.
-    pub fn analyze_source(
+    /// Parse with a language choice already selected from grammar metadata.
+    pub(crate) fn analyze_selected_source(
         &mut self,
         path: &Path,
         source: &[u8],
         previous: Option<&ParsedFile>,
         edits: &[InputEdit],
+        choice: LanguageChoice,
     ) -> Result<ParsedFile> {
-        let choice = self
-            .registry
-            .select_file(path, source)?
-            .ok_or_else(|| format!("No registered grammar supports {}", path.display()))?;
         let reusable = previous.filter(|file| {
             file.language == choice.id && (!edits.is_empty() || file.source == source)
         });
@@ -249,28 +242,39 @@ impl Worker {
     }
 }
 
-/// Parse supported files in parallel, with one reusable worker per Rayon task.
-pub(crate) fn analyze_paths(paths: &[PathBuf]) -> Result<Vec<ParsedFile>> {
-    let parsed = paths
-        .par_iter()
+/// Stream file paths into parallel workers and sort completed reports.
+pub(crate) fn analyze_paths<I>(paths: I) -> Result<Vec<ParsedFile>>
+where
+    I: IntoIterator<Item = Result<PathBuf>>,
+    I::IntoIter: Send,
+{
+    let parsed: Vec<_> = paths
+        .into_iter()
+        .par_bridge()
         .map_init(
             || Worker::new().map_err(|error| error.to_string()),
-            |worker, path| match worker {
-                Ok(worker) => worker.analyze_path(path),
-                Err(error) => Err(error.clone().into()),
+            |worker, item| match item {
+                Err(error) => Err(error),
+                Ok(path) => match worker {
+                    Ok(worker) => worker.analyze_path(&path),
+                    Err(error) => Err(error.clone().into()),
+                },
             },
         )
         .collect::<Result<Vec<_>>>()?;
-    Ok(parsed.into_iter().flatten().collect())
+    let mut files: Vec<_> = parsed.into_iter().flatten().collect();
+    files.sort_by(|left: &ParsedFile, right| left.facts.path.cmp(&right.facts.path));
+    Ok(files)
 }
 
 impl Worker {
-    fn analyze_path(&mut self, path: &Path) -> Result<Option<ParsedFile>> {
-        let source = fs::read(path)?;
-        if !self.supports(path, &source)? {
+    pub(crate) fn analyze_path(&mut self, path: &Path) -> Result<Option<ParsedFile>> {
+        let Some(choice) = self.select_file(path)? else {
             return Ok(None);
-        }
-        self.analyze_source(path, &source, None, &[]).map(Some)
+        };
+        let source = fs::read(path)?;
+        self.analyze_selected_source(path, &source, None, &[], choice)
+            .map(Some)
     }
 }
 

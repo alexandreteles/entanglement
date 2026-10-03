@@ -4,6 +4,7 @@ pub mod rust;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::path::Path;
+use std::sync::{Arc, OnceLock};
 
 use tree_sitter::{Language, Tree};
 use tree_sitter_loader::Loader;
@@ -36,7 +37,7 @@ pub(crate) struct CapturedTree {
     pub injections: Vec<InjectionRequest>,
 }
 
-pub(crate) trait LanguageHandler: Send {
+pub(crate) trait LanguageHandler: Send + Sync {
     fn capture(&self, tree: &Tree, source: &[u8]) -> Result<CapturedTree>;
 }
 
@@ -52,9 +53,20 @@ pub(crate) struct Registry {
     handlers: HashMap<String, Box<dyn LanguageHandler>>,
 }
 
+static REGISTRY: OnceLock<std::result::Result<Arc<Registry>, String>> = OnceLock::new();
+
 impl Registry {
+    /// Share one metadata loader and immutable language handlers per process.
+    pub fn shared() -> Result<Arc<Self>> {
+        REGISTRY
+            .get_or_init(|| Self::new().map(Arc::new).map_err(|error| error.to_string()))
+            .as_ref()
+            .map(Arc::clone)
+            .map_err(|error| std::io::Error::other(error.clone()).into())
+    }
+
     /// Load grammar metadata and build handlers for supported languages.
-    pub fn new() -> Result<Self> {
+    fn new() -> Result<Self> {
         let mut loader = Loader::new()?;
         let grammar_root = assets::prepare(&loader)?;
         loader.parser_lib_path = grammar_root.join("lib");
@@ -80,7 +92,7 @@ impl Registry {
     }
 
     /// Select a registered language from grammar metadata for a file path.
-    pub fn select_file(&mut self, path: &Path, _source: &[u8]) -> Result<Option<LanguageChoice>> {
+    pub fn select_file(&self, path: &Path) -> Result<Option<LanguageChoice>> {
         let selected = self.loader.language_configuration_for_file_name(path)?;
         let selected = match selected {
             Some(selected) => Some(selected),
@@ -103,7 +115,7 @@ impl Registry {
     }
 
     /// Select a registered language from loader injection metadata.
-    pub fn select_injection(&mut self, name: &str) -> Result<Option<LanguageChoice>> {
+    pub fn select_injection(&self, name: &str) -> Result<Option<LanguageChoice>> {
         let Some((language, configuration)) = self
             .loader
             .language_configuration_for_injection_string(name)?
