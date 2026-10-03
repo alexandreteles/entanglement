@@ -1,0 +1,272 @@
+use std::path::PathBuf;
+
+use serde::Serialize;
+
+#[derive(Debug, Clone, Serialize)]
+/// The full report for one command.
+pub struct AnalysisResult {
+    /// The reports for supported source files.
+    pub files: Vec<FileAnalysis>,
+    /// The patch report, when the command analyzes a patch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patch: Option<PatchAnalysis>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+/// The analysis report for one source file.
+pub struct FileAnalysis {
+    /// The displayed file path.
+    pub path: String,
+    /// The BLAKE3 hash of the source bytes.
+    pub hash: String,
+    /// The language name from grammar metadata.
+    pub language: String,
+    /// The number of source rows with code.
+    pub nloc: usize,
+    /// The metrics for functions in this file.
+    pub functions: Vec<FunctionAnalysis>,
+    /// The source ranges that use an injected language.
+    pub injections: Vec<InjectionAnalysis>,
+    /// The resolution result for each captured reference.
+    pub resolution: Vec<ReferenceAnalysis>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+/// The metrics and complexity changes for one function.
+pub struct FunctionAnalysis {
+    /// The function name from source.
+    pub name: String,
+    /// The inclusive start byte of the function item.
+    pub start_byte: usize,
+    /// The exclusive end byte of the function item.
+    pub end_byte: usize,
+    /// The number of source rows with code in the function.
+    pub nloc: usize,
+    /// The cyclomatic complexity score.
+    pub cyclomatic_complexity: usize,
+    /// The complexity score divided by NLOC, with zero treated as one.
+    pub cyclomatic_density: f64,
+    /// The source events that contribute to complexity.
+    pub contributions: Vec<ComplexityContribution>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+/// One source event that adds to cyclomatic complexity.
+pub struct ComplexityContribution {
+    /// The event kind, such as `condition` or `multiway`.
+    pub kind: String,
+    /// The complexity added by this event.
+    pub value: i32,
+    /// The inclusive start byte of the event.
+    pub start_byte: usize,
+    /// The exclusive end byte of the event.
+    pub end_byte: usize,
+    /// The one-based source line of the event.
+    pub line: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+/// One injected-language source range.
+pub struct InjectionAnalysis {
+    /// The injected language name from grammar metadata.
+    pub language: String,
+    /// The inclusive start byte of the range.
+    pub start_byte: usize,
+    /// The exclusive end byte of the range.
+    pub end_byte: usize,
+    /// True when an analyzer supports and processes this range.
+    pub analyzed: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+/// The resolution for one source reference.
+pub struct ReferenceAnalysis {
+    /// The path segments captured from source.
+    pub path: Vec<String>,
+    /// The inclusive start byte of the reference.
+    pub start_byte: usize,
+    /// The exclusive end byte of the reference.
+    pub end_byte: usize,
+    /// The matching result.
+    pub resolution: Resolution,
+}
+
+#[derive(Debug, Clone, Serialize)]
+/// A reference result: exact, ambiguous, external, or unresolved.
+#[serde(tag = "status", content = "symbols", rename_all = "snake_case")]
+pub enum Resolution {
+    /// One local symbol matches the reference.
+    Exact(SymbolId),
+    /// More than one local symbol matches the reference.
+    Ambiguous(Vec<SymbolId>),
+    /// The reference names a symbol outside the analyzed files.
+    External,
+    /// The analyzer cannot find a valid target.
+    Unresolved,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// A stable identity for one local definition.
+pub struct SymbolId {
+    /// The file that contains the definition.
+    pub file: String,
+    /// The inline module path inside that file.
+    pub module: ModulePath,
+    /// The definition name.
+    pub name: String,
+    /// The definition kind.
+    pub kind: DefinitionKind,
+    /// The definition's start byte, used to distinguish same-name items.
+    pub start_byte: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+/// The inline module path inside one source file.
+pub struct ModulePath(
+    /// The module names, from the outer module to the inner module.
+    pub Vec<String>,
+);
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// The kind of a local definition.
+#[serde(rename_all = "snake_case")]
+pub enum DefinitionKind {
+    /// A module declaration.
+    Module,
+    /// A free function.
+    Function,
+    /// A struct.
+    Struct,
+    /// An enum.
+    Enum,
+    /// A union.
+    Union,
+    /// A trait.
+    Trait,
+    /// A type alias.
+    TypeAlias,
+    /// A constant item.
+    Constant,
+    /// A static item.
+    Static,
+    /// A macro definition.
+    Macro,
+    /// A method in an `impl` or trait.
+    Method,
+    /// A definition that has no more specific supported kind.
+    Other,
+}
+
+#[derive(Debug, Clone, Serialize)]
+/// The reports for the files touched by a patch.
+pub struct PatchAnalysis {
+    /// The before and after reports for each touched path.
+    pub files: Vec<FilePatchAnalysis>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+/// The analysis result for one changed path.
+pub struct FilePatchAnalysis {
+    /// The path in the patch.
+    pub path: String,
+    /// The file report before the patch, or no value for a new file.
+    pub before: Option<FileAnalysis>,
+    /// The file report after the patch, or no value for a deleted file.
+    pub after: Option<FileAnalysis>,
+    /// The metric and contribution changes for matching functions.
+    pub functions: Vec<FunctionDelta>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+/// The metric and contribution changes for one function.
+pub struct FunctionDelta {
+    /// The function name.
+    pub name: String,
+    /// The NLOC values before and after the patch.
+    pub nloc: MetricDelta<usize>,
+    /// The cyclomatic complexity values before and after the patch.
+    pub cyclomatic_complexity: MetricDelta<usize>,
+    /// The cyclomatic density values before and after the patch.
+    pub cyclomatic_density: MetricDelta<f64, f64>,
+    /// The complexity events added by the patch.
+    pub added_contributions: Vec<ComplexityContribution>,
+    /// The complexity events removed by the patch.
+    pub removed_contributions: Vec<ComplexityContribution>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+/// One metric value before and after a patch, with its change.
+pub struct MetricDelta<T, D = i64> {
+    /// The metric before the patch.
+    pub before: T,
+    /// The metric after the patch.
+    pub after: T,
+    /// The change from `before` to `after`.
+    pub delta: D,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct FileFacts {
+    pub path: PathBuf,
+    pub module: ModulePath,
+    pub definitions: Vec<Definition>,
+    pub imports: Vec<Import>,
+    pub references: Vec<Reference>,
+    pub locals: Vec<LocalBinding>,
+    pub analysis: FileAnalysis,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct LocalBinding {
+    pub name: String,
+    pub start_byte: usize,
+    pub end_byte: usize,
+    pub scope_start: usize,
+    pub scope_end: usize,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct Definition {
+    pub name: String,
+    pub kind: DefinitionKind,
+    pub module: ModulePath,
+    pub start_byte: usize,
+    pub end_byte: usize,
+    pub scope_start: usize,
+    pub scope_end: usize,
+    pub is_public: bool,
+    pub inline_module: bool,
+    pub external_module: bool,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct Import {
+    pub path: Vec<String>,
+    pub alias: Option<String>,
+    pub start_byte: usize,
+    pub end_byte: usize,
+    pub module: ModulePath,
+    pub scope_start: usize,
+    pub scope_end: usize,
+    pub is_public: bool,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct Reference {
+    pub path: Vec<String>,
+    pub module: ModulePath,
+    pub kind: ReferenceKind,
+    pub start_byte: usize,
+    pub end_byte: usize,
+    pub scope_start: usize,
+    pub scope_end: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum ReferenceKind {
+    Call,
+    Qualified,
+    Method,
+    Type,
+    Value,
+}
