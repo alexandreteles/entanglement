@@ -1,0 +1,11 @@
+--- a/src/client.rs
++++ b/src/client.rs
+@@ -5,7 +5,7 @@ pub fn calls(flag: bool) {
+     let dispatch = || {};
+     dispatch();
+     crate::api::target();
+-    if flag {
++    if flag && true {
+         crate::api::serve();
+     }
+ }
