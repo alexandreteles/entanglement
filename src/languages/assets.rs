@@ -14,7 +14,8 @@ pub fn prepare(loader: &tree_sitter_loader::Loader) -> Result<PathBuf> {
     GRAMMAR_ROOT
         .get_or_init(|| {
             let mut hasher = blake3::Hasher::new();
-            for (name, bytes) in RUST_ASSETS {
+            for (grammar, name, bytes) in GRAMMAR_ASSETS {
+                hasher.update(grammar.as_bytes());
                 hasher.update(name.as_bytes());
                 hasher.update(bytes);
             }
@@ -22,8 +23,8 @@ pub fn prepare(loader: &tree_sitter_loader::Loader) -> Result<PathBuf> {
                 .parser_lib_path
                 .join("entanglement")
                 .join(hasher.finalize().to_hex().as_str());
-            for (name, bytes) in RUST_ASSETS {
-                let path = root.join(name);
+            for (grammar, name, bytes) in GRAMMAR_ASSETS {
+                let path = root.join(grammar).join(name);
                 if fs::read(&path).is_ok_and(|existing| existing == *bytes) {
                     continue;
                 }

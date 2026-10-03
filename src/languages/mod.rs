@@ -58,7 +58,9 @@ impl Registry {
         let mut loader = Loader::new()?;
         let grammar_root = assets::prepare(&loader)?;
         loader.parser_lib_path = grammar_root.join("lib");
-        loader.find_language_configurations_at_path(&grammar_root, false)?;
+        for grammar in assets::GRAMMAR_ROOTS {
+            loader.find_language_configurations_at_path(&grammar_root.join(grammar), false)?;
+        }
         let (configuration, _) = loader
             .get_all_language_configurations()
             .into_iter()

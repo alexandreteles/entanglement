@@ -9,10 +9,11 @@ Build the program with the stable Rust toolchain:
 cargo build --release
 ```
 
-The build embeds the upstream Rust grammar assets selected by Cargo.
-Tree-sitter loads these assets from its cache. The first analysis requires a
-C compiler to build the grammar library. Later runs use the cached library.
-The program does not require the source repository or Cargo cache at runtime.
+The build embeds grammar assets from resolved Cargo dependencies that provide
+`tree-sitter.json`. Tree-sitter reads each grammar's upstream metadata and
+loads its embedded assets from the cache. The first analysis requires a C
+compiler to build the grammar library. Later runs use the cached library. The
+program does not require the source repository or Cargo cache at runtime.
 Tree-sitter 0.27 selects languages by content through file-based APIs. Virtual
 patches use Rust file metadata. A future grammar that selects its language by
 content will need a virtual-source adapter for those APIs.
@@ -50,10 +51,10 @@ for each function and adds control-flow decisions. Each increment retains its
 kind, byte range, and source line. Complexity density is complexity divided
 by `max(NLOC, 1)`. Patch reports use complete before and after scores.
 
-Only Rust is registered. Macro token trees use the standard Rust injection
-query. The `v!` macro has an HTML override. An injection without a registered
-grammar has `analyzed: false`; its syntax does not count as parent-language
-code.
+Only Rust has an analysis handler. Macro token trees use the standard Rust
+injection query. The `v!` macro has an HTML override. An injection without a
+registered analysis handler has `analyzed: false`; its syntax does not count
+as parent-language code.
 
 JSON contains file metrics, function contributions, injection ranges,
 reference-resolution results, and patch comparisons when applicable.
