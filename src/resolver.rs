@@ -11,9 +11,16 @@ use crate::model::{
     ReferenceKind, Resolution, SymbolId,
 };
 
+/// Keep a shared-file fallback separate from every logical crate root.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum CrateKey {
+    Logical(PathBuf),
+    Detached(PathBuf),
+}
+
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct ModuleKey {
-    crate_root: PathBuf,
+    crate_root: CrateKey,
     path: Vec<String>,
 }
 
@@ -28,7 +35,7 @@ enum Target {
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct FileContext {
-    crate_root: PathBuf,
+    crate_root: CrateKey,
     module: Vec<String>,
 }
 
@@ -556,7 +563,7 @@ fn file_contexts(facts: &[FileFacts]) -> Vec<Vec<FileContext>> {
         pending.push_back((
             index,
             FileContext {
-                crate_root: facts[index].target.clone(),
+                crate_root: CrateKey::Logical(root_path.clone()),
                 module: Vec::new(),
             },
             root_path,
@@ -597,7 +604,7 @@ fn file_contexts(facts: &[FileFacts]) -> Vec<Vec<FileContext>> {
                 pending.push_back((
                     index,
                     FileContext {
-                        crate_root: facts[index].target.clone(),
+                        crate_root: CrateKey::Detached(facts[index].target.clone()),
                         module: Vec::new(),
                     },
                     path.clone(),
@@ -628,7 +635,7 @@ fn file_contexts(facts: &[FileFacts]) -> Vec<Vec<FileContext>> {
                 contexts
             } else {
                 vec![FileContext {
-                    crate_root: fact.target.clone(),
+                    crate_root: CrateKey::Detached(fact.target.clone()),
                     module: Vec::new(),
                 }]
             }
