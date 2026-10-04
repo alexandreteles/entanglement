@@ -32,7 +32,6 @@ pub(crate) struct Worker {
 
 /// Keep a parsed file so a later patch can reuse its syntax trees.
 pub(crate) struct ParsedFile {
-    pub source: Vec<u8>,
     pub language: String,
     pub tree: Tree,
     pub injections: Vec<ParsedInjection>,
@@ -80,7 +79,7 @@ impl Worker {
     pub(crate) fn analyze_selected_source(
         &mut self,
         path: &Path,
-        source: &[u8],
+        source: Vec<u8>,
         previous: Option<&ParsedFile>,
         edits: &[InputEdit],
         choice: LanguageChoice,
@@ -93,20 +92,20 @@ impl Worker {
                 |file| file.facts.aliases.clone(),
             );
         let reusable = previous.filter(|file| {
-            file.language == choice.id && (!edits.is_empty() || file.source == source)
+            file.language == choice.id && (!edits.is_empty() || file.facts.source.as_ref() == source)
         });
         let mut old_trees = BTreeMap::new();
         if let Some(previous) = reusable {
             collect_old_trees(&previous.injections, edits, &mut old_trees);
         }
         let old_root = reusable.map(|file| edit_tree(file.tree.clone(), edits));
-        let tree = self.parse_tree(&choice, source, &[], old_root.as_ref())?;
+        let tree = self.parse_tree(&choice, &source, &[], old_root.as_ref())?;
         let mut active = HashSet::from([(choice.id.clone(), 0, source.len())]);
         let mut next_node_id = 0;
         let (injections, summaries) = self.analyze_layer(
             &choice,
             &tree,
-            source,
+            &source,
             0..source.len(),
             &ModulePath::default(),
             None,
@@ -115,11 +114,10 @@ impl Worker {
             &mut old_trees,
             0,
         )?;
-        let mut facts = build_facts(path, source, &choice, summaries, &injections);
+        let mut facts = build_facts(path, source.into(), &choice, summaries, &injections);
         facts.target = target;
         facts.aliases = aliases;
         Ok(ParsedFile {
-            source: source.to_vec(),
             language: choice.id,
             tree,
             injections,
@@ -163,15 +161,19 @@ impl Worker {
             .iter()
             .map(|item| item.range.clone())
             .collect::<Vec<_>>();
-        let child_modules = requests
+        let child_contexts = requests
             .iter()
             .map(|request| {
-                inherited_module_for_range(inherited_module, &captured.definitions, &request.range)
+                (
+                    inherited_module_for_range(inherited_module, &captured.definitions, &request.range),
+                    enclosing_function(&captured.functions, &request.range)
+                        .or_else(|| inherited_scope.clone()),
+                )
             })
             .collect::<Vec<_>>();
         let mut summaries = vec![summary(
             choice,
-            &captured,
+            captured,
             excluded,
             inherited_module,
             &owner_range,
@@ -179,7 +181,7 @@ impl Worker {
         )];
         let mut injections = Vec::with_capacity(requests.len());
 
-        for (request, child_module) in requests.into_iter().zip(child_modules) {
+        for (request, (child_module, child_scope)) in requests.into_iter().zip(child_contexts) {
             let Some(child_choice) = self.registry.select_injection(&request.language)? else {
                 injections.push(ParsedInjection {
                     language: request.language,
@@ -222,8 +224,6 @@ impl Worker {
             let old_tree = old_trees.remove(&key);
             let child_tree =
                 self.parse_tree(&child_choice, source, &included_ranges, old_tree.as_ref())?;
-            let child_scope = enclosing_function(&captured.functions, &request.range)
-                .or_else(|| inherited_scope.clone());
             active.insert(key.clone());
             let (children, child_summaries) = self.analyze_layer(
                 &child_choice,
@@ -253,7 +253,10 @@ impl Worker {
 }
 
 /// Analyze each supported target once and keep its logical paths as aliases.
-pub(crate) fn analyze_paths<I>(paths: I) -> Result<Vec<ParsedFile>>
+pub(crate) fn analyze_paths<I, T: Send>(
+    paths: I,
+    project: impl Fn(ParsedFile) -> T + Sync,
+) -> Result<Vec<T>>
 where
     I: IntoIterator<Item = Result<PathBuf>>,
     I::IntoIter: Send,
@@ -273,14 +276,16 @@ where
         .map_init(
             || Worker::new().map_err(|error| error.to_string()),
             |worker, (target, aliases)| match worker {
-                Ok(worker) => worker.analyze_target(target, aliases.into_iter().collect()),
+                Ok(worker) => worker
+                    .analyze_target(target, aliases.into_iter().collect())
+                    .map(|file| file.map(|file| (file.facts.path.clone(), project(file)))),
                 Err(error) => Err(error.clone().into()),
             },
         )
         .collect::<Result<Vec<_>>>()?;
     let mut files: Vec<_> = parsed.into_iter().flatten().collect();
-    files.sort_by(|left: &ParsedFile, right| left.facts.path.cmp(&right.facts.path));
-    Ok(files)
+    files.sort_by(|left, right| left.0.cmp(&right.0));
+    Ok(files.into_iter().map(|(_, file)| file).collect())
 }
 
 impl Worker {
@@ -290,7 +295,7 @@ impl Worker {
         };
         let target = input::path_identity(path)?;
         let source = fs::read(&target)?;
-        self.analyze_selected_source(path, &source, None, &[], choice)
+        self.analyze_selected_source(path, source, None, &[], choice)
             .map(Some)
     }
 
@@ -311,7 +316,7 @@ impl Worker {
             return Ok(None);
         };
         let source = fs::read(&target)?;
-        let mut parsed = self.analyze_selected_source(path, &source, None, &[], choice)?;
+        let mut parsed = self.analyze_selected_source(path, source, None, &[], choice)?;
         parsed.facts.target = target;
         parsed.facts.aliases = aliases;
         Ok(Some(parsed))
@@ -320,14 +325,14 @@ impl Worker {
 
 fn summary(
     choice: &LanguageChoice,
-    captured: &CapturedTree,
+    captured: CapturedTree,
     excluded: Vec<Range<usize>>,
     inherited_module: &ModulePath,
     owner_range: &Range<usize>,
     inherited_scope: Option<&Range<usize>>,
 ) -> TreeSummary {
     let prefix = &inherited_module.0;
-    let mut definitions = captured.definitions.clone();
+    let mut definitions = captured.definitions;
     definitions.retain(|item| !inside_any(item.start_byte..item.end_byte, &excluded));
     for definition in &mut definitions {
         inherit_scope(
@@ -338,7 +343,7 @@ fn summary(
         );
         prepend_module(&mut definition.module, prefix);
     }
-    let mut imports = captured.imports.clone();
+    let mut imports = captured.imports;
     imports.retain(|item| !inside_any(item.start_byte..item.end_byte, &excluded));
     for import in &mut imports {
         inherit_scope(
@@ -349,7 +354,7 @@ fn summary(
         );
         prepend_module(&mut import.module, prefix);
     }
-    let mut references = captured.references.clone();
+    let mut references = captured.references;
     references.retain(|item| !inside_any(item.start_byte..item.end_byte, &excluded));
     for reference in &mut references {
         inherit_scope(
@@ -360,7 +365,7 @@ fn summary(
         );
         prepend_module(&mut reference.module, prefix);
     }
-    let mut locals = captured.locals.clone();
+    let mut locals = captured.locals;
     locals.retain(|item| !inside_any(item.start_byte..item.end_byte, &excluded));
     for local in &mut locals {
         inherit_scope(
@@ -372,14 +377,13 @@ fn summary(
     }
     let functions = captured
         .functions
-        .iter()
+        .into_iter()
         .filter(|item| !inside_any(item.range.clone(), &excluded))
-        .cloned()
         .collect();
     TreeSummary {
         language_id: choice.id.clone(),
-        events: captured.events.clone(),
-        parents: captured.parents.clone(),
+        events: captured.events,
+        parents: captured.parents,
         functions,
         excluded,
         definitions,
@@ -391,7 +395,7 @@ fn summary(
 
 fn build_facts(
     path: &Path,
-    source: &[u8],
+    source: Arc<[u8]>,
     root_choice: &LanguageChoice,
     summaries: Vec<TreeSummary>,
     parsed_injections: &[ParsedInjection],
@@ -502,13 +506,14 @@ fn build_facts(
         locals,
         analysis: FileAnalysis {
             path: path.display().to_string(),
-            hash: blake3::hash(source).to_hex().to_string(),
+            hash: blake3::hash(&source).to_hex().to_string(),
             language: root_choice.name.clone(),
             nloc: file_rows.len(),
             functions: analyses,
             injections,
             resolution: Vec::new(),
         },
+        source,
     }
 }
 
