@@ -1,34 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Output};
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde_json::Value;
-
-static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
-
-struct TempDir(PathBuf);
-
-impl TempDir {
-    fn new() -> Self {
-        let nonce = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
-            "entanglement-recursion-{}-{nonce}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&path).expect("create temporary directory");
-        Self(path)
-    }
-
-    fn path(&self) -> &Path {
-        &self.0
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
 
 fn run_repo(path: &Path) -> Output {
     Command::new(env!("CARGO_BIN_EXE_entanglement"))
@@ -86,7 +59,7 @@ fn is_recursive(function: &Value) -> bool {
 
 #[test]
 fn marks_only_exact_direct_function_cycles() {
-    let temp = TempDir::new();
+    let temp = tempfile::tempdir().expect("create temporary directory");
     let root = temp.path().join("crate");
     write_crate(
         &root,
@@ -152,7 +125,7 @@ pub fn value_only() {
 
 #[test]
 fn candidate_cycle_introduction_marks_unchanged_peer() {
-    let temp = TempDir::new();
+    let temp = tempfile::tempdir().expect("create temporary directory");
     let root = temp.path().join("crate");
     write_crate(&root, "pub fn left() {}\npub fn right() { left(); }\n");
     let before = report(&run_repo(&root));
@@ -172,7 +145,7 @@ fn candidate_cycle_introduction_marks_unchanged_peer() {
 
 #[test]
 fn candidate_cycle_break_removes_recursion_from_unchanged_peer() {
-    let temp = TempDir::new();
+    let temp = tempfile::tempdir().expect("create temporary directory");
     let root = temp.path().join("crate");
     write_crate(
         &root,

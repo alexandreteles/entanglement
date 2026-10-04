@@ -1,34 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Output};
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde_json::Value;
-
-static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
-
-struct TempDir(PathBuf);
-
-impl TempDir {
-    fn new() -> Self {
-        let nonce = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
-            "entanglement-compat-{}-{nonce}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&path).expect("create temporary directory");
-        Self(path)
-    }
-
-    fn path(&self) -> &Path {
-        &self.0
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
 
 fn run(arguments: &[&str], path: &Path) -> Output {
     Command::new(env!("CARGO_BIN_EXE_entanglement"))
@@ -50,7 +23,7 @@ fn report(output: &Output) -> Value {
 
 #[test]
 fn file_mode_accepts_invalid_utf8_and_malformed_rust() {
-    let temp = TempDir::new();
+    let temp = tempfile::tempdir().expect("create temporary directory");
     let invalid = temp.path().join("invalid.rs");
     let mut source = b"fn invalid() {\n    let value = 1;\n}\n// ".to_vec();
     source.push(0xff);
@@ -82,7 +55,7 @@ fn file_mode_accepts_invalid_utf8_and_malformed_rust() {
 fn repo_follows_file_and_directory_symlinks_without_duplicate_reports() {
     use std::os::unix::fs::symlink;
 
-    let temp = TempDir::new();
+    let temp = tempfile::tempdir().expect("create temporary directory");
     let root = temp.path().join("repo");
     let source_dir = root.join("src");
     std::fs::create_dir_all(&source_dir).expect("create source directory");

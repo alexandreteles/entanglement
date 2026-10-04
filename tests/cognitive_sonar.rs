@@ -1,34 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde_json::Value;
-
-static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
-
-struct TempDir(PathBuf);
-
-impl TempDir {
-    fn new() -> Self {
-        let nonce = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
-            "entanglement-cognitive-sonar-{}-{nonce}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&path).expect("create temporary directory");
-        Self(path)
-    }
-
-    fn path(&self) -> &Path {
-        &self.0
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
 
 fn analyze(path: &Path) -> Value {
     let output = Command::new(env!("CARGO_BIN_EXE_entanglement"))
@@ -55,7 +28,7 @@ fn function<'a>(report: &'a Value, name: &str) -> &'a Value {
 
 #[test]
 fn rust_syntax_cases_match_sonar_cognitive_complexity_examples() {
-    let temp = TempDir::new();
+    let temp = tempfile::tempdir().expect("create temporary directory");
     let source = temp.path().join("cognitive.rs");
     std::fs::write(
         &source,
