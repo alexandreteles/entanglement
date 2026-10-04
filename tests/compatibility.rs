@@ -1,0 +1,121 @@
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use serde_json::Value;
+
+static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
+
+struct TempDir(PathBuf);
+
+impl TempDir {
+    fn new() -> Self {
+        let nonce = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "entanglement-compat-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&path).expect("create temporary directory");
+        Self(path)
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+fn run(arguments: &[&str], path: &Path) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_entanglement"))
+        .args(["--format", "json"])
+        .args(arguments)
+        .arg(path)
+        .output()
+        .expect("run entanglement")
+}
+
+fn report(output: &Output) -> Value {
+    assert!(
+        output.status.success(),
+        "entanglement failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).expect("parse JSON report")
+}
+
+#[test]
+fn file_mode_accepts_invalid_utf8_and_malformed_rust() {
+    let temp = TempDir::new();
+    let invalid = temp.path().join("invalid.rs");
+    let mut source = b"fn invalid() {\n    let value = 1;\n}\n// ".to_vec();
+    source.push(0xff);
+    source.extend_from_slice(b"\n");
+    std::fs::write(&invalid, source).expect("write invalid UTF-8 fixture");
+
+    let invalid_report = report(&run(&["file"], &invalid));
+    let invalid_file = &invalid_report["files"][0];
+    assert_eq!(invalid_file["language"], "rust");
+    assert!(invalid_file["nloc"].as_u64().is_some());
+    assert!(invalid_file["functions"].as_array().is_some());
+
+    let malformed = temp.path().join("malformed.rs");
+    std::fs::write(
+        &malformed,
+        b"fn broken( { let value = ; }\nfn recovered() { if true { let _ = 1; } }\n",
+    )
+    .expect("write malformed Rust fixture");
+
+    let malformed_report = report(&run(&["file"], &malformed));
+    let malformed_file = &malformed_report["files"][0];
+    assert_eq!(malformed_file["language"], "rust");
+    assert!(malformed_file["nloc"].as_u64().is_some());
+    assert!(malformed_file["functions"].as_array().is_some());
+}
+
+#[cfg(unix)]
+#[test]
+fn repo_follows_file_and_directory_symlinks_without_duplicate_reports() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempDir::new();
+    let root = temp.path().join("repo");
+    let source_dir = root.join("src");
+    std::fs::create_dir_all(&source_dir).expect("create source directory");
+    std::fs::write(root.join("Cargo.toml"), b"[package]\nname='links'\nversion='0.1.0'\n")
+        .expect("write manifest");
+    std::fs::write(
+        source_dir.join("lib.rs"),
+        b"mod nested;\npub fn root_fn() { nested::leaf(); }\n",
+    )
+    .expect("write crate root");
+    std::fs::write(source_dir.join("nested.rs"), b"pub fn leaf() {}\n")
+        .expect("write module file");
+    symlink(source_dir.join("lib.rs"), root.join("lib-alias.rs"))
+        .expect("create file symlink");
+    symlink(&source_dir, root.join("mirror")).expect("create directory symlink");
+
+    let file_report = report(&run(&["file"], &root.join("lib-alias.rs")));
+    assert_eq!(file_report["files"].as_array().unwrap().len(), 1);
+    assert!(file_report["files"][0]["path"]
+        .as_str()
+        .is_some_and(|path| path.ends_with("/repo/lib-alias.rs")));
+
+    let repo_report = report(&run(&["repo"], &root));
+    let files = repo_report["files"].as_array().expect("repo files");
+    assert_eq!(files.len(), 2);
+    assert!(files
+        .iter()
+        .any(|file| file["functions"]
+            .as_array()
+            .is_some_and(|functions| functions.iter().any(|function| function["name"] == "root_fn"))));
+    assert!(files.iter().any(|file| {
+        file["path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("nested.rs"))
+    }));
+}
