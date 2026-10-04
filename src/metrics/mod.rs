@@ -1,6 +1,8 @@
+pub mod cognitive;
 pub mod cyclomatic;
 pub mod cyclomatic_density;
 pub mod nloc;
+pub(crate) mod recursion;
 
 use std::ops::Range;
 
@@ -14,6 +16,32 @@ pub enum SyntaxRole {
     Condition,
     /// A short-circuit Boolean decision.
     LogicalCondition,
+    /// A structural `if` decision for cognitive complexity.
+    CognitiveIf,
+    /// An expression scanned before its owning conditional increases nesting.
+    CognitiveConditionBoundary,
+    /// An `else` branch for cognitive complexity.
+    CognitiveElse,
+    /// An `else if` chain boundary, which suppresses the enclosing `if` depth.
+    CognitiveElseIf,
+    /// A loop for cognitive complexity.
+    CognitiveLoop,
+    /// A Rust `let ... else` conditional.
+    CognitiveLetElse,
+    /// A `match` expression for cognitive complexity.
+    CognitiveMultiway,
+    /// A binary expression joining logical operators.
+    CognitiveLogicalExpression,
+    /// A logical AND operator.
+    CognitiveLogicalAnd,
+    /// A logical OR operator.
+    CognitiveLogicalOr,
+    /// Parentheses, which are transparent when flattening logical groups.
+    CognitiveParentheses,
+    /// A closure boundary that increases nesting for its contents.
+    CognitiveClosure,
+    /// A labeled `break` or `continue` jump.
+    CognitiveLabeledJump,
     /// A decision with multiple cases.
     Multiway,
     /// One case in a multiway decision.

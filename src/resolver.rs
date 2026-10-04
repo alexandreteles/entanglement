@@ -81,31 +81,37 @@ struct Index {
 pub(crate) fn resolve(facts: &mut [FileFacts]) {
     let mut index = Index::new(facts);
     index.resolve_imports();
-    facts.par_iter_mut().enumerate().for_each(|(file_index, fact)| {
-        let context = &index.contexts[file_index];
-        fact.analysis.resolution = fact
-            .references
-            .iter()
-            .map(|reference| ReferenceAnalysis {
-                path: reference.path.clone(),
-                start_byte: reference.start_byte,
-                end_byte: reference.end_byte,
-                resolution: index.to_resolution(
-                    context
-                        .iter()
-                        .map(|context| {
-                            match index.resolve_reference(file_index, context, reference, fact) {
-                                Resolution::Exact(symbol) => Target::Symbol(symbol),
-                                Resolution::Ambiguous(symbols) => Target::Ambiguous(symbols),
-                                Resolution::External => Target::External,
-                                Resolution::Unresolved => Target::Unresolved,
-                            }
-                        })
-                        .collect(),
-                ),
-            })
-            .collect();
-    });
+    facts
+        .par_iter_mut()
+        .enumerate()
+        .for_each(|(file_index, fact)| {
+            let context = &index.contexts[file_index];
+            fact.analysis.resolution = fact
+                .references
+                .iter()
+                .map(|reference| ReferenceAnalysis {
+                    path: reference.path.clone(),
+                    start_byte: reference.start_byte,
+                    end_byte: reference.end_byte,
+                    resolution: index.to_resolution(
+                        context
+                            .iter()
+                            .map(|context| {
+                                match index.resolve_reference(file_index, context, reference, fact)
+                                {
+                                    Resolution::Exact(symbol) => Target::Symbol(symbol),
+                                    Resolution::Ambiguous(symbols) => Target::Ambiguous(symbols),
+                                    Resolution::External => Target::External,
+                                    Resolution::Unresolved => Target::Unresolved,
+                                }
+                            })
+                            .collect(),
+                    ),
+                })
+                .collect();
+        });
+    drop(index);
+    crate::metrics::recursion::annotate(facts);
 }
 
 impl Index {

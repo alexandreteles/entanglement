@@ -46,8 +46,22 @@ pub fn render(result: &AnalysisResult) -> String {
                 );
                 write_contributions(
                     &mut output,
+                    "Complexity changes",
                     &function.added_contributions,
                     &function.removed_contributions,
+                );
+                let _ = writeln!(
+                    output,
+                    "  Cognitive complexity {} → {} ({:+})",
+                    function.cognitive_complexity.before,
+                    function.cognitive_complexity.after,
+                    function.cognitive_complexity.delta,
+                );
+                write_contributions(
+                    &mut output,
+                    "Cognitive complexity changes",
+                    &function.added_cognitive_contributions,
+                    &function.removed_cognitive_contributions,
                 );
             }
         }
@@ -78,16 +92,17 @@ fn render_file(output: &mut String, file: &FileAnalysis) {
     let _ = writeln!(output, "{}", file.path);
     let _ = writeln!(
         output,
-        "{:<name_width$}  {:>5}  {:>4}  {:>11}",
-        "Function", "NLOC", "CC", "CC density"
+        "{:<name_width$}  {:>5}  {:>4}  {:>4}  {:>11}",
+        "Function", "NLOC", "CC", "CogC", "CC density"
     );
     for function in &file.functions {
         let _ = writeln!(
             output,
-            "{:<name_width$}  {:>5}  {:>4}  {:>11.3}",
+            "{:<name_width$}  {:>5}  {:>4}  {:>4}  {:>11.3}",
             function.name,
             function.nloc,
             function.cyclomatic_complexity,
+            function.cognitive_complexity,
             function.cyclomatic_density,
         );
     }
@@ -111,13 +126,14 @@ fn render_file(output: &mut String, file: &FileAnalysis) {
 
 fn write_contributions(
     output: &mut String,
+    title: &str,
     added: &[ComplexityContribution],
     removed: &[ComplexityContribution],
 ) {
     if added.is_empty() && removed.is_empty() {
         return;
     }
-    let _ = writeln!(output, "  Complexity changes");
+    let _ = writeln!(output, "  {title}");
     for contribution in added.iter().chain(removed) {
         let _ = writeln!(
             output,

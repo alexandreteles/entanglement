@@ -48,6 +48,10 @@ pub struct FunctionAnalysis {
     pub cyclomatic_density: f64,
     /// The source events that contribute to complexity.
     pub contributions: Vec<ComplexityContribution>,
+    /// The SonarSource cognitive complexity score.
+    pub cognitive_complexity: usize,
+    /// The source events that contribute to cognitive complexity.
+    pub cognitive_contributions: Vec<ComplexityContribution>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -188,10 +192,16 @@ pub struct FunctionDelta {
     pub cyclomatic_complexity: MetricDelta<usize>,
     /// The cyclomatic density values before and after the patch.
     pub cyclomatic_density: MetricDelta<f64, f64>,
+    /// The cognitive complexity values before and after the patch.
+    pub cognitive_complexity: MetricDelta<usize>,
     /// The complexity events added by the patch.
     pub added_contributions: Vec<ComplexityContribution>,
     /// The complexity events removed by the patch.
     pub removed_contributions: Vec<ComplexityContribution>,
+    /// The cognitive complexity events added by the patch.
+    pub added_cognitive_contributions: Vec<ComplexityContribution>,
+    /// The cognitive complexity events removed by the patch.
+    pub removed_cognitive_contributions: Vec<ComplexityContribution>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -266,6 +276,9 @@ pub(crate) struct Reference {
     pub end_byte: usize,
     pub scope_start: usize,
     pub scope_end: usize,
+    /// Start byte of the enclosing function when this reference is a call
+    /// target outside a deferred closure or async block.
+    pub call_owner: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
