@@ -643,7 +643,10 @@ impl<'a> CaptureFacts<'a> {
     ) -> Option<usize> {
         if !matches!(
             kind,
-            ReferenceKind::Call | ReferenceKind::Method | ReferenceKind::Qualified
+            ReferenceKind::Call
+                | ReferenceKind::Method
+                | ReferenceKind::Qualified
+                | ReferenceKind::Value
         ) {
             return None;
         }

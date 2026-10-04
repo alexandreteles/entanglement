@@ -68,6 +68,10 @@ mod child;
 use child::aliased as via_alias;
 
 pub fn direct() { direct(); }
+pub fn parenthesized() { (parenthesized)(); }
+pub fn nested_parenthesized() { (((nested_parenthesized)))(); }
+pub fn qualified_parenthesized() { (crate::qualified_parenthesized)(); }
+pub fn generic_parenthesized<T>() { ((generic_parenthesized::<u8>))(); }
 
 pub fn qualified_left() { crate::qualified_right(); }
 pub fn qualified_right() { qualified_left(); }
@@ -79,12 +83,31 @@ pub fn shadowed() {
     let shadow_target = || {};
     shadow_target();
 }
+pub fn shadow_pair_left() {
+    let shadow_pair_right = || {};
+    (shadow_pair_right)();
+}
+pub fn shadow_pair_right() { shadow_pair_left(); }
 
 fn choose(function: fn()) -> fn() { function }
 pub fn value_target() { value_only(); }
 pub fn value_only() {
     let _function_value = value_target;
     choose(value_target)();
+}
+
+fn consume(_: fn()) {}
+pub fn argument_target() { argument_caller(); }
+pub fn argument_caller() { consume((argument_target)); }
+
+pub fn closure_target() { closure_caller(); }
+pub fn closure_caller() {
+    let _callback = || { closure_target(); };
+}
+
+pub async fn async_target() { async_caller().await; }
+pub async fn async_caller() {
+    let _future = async { async_target().await; };
 }
 "#,
     );
@@ -98,6 +121,10 @@ pub fn value_only() {
 
     for name in [
         "direct",
+        "parenthesized",
+        "nested_parenthesized",
+        "qualified_parenthesized",
+        "generic_parenthesized",
         "qualified_left",
         "qualified_right",
         "alias_left",
@@ -112,9 +139,18 @@ pub fn value_only() {
     for name in [
         "shadow_target",
         "shadowed",
+        "shadow_pair_left",
+        "shadow_pair_right",
         "choose",
         "value_target",
         "value_only",
+        "consume",
+        "argument_target",
+        "argument_caller",
+        "closure_target",
+        "closure_caller",
+        "async_target",
+        "async_caller",
     ] {
         assert!(
             !is_recursive(function(&report, name)),
