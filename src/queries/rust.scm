@@ -7,6 +7,25 @@ _ @syntax.node
 
 (function_item) @metric.function
 
+(if_expression) @metric.cognitive.if
+(if_expression condition: (_) @metric.cognitive.condition_boundary)
+(else_clause (block)) @metric.cognitive.else
+(if_expression alternative: (else_clause (if_expression) @metric.cognitive.else_if))
+(while_expression) @metric.cognitive.loop
+(for_expression) @metric.cognitive.loop
+(loop_expression) @metric.cognitive.loop
+(let_declaration alternative: (block)) @metric.cognitive.let_else
+(let_declaration value: (_) @metric.cognitive.condition_boundary alternative: (block))
+(match_expression) @metric.cognitive.multiway
+(match_pattern condition: (_) @metric.cognitive.if)
+(let_chain "&&" @metric.cognitive.logical_and) @metric.cognitive.logical_expression
+(binary_expression operator: "&&" @metric.cognitive.logical_and) @metric.cognitive.logical_expression
+(binary_expression operator: "||" @metric.cognitive.logical_or) @metric.cognitive.logical_expression
+(parenthesized_expression) @metric.cognitive.parentheses
+(closure_expression) @metric.cognitive.closure
+(break_expression (label)) @metric.cognitive.labeled_jump
+(continue_expression (label)) @metric.cognitive.labeled_jump
+
 (if_expression) @metric.condition
 (while_expression) @metric.condition
 (for_expression) @metric.condition

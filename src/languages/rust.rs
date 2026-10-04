@@ -144,6 +144,37 @@ impl Analyzer {
             ("syntax.node", SyntaxRole::Node),
             ("comment", SyntaxRole::Comment),
             ("metric.function", SyntaxRole::Function),
+            ("metric.cognitive.if", SyntaxRole::CognitiveIf),
+            (
+                "metric.cognitive.condition_boundary",
+                SyntaxRole::CognitiveConditionBoundary,
+            ),
+            ("metric.cognitive.else", SyntaxRole::CognitiveElse),
+            ("metric.cognitive.else_if", SyntaxRole::CognitiveElseIf),
+            ("metric.cognitive.loop", SyntaxRole::CognitiveLoop),
+            ("metric.cognitive.let_else", SyntaxRole::CognitiveLetElse),
+            ("metric.cognitive.multiway", SyntaxRole::CognitiveMultiway),
+            (
+                "metric.cognitive.logical_expression",
+                SyntaxRole::CognitiveLogicalExpression,
+            ),
+            (
+                "metric.cognitive.logical_and",
+                SyntaxRole::CognitiveLogicalAnd,
+            ),
+            (
+                "metric.cognitive.logical_or",
+                SyntaxRole::CognitiveLogicalOr,
+            ),
+            (
+                "metric.cognitive.parentheses",
+                SyntaxRole::CognitiveParentheses,
+            ),
+            ("metric.cognitive.closure", SyntaxRole::CognitiveClosure),
+            (
+                "metric.cognitive.labeled_jump",
+                SyntaxRole::CognitiveLabeledJump,
+            ),
             ("metric.condition", SyntaxRole::Condition),
             ("metric.logical_condition", SyntaxRole::LogicalCondition),
             ("metric.multiway", SyntaxRole::Multiway),
@@ -536,7 +567,11 @@ impl<'a> CaptureFacts<'a> {
             .collect()
     }
 
-    fn normalize_references(&mut self, modules: &[ModuleSpan], root: &Range<usize>) -> Vec<Reference> {
+    fn normalize_references(
+        &mut self,
+        modules: &[ModuleSpan],
+        root: &Range<usize>,
+    ) -> Vec<Reference> {
         let use_ranges = self.use_ranges();
         let binding_ranges = self.binding_ranges();
         let definition_ranges = self
@@ -590,9 +625,57 @@ impl<'a> CaptureFacts<'a> {
                     end_byte: reference.range.end,
                     scope_start,
                     scope_end,
+                    call_owner: self.call_owner(
+                        reference.node_id,
+                        &reference.range,
+                        reference.kind,
+                    ),
                 }
             })
             .collect()
+    }
+
+    fn call_owner(
+        &self,
+        node_id: usize,
+        reference_range: &Range<usize>,
+        kind: ReferenceKind,
+    ) -> Option<usize> {
+        if !matches!(
+            kind,
+            ReferenceKind::Call | ReferenceKind::Method | ReferenceKind::Qualified
+        ) {
+            return None;
+        }
+        let reference = self.graph.nodes.get(&node_id).copied()?;
+        let mut current = reference;
+        loop {
+            match current.kind() {
+                "closure_expression" | "async_block" => return None,
+                "call_expression" => {
+                    let is_direct_target = current
+                        .child_by_field_name("function")
+                        .is_some_and(|callee| direct_callee(callee, reference, reference_range));
+                    if !is_direct_target {
+                        return None;
+                    }
+                }
+                "function_item" => return None,
+                _ => {
+                    current = current.parent()?;
+                    continue;
+                }
+            }
+
+            current = current.parent()?;
+            loop {
+                match current.kind() {
+                    "closure_expression" | "async_block" => return None,
+                    "function_item" => return Some(current.start_byte()),
+                    _ => current = current.parent()?,
+                }
+            }
+        }
     }
 
     fn qualified_paths(&self, use_ranges: &[Range<usize>]) -> Vec<RawReference> {
@@ -646,6 +729,53 @@ fn event(role: SyntaxRole, node: tree_sitter::Node<'_>) -> SyntaxEvent {
 
 fn node_text(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
     String::from_utf8_lossy(&source[node.byte_range()]).into_owned()
+}
+
+fn direct_callee<'tree>(
+    mut callee: tree_sitter::Node<'tree>,
+    reference: tree_sitter::Node<'tree>,
+    reference_range: &Range<usize>,
+) -> bool {
+    loop {
+        if same_reference(callee, reference, reference_range) {
+            return true;
+        }
+        match callee.kind() {
+            "generic_function" => {
+                let Some(function) = callee.child_by_field_name("function") else {
+                    return false;
+                };
+                callee = function;
+            }
+            "parenthesized_expression" if callee.named_child_count() == 1 => {
+                let Some(expression) = callee.named_child(0) else {
+                    return false;
+                };
+                callee = expression;
+            }
+            "scoped_identifier" => {
+                return callee
+                    .child_by_field_name("name")
+                    .is_some_and(|name| same_reference(name, reference, reference_range));
+            }
+            "field_expression" => {
+                return callee
+                    .child_by_field_name("field")
+                    .is_some_and(|field| same_reference(field, reference, reference_range));
+            }
+            _ => return false,
+        }
+    }
+}
+
+fn same_reference(
+    node: tree_sitter::Node<'_>,
+    reference: tree_sitter::Node<'_>,
+    reference_range: &Range<usize>,
+) -> bool {
+    node.id() == reference.id()
+        && node.start_byte() == reference_range.start
+        && node.end_byte() == reference_range.end
 }
 
 fn raw_reference(node: tree_sitter::Node<'_>, kind: ReferenceKind, source: &[u8]) -> RawReference {
@@ -1064,4 +1194,158 @@ fn lexical_scope(
 fn deduplicate<T, K: Eq + std::hash::Hash>(values: &mut Vec<T>, key: impl Fn(&T) -> K) {
     let mut seen = HashSet::new();
     values.retain(|value| seen.insert(key(value)));
+}
+
+#[cfg(test)]
+mod cognitive_tests {
+    use std::collections::HashMap;
+
+    use tree_sitter::{Language, Parser};
+
+    use super::{Analyzer, LanguageHandler};
+    use crate::metrics::{SyntaxEvent, cognitive::Context, cyclomatic};
+
+    fn captured(
+        source: &str,
+    ) -> (
+        Vec<cyclomatic::FunctionScope>,
+        Vec<SyntaxEvent>,
+        HashMap<usize, Option<usize>>,
+    ) {
+        let language: Language = tree_sitter_rust::LANGUAGE.into();
+        let analyzer = Analyzer::new(&language).expect("Rust query should compile");
+        let mut parser = Parser::new();
+        parser
+            .set_language(&language)
+            .expect("Rust parser should initialize");
+        let tree = parser
+            .parse(source, None)
+            .expect("Rust source should parse");
+        let facts = analyzer
+            .capture(&tree, source.as_bytes())
+            .expect("Rust query should capture metrics");
+        (facts.functions, facts.events, facts.parents)
+    }
+
+    fn metrics(source: &str) -> HashMap<String, (usize, usize)> {
+        let (functions, events, parents) = captured(source);
+        let cognitive = Context::new(&events, &parents).analyze_functions(&functions);
+        let assigned = cyclomatic::assign_events(&functions, &events);
+        functions
+            .iter()
+            .enumerate()
+            .map(|(index, function)| {
+                let cyclomatic = cyclomatic::analyze(
+                    function,
+                    assigned.get(&index).map_or(&[], Vec::as_slice),
+                    &parents,
+                )
+                .0;
+                (function.name.clone(), (cyclomatic, cognitive[index].0))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn rust_control_flow_and_boolean_groups_follow_sonar_rules() {
+        let results = metrics(
+            r#"
+            fn booleans(a: bool, b: bool, c: bool, d: bool) {
+                if a && b || c {}
+                let _ = a && (b || c) && d;
+                let _ = !(a && b) || c;
+            }
+
+            fn chain(a: bool, b: bool, c: bool) {
+                if a {} else if b { if c {} }
+            }
+
+            fn nested(a: bool, b: i32) {
+                for _ in 0..1 {
+                    if a {
+                        match b {
+                            0 => { if a {} }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+
+            fn guard(value: Option<i32>) {
+                match value { Some(v) if v > 0 => {}, _ => {} }
+            }
+
+            fn let_else(value: Option<i32>) {
+                let Some(v) = value else { return; };
+                if v > 0 {}
+            }
+
+            fn let_else_condition_nested(a: bool) {
+                let Some(v) = (if a { Some(1) } else { None }) else { return; };
+            }
+
+            fn jumps() {
+                outer: loop { loop { break 'outer; } }
+            }
+
+            fn closure() {
+                let _body = || { if true {} };
+            }
+
+            fn sum_of_primes(max: usize) -> usize {
+                let mut total = 0;
+                'outer: for i in 1..=max {
+                    for j in 2..i {
+                        if i % j == 0 { continue 'outer; }
+                    }
+                    total += i;
+                }
+                total
+            }
+
+            fn get_words(number: usize) -> &'static str {
+                match number {
+                    1 => "one",
+                    2 => "a couple",
+                    3 => "a few",
+                    _ => "lots",
+                }
+            }
+
+            fn let_chain(value: Option<i32>, b: bool, c: bool) {
+                if let Some(x) = value && x > 0 && b || c {}
+            }
+
+            fn condition_nested(a: bool) {
+                if { if a {} true } {}
+            }
+
+            fn chain_in_loop(a: bool, b: bool) {
+                loop { if a {} else if b {} break; }
+            }
+            "#,
+        );
+
+        assert_eq!(results["booleans"], (9, 8));
+        assert_eq!(results["chain"], (4, 4));
+        assert_eq!(results["nested"], (5, 10));
+        assert_eq!(results["guard"], (3, 3));
+        assert_eq!(results["let_else"], (3, 2));
+        assert_eq!(results["let_else_condition_nested"], (3, 3));
+        assert_eq!(results["jumps"], (1, 4));
+        assert_eq!(results["closure"], (2, 2));
+        assert_eq!(results["sum_of_primes"], (4, 7));
+        assert_eq!(results["get_words"], (4, 1));
+        assert_eq!(results["let_chain"], (5, 3));
+        assert_eq!(results["condition_nested"], (3, 2));
+        assert_eq!(results["chain_in_loop"], (3, 4));
+    }
+
+    #[test]
+    fn nested_function_items_keep_the_reported_set_and_inherit_depth() {
+        let results = metrics("fn outer() { if true { fn inner() { if true {} } } }");
+        assert_eq!(results.len(), 2);
+        assert_eq!(results["outer"], (2, 1));
+        assert_eq!(results["inner"], (2, 3));
+    }
 }

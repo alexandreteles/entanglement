@@ -9,6 +9,7 @@ mod ui;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use tree_sitter::InputEdit;
 
@@ -69,7 +70,8 @@ fn run(command: cli::Command) -> Result<model::AnalysisResult> {
         }
         cli::Command::Repo { path } => {
             let path = std::path::absolute(path)?;
-            let mut facts = analysis::analyze_paths(input::discover(&path)?, |parsed| parsed.facts)?;
+            let mut facts: Vec<_> =
+                analysis::analyze_paths(input::discover(&path)?, |file| file.facts)?;
             resolver::resolve(&mut facts);
             Ok(model::AnalysisResult {
                 files: facts.into_iter().map(|fact| fact.analysis).collect(),
@@ -277,8 +279,8 @@ fn apply_file_patch(
     let old_index = old_target
         .as_ref()
         .and_then(|target| parsed.iter().position(|file| file.facts.target == *target));
-    let source: std::sync::Arc<[u8]> = match (old_index, &old_path) {
-        (Some(index), _) => std::sync::Arc::clone(&parsed[index].facts.source),
+    let source: Arc<[u8]> = match (old_index, &old_path) {
+        (Some(index), _) => Arc::clone(&parsed[index].facts.source),
         (None, Some(path)) => std::fs::read(path)?.into(),
         (None, None) => Vec::new().into(),
     };
@@ -364,51 +366,74 @@ fn function_deltas(
             let new_cc = new.map_or(0, |function| function.cyclomatic_complexity);
             let old_density = old.map_or(0.0, |function| function.cyclomatic_density);
             let new_density = new.map_or(0.0, |function| function.cyclomatic_density);
-            let (added_contributions, removed_contributions) =
-                contribution_changes(old, new, edits);
+            let old_cognitive = old.map_or(0, |function| function.cognitive_complexity);
+            let new_cognitive = new.map_or(0, |function| function.cognitive_complexity);
+            let (added_contributions, removed_contributions) = contribution_changes(
+                old.map(|function| function.contributions.as_slice()),
+                new.map(|function| function.contributions.as_slice()),
+                edits,
+            );
+            let (added_cognitive_contributions, removed_cognitive_contributions) =
+                contribution_changes(
+                    old.map(|function| function.cognitive_contributions.as_slice()),
+                    new.map(|function| function.cognitive_contributions.as_slice()),
+                    edits,
+                );
             model::FunctionDelta {
                 name: old
                     .or(new)
                     .expect("A function pair has a function")
                     .name
                     .clone(),
-                nloc: model::MetricDelta {
-                    before: old_nloc,
-                    after: new_nloc,
-                    delta: new_nloc as i64 - old_nloc as i64,
-                },
-                cyclomatic_complexity: model::MetricDelta {
-                    before: old_cc,
-                    after: new_cc,
-                    delta: new_cc as i64 - old_cc as i64,
-                },
-                cyclomatic_density: model::MetricDelta {
-                    before: old_density,
-                    after: new_density,
-                    delta: new_density - old_density,
-                },
+                nloc: metric_delta(old_nloc, new_nloc, |before, after| {
+                    after as i64 - before as i64
+                }),
+                cyclomatic_complexity: metric_delta(old_cc, new_cc, |before, after| {
+                    after as i64 - before as i64
+                }),
+                cyclomatic_density: metric_delta(old_density, new_density, |before, after| {
+                    after - before
+                }),
+                cognitive_complexity: metric_delta(
+                    old_cognitive,
+                    new_cognitive,
+                    |before, after| after as i64 - before as i64,
+                ),
                 added_contributions,
                 removed_contributions,
+                added_cognitive_contributions,
+                removed_cognitive_contributions,
             }
         })
         .collect()
 }
 
+/// Keep the before and after values together with their computed change.
+fn metric_delta<T: Copy, D>(
+    before: T,
+    after: T,
+    difference: impl FnOnce(T, T) -> D,
+) -> model::MetricDelta<T, D> {
+    let delta = difference(before, after);
+    model::MetricDelta {
+        before,
+        after,
+        delta,
+    }
+}
+
 /// Compare decisions by role and edited start position; retain matched baselines.
 fn contribution_changes(
-    before: Option<&model::FunctionAnalysis>,
-    after: Option<&model::FunctionAnalysis>,
+    before: Option<&[model::ComplexityContribution]>,
+    after: Option<&[model::ComplexityContribution]>,
     edits: &[tree_sitter::InputEdit],
 ) -> (
     Vec<model::ComplexityContribution>,
     Vec<model::ComplexityContribution>,
 ) {
-    let mut added = after.map_or_else(Vec::new, |function| function.contributions.clone());
+    let mut added = after.map_or_else(Vec::new, |contributions| contributions.to_vec());
     let mut removed = Vec::new();
-    for old in before
-        .into_iter()
-        .flat_map(|function| &function.contributions)
-    {
+    for old in before.into_iter().flatten() {
         let mapped = edited_position(old.start_byte, edits);
         let index = added.iter().position(|new| {
             new.kind == old.kind

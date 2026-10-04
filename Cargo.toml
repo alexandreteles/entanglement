@@ -10,6 +10,7 @@ diffy = "0.5.2"
 ignore = "0.4.33"
 lipgloss = { version = "0.2.4", package = "charmed-lipgloss" }
 memchr = "2.8.3"
+petgraph = { version = "0.8.3", default-features = false, features = ["std"] }
 tree-sitter = "0.27.0"
 rayon = "1"
 serde = { version = "1", features = ["derive"] }

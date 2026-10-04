@@ -13,7 +13,7 @@ use crate::Result;
 use crate::input;
 use crate::languages::{CapturedTree, InjectionRequest, LanguageChoice, Registry};
 use crate::metrics::{
-    SyntaxEvent, SyntaxRole,
+    SyntaxEvent, SyntaxRole, cognitive,
     cyclomatic::{self, FunctionScope},
     cyclomatic_density, nloc,
 };
@@ -51,6 +51,7 @@ struct TreeSummary {
     language_id: String,
     events: Vec<SyntaxEvent>,
     parents: HashMap<usize, Option<usize>>,
+    cognitive_parent: Option<usize>,
     functions: Vec<FunctionScope>,
     excluded: Vec<Range<usize>>,
     definitions: Vec<Definition>,
@@ -92,7 +93,8 @@ impl Worker {
                 |file| file.facts.aliases.clone(),
             );
         let reusable = previous.filter(|file| {
-            file.language == choice.id && (!edits.is_empty() || file.facts.source.as_ref() == source)
+            file.language == choice.id
+                && (!edits.is_empty() || file.facts.source.as_ref() == source)
         });
         let mut old_trees = BTreeMap::new();
         if let Some(previous) = reusable {
@@ -165,7 +167,22 @@ impl Worker {
             .iter()
             .map(|request| {
                 (
-                    inherited_module_for_range(inherited_module, &captured.definitions, &request.range),
+                    captured
+                        .events
+                        .iter()
+                        .filter(|event| {
+                            event.role == SyntaxRole::Node
+                                && event.start_byte <= request.range.start
+                                && event.end_byte >= request.range.end
+                                && event.range() != request.range
+                        })
+                        .min_by_key(|event| event.end_byte - event.start_byte)
+                        .map(|event| event.node_id),
+                    inherited_module_for_range(
+                        inherited_module,
+                        &captured.definitions,
+                        &request.range,
+                    ),
                     enclosing_function(&captured.functions, &request.range)
                         .or_else(|| inherited_scope.clone()),
                 )
@@ -181,7 +198,9 @@ impl Worker {
         )];
         let mut injections = Vec::with_capacity(requests.len());
 
-        for (request, (child_module, child_scope)) in requests.into_iter().zip(child_contexts) {
+        for (request, (cognitive_parent, child_module, child_scope)) in
+            requests.into_iter().zip(child_contexts)
+        {
             let Some(child_choice) = self.registry.select_injection(&request.language)? else {
                 injections.push(ParsedInjection {
                     language: request.language,
@@ -225,7 +244,7 @@ impl Worker {
             let child_tree =
                 self.parse_tree(&child_choice, source, &included_ranges, old_tree.as_ref())?;
             active.insert(key.clone());
-            let (children, child_summaries) = self.analyze_layer(
+            let (children, mut child_summaries) = self.analyze_layer(
                 &child_choice,
                 &child_tree,
                 source,
@@ -238,6 +257,9 @@ impl Worker {
                 depth + 1,
             )?;
             active.remove(&key);
+            if child_choice.id == choice.id {
+                child_summaries[0].cognitive_parent = cognitive_parent;
+            }
             summaries.extend(child_summaries);
             injections.push(ParsedInjection {
                 language: request.language,
@@ -384,6 +406,7 @@ fn summary(
         language_id: choice.id.clone(),
         events: captured.events,
         parents: captured.parents,
+        cognitive_parent: None,
         functions,
         excluded,
         definitions,
@@ -440,12 +463,30 @@ fn build_facts(
         for index in indexes {
             let item = &summaries[*index];
             events.extend(item.events.iter().copied().filter(|event| {
-                is_complexity_event(event.role) && !inside_any(event.range(), &item.excluded)
+                (is_complexity_event(event.role) || cognitive::is_event(event.role))
+                    && !inside_any(event.range(), &item.excluded)
             }));
             parents.extend(item.parents.iter().map(|(key, value)| (*key, *value)));
         }
         let assigned = cyclomatic::assign_events(&scopes, &events);
-        for (index, function) in scopes.into_iter().enumerate() {
+        // Injection trees have independent roots. Connect them only for cognitive
+        // nesting; keep the existing cyclomatic ancestry unchanged.
+        let mut cognitive_parents = std::borrow::Cow::Borrowed(&parents);
+        for index in indexes {
+            let item = &summaries[*index];
+            if let Some(parent) = item.cognitive_parent {
+                for (root, ancestor) in &item.parents {
+                    if ancestor.is_none() {
+                        cognitive_parents.to_mut().insert(*root, Some(parent));
+                    }
+                }
+            }
+        }
+        let cognitive =
+            cognitive::Context::new(&events, &cognitive_parents).analyze_functions(&scopes);
+        for (index, (function, (cognitive_complexity, cognitive_contributions))) in
+            scopes.into_iter().zip(cognitive).enumerate()
+        {
             let mut rows = BTreeSet::new();
             for summary_index in indexes {
                 let item = &summaries[*summary_index];
@@ -469,6 +510,8 @@ fn build_facts(
                 cyclomatic_complexity,
                 cyclomatic_density: cyclomatic_density::calculate(cyclomatic_complexity, nloc),
                 contributions,
+                cognitive_complexity,
+                cognitive_contributions,
             });
         }
     }
