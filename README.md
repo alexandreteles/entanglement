@@ -58,18 +58,34 @@ symbolic link.
 | --- | --- | --- |
 | NLOC (non-comment lines of code) | Count each source line covered by a code token once. Exclude comments and syntax that belongs to an unsupported embedded language. | Robert E. Park, [*Software Size Measurement: A Framework for Counting Source Statements*](https://www.sei.cmu.edu/library/software-size-measurement-a-framework-for-counting-source-statements/), CMU/SEI-92-TR-020 (1992). Defines a framework for physical source-line counting rules. Entanglement uses the rule in this row. |
 | Cyclomatic complexity (CC) | Start each function at 1. Add 1 for each control-flow decision and logical condition. For a `match` expression with N arms, add `max(N - 1, 0)`. | [NIST SP 500-235, *Structured Testing: A Testing Methodology Using the Cyclomatic Complexity Metric*](https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication500-235.pdf) (1996), sections 2.2 and 4.1. Defines the metric and decision-counting method. |
+| Cognitive complexity (CogC) | Start each function at 0. Each `if`, loop, `let ... else`, or `match` adds 1 plus the current nesting depth. `else` adds 1; an `else if` adds one branch point without treating it as nested under the preceding `if`. A `match` has no additional per-arm points, and a guard adds a nested condition. Closures and nested functions add nesting for their contents; async blocks do not add nesting. Add 1 for the first `&&` or `||` operator in a logical sequence, then for each change between operator kinds; parentheses keep a sequence together and negation splits it without adding a point. Add 1 for a labeled `break` or `continue`. A recursive function gets 1 point when it belongs to a detected direct or mutual call cycle; ordinary calls are free. | SonarSource, [*Cognitive Complexity*](https://www.sonarsource.com/docs/CognitiveComplexity.pdf). Entanglement maps its flow-break, nesting, and logical-sequence principles to captured Rust syntax. |
 
-Each complexity contribution includes its kind, byte range, and source line.
-Complexity density is `CC / max(NLOC, 1)`. A patch report gives the complete
-scores before and after the patch.
+Each CC and CogC contribution includes its kind, byte range, and source line.
+CC density is `CC / max(NLOC, 1)`. A patch report gives the complete scores
+before and after the patch, and lists CC and CogC contribution changes
+separately.
+
+CogC is derived from Rust syntax captures and does not claim complete semantic
+coverage or full parity with Sonar's Rust analyzer. These rules describe
+Entanglement's Rust mappings of the paper's counting principles. Recursive
+points use Entanglement's exact reference resolutions and
+a strongly connected component pass: each function gets one point when a
+direct call edge places it in a self-recursive or mutually recursive cycle.
+Ambiguous or unresolved targets, methods, calls through function values, and
+calls inside closures or async blocks do not form graph edges. The analyzer
+does not infer trait or dynamic dispatch, function-pointer calls, or
+macro-generated calls. It only sees files supplied to the current analysis,
+so cycles through omitted files or injected fragments can be missed. `?`,
+ordinary returns and jumps, and logical negation do not add CogC points.
 
 Use `--format human` for a terminal report. This is the default format.
 Use `--format json` for a JSON document. You can put `--format` before or
 after the command.
 
-JSON includes file metrics, function contributions, and ranges for embedded
-languages. It also includes code reference results and patch comparisons
-when applicable.
+JSON includes file metrics, CC and CogC function contributions, and ranges
+for embedded languages. Patch comparisons include before/after CogC values
+and separate CC and CogC contribution changes. JSON also includes code
+reference results when applicable.
 
 Code reference results have one of four states: exact, ambiguous, external,
 or unresolved. References that need type inference or trait dispatch stay
