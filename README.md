@@ -1,7 +1,6 @@
 # Entanglement
 
-Entanglement uses Tree-sitter to measure source code. Registered grammars and
-language-specific syntax captures supply the facts used by its metric modules.
+Entanglement uses Tree-sitter to measure source code.
 
 Build the program with the stable Rust toolchain:
 
@@ -9,9 +8,7 @@ Build the program with the stable Rust toolchain:
 cargo build --release
 ```
 
-Run tests with `cargo test --locked`. Keep tests under `tests/`, covering
-distinct observable behaviors without duplicate cases. Do not add test modules
-or test-only hooks to `src/`.
+Run tests with `cargo test --locked`.
 
 Set `SOURCE_FILE` to a source file supported by a registered grammar, then use
 one of these commands:
@@ -49,41 +46,11 @@ directory. For a file input, the diff must contain one file patch. Its old
 path must match the selected file. The `patch` and `candidate` commands do
 not write source files.
 
-A unified diff can contain several change blocks, called hunks. For a
-directory input, it can change several files. It can create, delete, or
-rename files. The unchanged lines in each hunk must match the source.
-Diff paths must stay below the selected root as written. They can pass through
-symbolic links, including links to targets outside that root. The program does
-not accept binary patches. A patch with the same old and new paths keeps the
-file's report path and aliases. A deletion removes the file and all its
-aliases. A rename removes the old file and its aliases, then adds the new path.
-A create or rename fails if its destination already exists. This includes a
-symbolic link.
-
 | Metric | Counting rule in Entanglement | Paper or publication |
 | --- | --- | --- |
 | NLOC (non-comment lines of code) | Count each source line covered by a code token once. Exclude comments and syntax that belongs to an unsupported embedded language. | Robert E. Park, [*Software Size Measurement: A Framework for Counting Source Statements*](https://www.sei.cmu.edu/library/software-size-measurement-a-framework-for-counting-source-statements/), CMU/SEI-92-TR-020 (1992). Defines a framework for physical source-line counting rules. Entanglement uses the rule in this row. |
 | Cyclomatic complexity (CC) | Start each function at 1. Add 1 for each control-flow decision and logical condition. For a captured multiway decision with N cases, add `max(N - 1, 0)`. | [NIST SP 500-235, *Structured Testing: A Testing Methodology Using the Cyclomatic Complexity Metric*](https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication500-235.pdf) (1996), sections 2.2 and 4.1. Defines the metric and decision-counting method. |
 | Cognitive complexity (CogC) | Start each function at 0. Each captured conditional (including a conditional binding), loop, or multiway decision adds 1 plus the current nesting depth. Alternate and chained branches add 1 without a nesting surcharge. Count a multiway decision once, with guarded cases treated as nested conditionals. Closures and nested functions add nesting for their contents; asynchronous blocks do not. Add 1 for the first logical AND or OR operator in a sequence, then for each change between operator kinds; parentheses keep a sequence together and negation splits it without adding a point. Labeled loop jumps add 1. Each function in a detected direct or mutual call cycle gets 1 recursion point; ordinary calls are free. | SonarSource, [*Cognitive Complexity*](https://www.sonarsource.com/docs/CognitiveComplexity.pdf). Entanglement maps its flow-break, nesting, and logical-sequence principles to captured syntax. |
-
-Each CC and CogC contribution includes its kind, byte range, and source line.
-CC density is `CC / max(NLOC, 1)`. A patch report gives the complete scores
-before and after the patch, and lists CC and CogC contribution changes
-separately.
-
-CogC is derived from syntax captures and does not claim complete semantic
-coverage or full parity with language-specific analyzers. Each language's
-capture rules map its syntax to the counting principles above. Recursive
-points use exact reference resolutions and a strongly connected component
-pass: each function gets one point when a direct call edge places it in a
-self-recursive or mutually recursive cycle.
-Ambiguous or unresolved targets, methods, calls through function values, and
-calls inside closures or asynchronous blocks do not form graph edges. The
-analyzer does not infer dispatch targets, indirect calls, or generated calls.
-It only sees files supplied to the current analysis, so cycles through omitted
-files or injected fragments can be missed. Ordinary
-returns, unlabeled jumps, logical negation, and error-propagation shorthand do
-not add CogC points.
 
 Use `--format human` for a terminal report. This is the default format.
 Use `--format json` for a JSON document. You can put `--format` before or
@@ -94,11 +61,9 @@ for embedded languages. Patch comparisons include before/after CogC values
 and separate CC and CogC contribution changes. JSON also includes code
 reference results when applicable.
 
-Code reference results have one of four states: exact, ambiguous, external,
-or unresolved. References that need type inference or method dispatch stay
-unresolved. The same file on disk can appear at several locations in one
-module tree. The resolver combines reference results from these module
-contexts. If the contexts resolve a name to different symbols, the result is
-ambiguous or unresolved. If several independent module roots declare the same
-source file, references from that file to other files stay unresolved. The
-resolver does not select one root.
+| Code reference state | Meaning |
+| --- | --- |
+| `exact` | One local symbol matches the reference. |
+| `ambiguous` | More than one local symbol matches the reference. This can occur when module contexts resolve the same name to different symbols. |
+| `external` | The reference names a symbol outside the analyzed files. |
+| `unresolved` | The resolver cannot find a valid target. References that need type inference or method dispatch have this state. Different results from module contexts can also cause this state. If independent module roots declare the same source file, references from that file to other files have this state. The resolver does not select one root. |
