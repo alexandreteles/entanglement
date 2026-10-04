@@ -6,6 +6,8 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
 
+use rayon::prelude::*;
+
 use crate::model::{
     Definition, DefinitionKind, FileFacts, Import, ModulePath, Reference, ReferenceAnalysis,
     ReferenceKind, Resolution, SymbolId,
@@ -79,7 +81,7 @@ struct Index {
 pub(crate) fn resolve(facts: &mut [FileFacts]) {
     let mut index = Index::new(facts);
     index.resolve_imports();
-    for (file_index, fact) in facts.iter_mut().enumerate() {
+    facts.par_iter_mut().enumerate().for_each(|(file_index, fact)| {
         let context = &index.contexts[file_index];
         fact.analysis.resolution = fact
             .references
@@ -103,7 +105,7 @@ pub(crate) fn resolve(facts: &mut [FileFacts]) {
                 ),
             })
             .collect();
-    }
+    });
 }
 
 impl Index {
