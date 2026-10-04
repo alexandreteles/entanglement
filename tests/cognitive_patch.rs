@@ -1,34 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Output};
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde_json::Value;
-
-static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
-
-struct TempDir(PathBuf);
-
-impl TempDir {
-    fn new() -> Self {
-        let nonce = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
-            "entanglement-cognitive-patch-{}-{nonce}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&path).expect("create temporary directory");
-        Self(path)
-    }
-
-    fn path(&self) -> &Path {
-        &self.0
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
 
 fn run(arguments: &[&str], path: &Path, diff: &Path) -> Output {
     Command::new(env!("CARGO_BIN_EXE_entanglement"))
@@ -83,7 +56,7 @@ fn assert_cognitive_change(report: &Value) {
 
 #[test]
 fn patch_and_candidate_report_cognitive_deltas_and_separate_contributions() {
-    let temp = TempDir::new();
+    let temp = tempfile::tempdir().expect("create temporary directory");
     let root = temp.path().join("crate");
     let source_dir = root.join("src");
     std::fs::create_dir_all(&source_dir).expect("create source directory");
