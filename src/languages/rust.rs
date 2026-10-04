@@ -387,7 +387,7 @@ impl<'a> CaptureFacts<'a> {
         deduplicate(&mut self.definitions, |item| {
             (item.range.start, item.range.end)
         });
-        let modules: Vec<_> = self
+        let mut modules: Vec<_> = self
             .definitions
             .iter()
             .filter(|item| item.inline_module)
@@ -398,6 +398,8 @@ impl<'a> CaptureFacts<'a> {
                 })
             })
             .collect();
+        modules.sort_by_key(|module| (module.body.end - module.body.start, module.body.start));
+        modules.reverse();
         let root_range = tree.root_node().start_byte()..tree.root_node().end_byte();
         let mut definitions = self.normalize_definitions(&modules, &root_range)?;
         let mut imports = self.normalize_imports(&modules, &root_range);
@@ -534,7 +536,7 @@ impl<'a> CaptureFacts<'a> {
             .collect()
     }
 
-    fn normalize_references(&self, modules: &[ModuleSpan], root: &Range<usize>) -> Vec<Reference> {
+    fn normalize_references(&mut self, modules: &[ModuleSpan], root: &Range<usize>) -> Vec<Reference> {
         let use_ranges = self.use_ranges();
         let binding_ranges = self.binding_ranges();
         let definition_ranges = self
@@ -550,7 +552,7 @@ impl<'a> CaptureFacts<'a> {
             })
             .map(|reference| reference.range.clone())
             .collect::<Vec<_>>();
-        let mut references = self.references.clone();
+        let mut references = std::mem::take(&mut self.references);
         references.extend(self.qualified_paths(&use_ranges));
         let qualified_ranges = references
             .iter()
@@ -1024,15 +1026,10 @@ fn contains(outer: &Range<usize>, inner: &Range<usize>) -> bool {
 }
 
 fn relative_module(position: usize, modules: &[ModuleSpan]) -> ModulePath {
-    let mut modules: Vec<_> = modules
-        .iter()
-        .filter(|module| module.body.start <= position && position <= module.body.end)
-        .collect();
-    modules.sort_by_key(|module| (module.body.end - module.body.start, module.body.start));
-    modules.reverse();
     ModulePath(
         modules
-            .into_iter()
+            .iter()
+            .filter(|module| module.body.start <= position && position <= module.body.end)
             .map(|module| module.name.clone())
             .collect(),
     )
