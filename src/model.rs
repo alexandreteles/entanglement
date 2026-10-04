@@ -207,6 +207,7 @@ pub struct MetricDelta<T, D = i64> {
 
 #[derive(Debug, Clone)]
 pub(crate) struct FileFacts {
+    pub source: std::sync::Arc<[u8]>,
     /// The resolved identity of the source file.
     pub target: PathBuf,
     /// All logical paths that name this source file.

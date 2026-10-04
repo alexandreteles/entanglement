@@ -69,10 +69,7 @@ fn run(command: cli::Command) -> Result<model::AnalysisResult> {
         }
         cli::Command::Repo { path } => {
             let path = std::path::absolute(path)?;
-            let mut facts: Vec<_> = analysis::analyze_paths(input::discover(&path)?)?
-                .into_iter()
-                .map(|parsed| parsed.facts)
-                .collect();
+            let mut facts = analysis::analyze_paths(input::discover(&path)?, |parsed| parsed.facts)?;
             resolver::resolve(&mut facts);
             Ok(model::AnalysisResult {
                 files: facts.into_iter().map(|fact| fact.analysis).collect(),
@@ -93,7 +90,7 @@ fn analyze_patch(path: &Path, diff: &Path, single: bool) -> Result<model::Analys
     let diff = input::read_diff(diff)?;
     let patches = input::parse_diff(&diff)?;
     let (root, paths) = patch_sources(path, &patches, single)?;
-    let mut parsed = analysis::analyze_paths(paths)?;
+    let mut parsed = analysis::analyze_paths(paths, std::convert::identity)?;
     if single && parsed.is_empty() {
         return Err("The selected file has no supported language".into());
     }
@@ -280,10 +277,10 @@ fn apply_file_patch(
     let old_index = old_target
         .as_ref()
         .and_then(|target| parsed.iter().position(|file| file.facts.target == *target));
-    let source = match (old_index, &old_path) {
-        (Some(index), _) => parsed[index].source.clone(),
-        (None, Some(path)) => std::fs::read(path)?,
-        (None, None) => Vec::new(),
+    let source: std::sync::Arc<[u8]> = match (old_index, &old_path) {
+        (Some(index), _) => std::sync::Arc::clone(&parsed[index].facts.source),
+        (None, Some(path)) => std::fs::read(path)?.into(),
+        (None, None) => Vec::new().into(),
     };
     let applied = input::apply_patch(&source, patch)?;
     let new_file = match &new_path {
@@ -294,7 +291,7 @@ fn apply_file_patch(
             match worker.select_file(analysis_path)? {
                 Some(choice) => Some(worker.analyze_selected_source(
                     analysis_path,
-                    &applied.source,
+                    applied.source,
                     old_index.map(|index| &parsed[index]),
                     &applied.edits,
                     choice,
