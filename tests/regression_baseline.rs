@@ -36,7 +36,11 @@ fn file<'a>(report: &'a Value, suffix: &str) -> &'a Value {
         .as_array()
         .expect("files array")
         .iter()
-        .find(|file| file["path"].as_str().is_some_and(|path| path.ends_with(suffix)))
+        .find(|file| {
+            file["path"]
+                .as_str()
+                .is_some_and(|path| path.ends_with(suffix))
+        })
         .unwrap_or_else(|| panic!("report has no file ending in {suffix}"))
 }
 
@@ -49,7 +53,7 @@ fn function<'a>(file: &'a Value, name: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("file has no function named {name}"))
 }
 
-fn resolution<'a>(reference: &'a Value) -> &'a Value {
+fn resolution(reference: &Value) -> &Value {
     &reference["resolution"]
 }
 
@@ -59,20 +63,18 @@ fn references_with_path<'a>(file: &'a Value, path: &[&str]) -> Vec<&'a Value> {
         .expect("resolution array")
         .iter()
         .filter(|reference| {
-            reference["path"]
-                .as_array()
-                .is_some_and(|parts| {
-                    parts.len() == path.len()
-                        && parts
-                            .iter()
-                            .zip(path)
-                            .all(|(part, expected)| part.as_str() == Some(*expected))
-                })
+            reference["path"].as_array().is_some_and(|parts| {
+                parts.len() == path.len()
+                    && parts
+                        .iter()
+                        .zip(path)
+                        .all(|(part, expected)| part.as_str() == Some(*expected))
+            })
         })
         .collect()
 }
 
-fn patch_file<'a>(report: &'a Value) -> &'a Value {
+fn patch_file(report: &Value) -> &Value {
     report["patch"]["files"]
         .as_array()
         .expect("patch files array")
@@ -107,9 +109,11 @@ fn assert_patch_metrics(report: &Value) {
     let added = delta["added_contributions"]
         .as_array()
         .expect("added contributions");
-    assert!(added.iter().any(|item| {
-        item["kind"] == "logical_condition" && item["value"] == 1
-    }));
+    assert!(
+        added
+            .iter()
+            .any(|item| { item["kind"] == "logical_condition" && item["value"] == 1 })
+    );
 }
 
 #[test]
@@ -129,8 +133,20 @@ fn file_mode_preserves_rust_metrics_and_injection_ranges() {
     let contributions = analyze["contributions"]
         .as_array()
         .expect("complexity contributions");
-    assert_eq!(contributions.iter().filter(|item| item["kind"] == "baseline").count(), 1);
-    assert_eq!(contributions.iter().filter(|item| item["kind"] == "condition").count(), 4);
+    assert_eq!(
+        contributions
+            .iter()
+            .filter(|item| item["kind"] == "baseline")
+            .count(),
+        1
+    );
+    assert_eq!(
+        contributions
+            .iter()
+            .filter(|item| item["kind"] == "condition")
+            .count(),
+        4
+    );
     assert_eq!(
         contributions
             .iter()
@@ -138,9 +154,11 @@ fn file_mode_preserves_rust_metrics_and_injection_ranges() {
             .count(),
         2
     );
-    assert!(contributions
-        .iter()
-        .any(|item| item["kind"] == "multiway" && item["value"] == 3));
+    assert!(
+        contributions
+            .iter()
+            .any(|item| item["kind"] == "multiway" && item["value"] == 3)
+    );
 
     let embedded = function(source, "embedded");
     assert_eq!(embedded["cyclomatic_complexity"], 1);
@@ -184,18 +202,33 @@ fn patch_and_candidate_modes_preserve_metric_deltas() {
     let client = fixture("repo/src/client.rs");
     let original_source = std::fs::read(&client).expect("read fixture source");
     let patch = run(&["patch"], &client, Some(&diff));
-    assert_eq!(std::fs::read(&client).expect("read fixture source"), original_source);
+    assert_eq!(
+        std::fs::read(&client).expect("read fixture source"),
+        original_source
+    );
     assert_patch_metrics(&patch);
     let changed = patch_file(&patch);
-    assert_eq!(function(&changed["before"], "calls")["cyclomatic_complexity"], 2);
-    assert_eq!(function(&changed["after"], "calls")["cyclomatic_complexity"], 3);
+    assert_eq!(
+        function(&changed["before"], "calls")["cyclomatic_complexity"],
+        2
+    );
+    assert_eq!(
+        function(&changed["after"], "calls")["cyclomatic_complexity"],
+        3
+    );
 
     let candidate = run(&["candidate"], &fixture("repo"), Some(&diff));
-    assert_eq!(std::fs::read(&client).expect("read fixture source"), original_source);
+    assert_eq!(
+        std::fs::read(&client).expect("read fixture source"),
+        original_source
+    );
     assert_eq!(candidate["files"].as_array().unwrap().len(), 5);
     assert_patch_metrics(&candidate);
     let updated_client = file(&candidate, "/src/client.rs");
-    assert_eq!(function(updated_client, "calls")["cyclomatic_complexity"], 3);
+    assert_eq!(
+        function(updated_client, "calls")["cyclomatic_complexity"],
+        3
+    );
     let dispatch = references_with_path(updated_client, &["dispatch"]);
     assert_eq!(resolution(dispatch[0])["status"], "exact");
     assert_eq!(resolution(dispatch[1])["status"], "unresolved");

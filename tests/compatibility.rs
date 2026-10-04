@@ -86,36 +86,48 @@ fn repo_follows_file_and_directory_symlinks_without_duplicate_reports() {
     let root = temp.path().join("repo");
     let source_dir = root.join("src");
     std::fs::create_dir_all(&source_dir).expect("create source directory");
-    std::fs::write(root.join("Cargo.toml"), b"[package]\nname='links'\nversion='0.1.0'\n")
-        .expect("write manifest");
+    std::fs::write(
+        root.join("Cargo.toml"),
+        b"[package]\nname='links'\nversion='0.1.0'\n",
+    )
+    .expect("write manifest");
     std::fs::write(
         source_dir.join("lib.rs"),
         b"mod nested;\npub fn root_fn() { nested::leaf(); }\n",
     )
     .expect("write crate root");
-    std::fs::write(source_dir.join("nested.rs"), b"pub fn leaf() {}\n")
-        .expect("write module file");
-    symlink(source_dir.join("lib.rs"), root.join("lib-alias.rs"))
-        .expect("create file symlink");
+    std::fs::write(source_dir.join("nested.rs"), b"pub fn leaf() {}\n").expect("write module file");
+    symlink(source_dir.join("lib.rs"), root.join("lib-alias.rs")).expect("create file symlink");
     symlink(&source_dir, root.join("mirror")).expect("create directory symlink");
 
     let file_report = report(&run(&["file"], &root.join("lib-alias.rs")));
     assert_eq!(file_report["files"].as_array().unwrap().len(), 1);
-    assert!(file_report["files"][0]["path"]
-        .as_str()
-        .is_some_and(|path| path.ends_with("/repo/lib-alias.rs")));
+    assert!(
+        file_report["files"][0]["path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("/repo/lib-alias.rs"))
+    );
 
     let repo_report = report(&run(&["repo"], &root));
     let files = repo_report["files"].as_array().expect("repo files");
     assert_eq!(files.len(), 2);
-    assert!(files
-        .iter()
-        .any(|file| file["functions"]
-            .as_array()
-            .is_some_and(|functions| functions.iter().any(|function| function["name"] == "root_fn"))));
+    assert!(files.iter().any(
+        |file| file["functions"].as_array().is_some_and(|functions| {
+            functions
+                .iter()
+                .any(|function| function["name"] == "root_fn")
+        })
+    ));
     assert!(files.iter().any(|file| {
         file["path"]
             .as_str()
             .is_some_and(|path| path.ends_with("nested.rs"))
     }));
+
+    symlink(root.join("missing.rs"), root.join("broken.rs")).expect("create broken symlink");
+    let broken_link_output = run(&["repo"], &root);
+    assert!(
+        !broken_link_output.status.success(),
+        "repository analysis should reject a broken symlink"
+    );
 }
