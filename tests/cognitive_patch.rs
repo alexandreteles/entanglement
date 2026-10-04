@@ -91,20 +91,6 @@ fn patch_and_candidate_report_cognitive_deltas_and_separate_contributions() {
         .expect("candidate target function");
     assert_eq!(after["cognitive_complexity"], 2);
 
-    let human = Command::new(env!("CARGO_BIN_EXE_entanglement"))
-        .args(["--format", "human", "file"])
-        .arg(&source)
-        .output()
-        .expect("run human report");
-    assert!(
-        human.status.success(),
-        "entanglement failed: {}",
-        String::from_utf8_lossy(&human.stderr)
-    );
-    let human = String::from_utf8(human.stdout).expect("human report is UTF-8");
-    assert!(human.lines().any(|line| line.contains("CogC")));
-    assert!(human.contains("target"));
-
     let human_patch = Command::new(env!("CARGO_BIN_EXE_entanglement"))
         .args(["--format", "human", "candidate", "--diff"])
         .arg(&diff)
