@@ -8,6 +8,10 @@ Build the program with the stable Rust toolchain:
 cargo build --release
 ```
 
+Run tests with `cargo test --locked`. Keep tests under `tests/`, covering
+distinct observable behaviors without duplicate cases. Do not add test modules
+or test-only hooks to `src/`.
+
 Use one of these commands:
 
 ```sh

@@ -74,24 +74,67 @@ fn async_block() {
 fn if_inside_if_condition(a: bool) {
     if (if a { true } else { false }) {}
 }
+
+fn boolean_runs(a: bool, b: bool, c: bool, d: bool) {
+    if a && b || c {}
+    let _ = a && (b || c) && d;
+    let _ = !(a && b) || c;
+}
+
+fn else_if_nesting(a: bool, b: bool, c: bool) {
+    loop { if a {} else if b { if c {} } break; }
+}
+
+fn match_guard(value: Option<i32>) {
+    match value { Some(v) if v > 0 => {}, _ => {} }
+}
+
+fn let_else_condition_nested(a: bool) {
+    let Some(v) = (if a { Some(1) } else { None }) else { return; };
+}
+
+fn let_chain(value: Option<i32>, b: bool, c: bool) {
+    if let Some(x) = value && x > 0 && (b || c) {}
+}
+
+fn labeled_break() {
+    'outer: loop { loop { break 'outer; } }
+}
+
+fn outer_with_nested_function() {
+    if true { fn inner() { if true {} } }
+}
+
+fn no_control() {}
 "#,
     )
     .expect("write Rust source");
 
     let report = analyze(&source);
-    assert_eq!(function(&report, "sumOfPrimes")["cognitive_complexity"], 7);
-    assert_eq!(function(&report, "getWords")["cognitive_complexity"], 1);
+    for (name, expected) in [
+        ("sumOfPrimes", 7),
+        ("getWords", 1),
+        ("nested_macro_injection", 3),
+        ("closure_inside_if", 4),
+        ("async_block", 1),
+        ("if_inside_if_condition", 3),
+        ("boolean_runs", 8),
+        ("else_if_nesting", 7),
+        ("match_guard", 3),
+        ("let_else_condition_nested", 3),
+        ("let_chain", 3),
+        ("labeled_break", 4),
+        ("no_control", 0),
+    ] {
+        assert_eq!(
+            function(&report, name)["cognitive_complexity"],
+            expected,
+            "unexpected cognitive complexity for {name}"
+        );
+    }
     assert_eq!(
-        function(&report, "nested_macro_injection")["cognitive_complexity"],
-        3
+        function(&report, "outer_with_nested_function")["cognitive_complexity"],
+        1
     );
-    assert_eq!(
-        function(&report, "closure_inside_if")["cognitive_complexity"],
-        4
-    );
-    assert_eq!(function(&report, "async_block")["cognitive_complexity"], 1);
-    assert_eq!(
-        function(&report, "if_inside_if_condition")["cognitive_complexity"],
-        3
-    );
+    assert_eq!(function(&report, "inner")["cognitive_complexity"], 3);
 }

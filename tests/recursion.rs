@@ -78,11 +78,6 @@ pub fn qualified_right() { qualified_left(); }
 
 pub fn alias_left() { via_alias(); }
 
-pub fn shadow_target() {}
-pub fn shadowed() {
-    let shadow_target = || {};
-    shadow_target();
-}
 pub fn shadow_pair_left() {
     let shadow_pair_right = || {};
     (shadow_pair_right)();
@@ -137,8 +132,6 @@ pub async fn async_caller() {
         assert_eq!(function(&report, name)["cyclomatic_complexity"], 1);
     }
     for name in [
-        "shadow_target",
-        "shadowed",
         "shadow_pair_left",
         "shadow_pair_right",
         "choose",
