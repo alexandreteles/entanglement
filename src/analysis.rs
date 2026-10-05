@@ -17,6 +17,7 @@ use crate::metrics::{
     cyclomatic::{self, FunctionScope},
     cyclomatic_density,
     halstead::{self, HalsteadMetrics, HalsteadToken},
+    maintainability::MaintainabilityIndex,
     nloc,
 };
 use crate::model::{
@@ -516,6 +517,9 @@ fn build_facts(
                 &parents,
             );
             let nloc = rows.len();
+            let halstead = HalsteadMetrics::from_tokens(
+                assigned_tokens.get(&index).cloned().unwrap_or_default(),
+            );
             analyses.push(FunctionAnalysis {
                 name: function.name,
                 start_byte: function.range.start,
@@ -526,9 +530,12 @@ fn build_facts(
                 contributions,
                 cognitive_complexity,
                 cognitive_contributions,
-                halstead: HalsteadMetrics::from_tokens(
-                    assigned_tokens.get(&index).cloned().unwrap_or_default(),
-                ),
+                maintainability_index: Some(MaintainabilityIndex::calculate(
+                    halstead.volume,
+                    cyclomatic_complexity,
+                    nloc,
+                )),
+                halstead,
             });
         }
     }
@@ -539,6 +546,10 @@ fn build_facts(
             &right.name,
         ))
     });
+    let file_cyclomatic_complexity = analyses
+        .iter()
+        .map(|function| function.cyclomatic_complexity)
+        .sum();
 
     let mut injections = Vec::new();
     collect_injection_analysis(parsed_injections, &mut injections);
@@ -569,6 +580,11 @@ fn build_facts(
             hash: blake3::hash(&source).to_hex().to_string(),
             language: root_choice.name.clone(),
             nloc: file_rows.len(),
+            maintainability_index: Some(MaintainabilityIndex::calculate(
+                file_halstead.volume,
+                file_cyclomatic_complexity,
+                file_rows.len(),
+            )),
             halstead: file_halstead,
             functions: analyses,
             injections,

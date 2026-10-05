@@ -3,12 +3,15 @@ use std::path::PathBuf;
 use serde::Serialize;
 
 use crate::metrics::halstead::{HalsteadMetrics, HalsteadTokenKind};
+use crate::metrics::maintainability::{MaintainabilityBand, MaintainabilityIndex};
 
 #[derive(Debug, Clone, Serialize)]
 /// The full report for one command.
 pub struct AnalysisResult {
     /// The reports for supported source files.
     pub files: Vec<FileAnalysis>,
+    /// The exact Microsoft Maintainability Index ranges and colors.
+    pub maintainability_index_bands: [MaintainabilityBand; 3],
     /// The patch report, when the command analyzes a patch.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub patch: Option<PatchAnalysis>,
@@ -27,6 +30,8 @@ pub struct FileAnalysis {
     pub nloc: usize,
     /// Halstead operators, operands, and derived metrics for the whole file.
     pub halstead: HalsteadMetrics,
+    /// Microsoft Maintainability Index calculated from volume, file CC, and NLOC.
+    pub maintainability_index: Option<MaintainabilityIndex>,
     /// The metrics for functions in this file.
     pub functions: Vec<FunctionAnalysis>,
     /// The source ranges that use an injected language.
@@ -48,6 +53,8 @@ pub struct FunctionAnalysis {
     pub nloc: usize,
     /// Halstead operators, operands, and derived metrics for the function.
     pub halstead: HalsteadMetrics,
+    /// Microsoft Maintainability Index calculated from volume, function CC, and NLOC.
+    pub maintainability_index: Option<MaintainabilityIndex>,
     /// The cyclomatic complexity score.
     pub cyclomatic_complexity: usize,
     /// The complexity score divided by NLOC, with zero treated as one.
@@ -185,6 +192,8 @@ pub struct FilePatchAnalysis {
     pub after: Option<FileAnalysis>,
     /// The Halstead metric and token contribution changes for this file.
     pub halstead: HalsteadDelta,
+    /// The file's before/after Microsoft Maintainability Index and score effects.
+    pub maintainability_index: MaintainabilityDelta,
     /// The metric and contribution changes for matching functions.
     pub functions: Vec<FunctionDelta>,
 }
@@ -204,6 +213,8 @@ pub struct FunctionDelta {
     pub cognitive_complexity: MetricDelta<usize>,
     /// The Halstead metric and token contribution changes for this function.
     pub halstead: HalsteadDelta,
+    /// The function's before/after Microsoft Maintainability Index and score effects.
+    pub maintainability_index: MaintainabilityDelta,
     /// The complexity events added by the patch.
     pub added_contributions: Vec<ComplexityContribution>,
     /// The complexity events removed by the patch.
@@ -260,6 +271,25 @@ pub struct HalsteadTokenChange {
     pub line: usize,
     /// The number of occurrences added or removed.
     pub count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+/// The before/after Microsoft Maintainability Index for a patch scope.
+pub struct MaintainabilityDelta {
+    /// The measured before value, absent when the scope did not exist.
+    pub before: Option<MaintainabilityIndex>,
+    /// The measured after value, absent when the scope did not exist.
+    pub after: Option<MaintainabilityIndex>,
+    /// The score change when both sides have a measured index; positive improves.
+    pub score: Option<MetricDelta<f64, f64>>,
+    /// The point effect caused by a Halstead volume change.
+    pub volume_effect: Option<f64>,
+    /// The point effect caused by a cyclomatic complexity change.
+    pub cyclomatic_effect: Option<f64>,
+    /// The point effect caused by an NLOC change.
+    pub nloc_effect: Option<f64>,
+    /// The point adjustment caused by clamping to the score range.
+    pub clamp_adjustment: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
