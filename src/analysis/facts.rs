@@ -4,13 +4,10 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::languages::{CapturedTree, LanguageChoice};
+use crate::metrics::selection::Selection;
 use crate::metrics::{
-    SyntaxEvent, SyntaxRole, cognitive,
-    cyclomatic::{self, FunctionScope},
-    cyclomatic_density,
-    halstead::{self, HalsteadMetrics, HalsteadToken},
-    maintainability::MaintainabilityIndex,
-    nloc,
+    SyntaxEvent, cyclomatic::FunctionScope, halstead::HalsteadToken,
+    maintainability::MaintainabilityIndex, nloc,
 };
 use crate::model::{
     Definition, FileAnalysis, FileFacts, FunctionAnalysis, Import, InjectionAnalysis, LocalBinding,
@@ -18,15 +15,16 @@ use crate::model::{
 };
 
 use super::injections::{self, ParsedInjection};
+use super::metrics;
 
 pub(super) struct TreeSummary {
     language_id: String,
-    events: Vec<SyntaxEvent>,
-    parents: HashMap<usize, Option<usize>>,
+    pub(super) events: Vec<SyntaxEvent>,
+    pub(super) parents: HashMap<usize, Option<usize>>,
     pub(super) cognitive_parent: Option<usize>,
     functions: Vec<FunctionScope>,
-    tokens: Vec<HalsteadToken>,
-    excluded: Vec<Range<usize>>,
+    pub(super) tokens: Vec<HalsteadToken>,
+    pub(super) excluded: Vec<Range<usize>>,
     definitions: Vec<Definition>,
     imports: Vec<Import>,
     references: Vec<Reference>,
@@ -113,12 +111,9 @@ pub(super) fn build_facts(
     root_choice: &LanguageChoice,
     summaries: Vec<TreeSummary>,
     parsed_injections: &[ParsedInjection],
+    selection: Selection,
 ) -> FileFacts {
-    let file_tokens = summaries
-        .iter()
-        .flat_map(|item| item.tokens.iter().cloned())
-        .collect::<Vec<_>>();
-    let file_halstead = HalsteadMetrics::from_tokens(file_tokens);
+    let (file_volume, file_halstead) = metrics::file_halstead(&summaries, selection);
     let mut file_rows = BTreeSet::new();
     for item in &summaries {
         file_rows.extend(nloc::rows(&item.events, 0..source.len(), &item.excluded));
@@ -152,40 +147,12 @@ pub(super) fn build_facts(
     }
 
     let mut analyses = Vec::new();
+    let mut file_cyclomatic_complexity = 0;
     for (language, scopes) in functions_by_language {
         let indexes = &by_language[&language];
-        let mut events = Vec::new();
-        let mut parents = HashMap::new();
-        let mut tokens = Vec::new();
-        for index in indexes {
-            let item = &summaries[*index];
-            events.extend(item.events.iter().copied().filter(|event| {
-                (is_complexity_event(event.role) || cognitive::is_event(event.role))
-                    && !inside_any(event.range(), &item.excluded)
-            }));
-            parents.extend(item.parents.iter().map(|(key, value)| (*key, *value)));
-            tokens.extend(item.tokens.iter().cloned());
-        }
-        let assigned = cyclomatic::assign_events(&scopes, &events);
-        let assigned_tokens = halstead::assign_tokens(&scopes, &tokens);
-        // Injection trees have independent roots. Connect them only for cognitive
-        // nesting; keep the existing cyclomatic ancestry unchanged.
-        let mut cognitive_parents = std::borrow::Cow::Borrowed(&parents);
-        for index in indexes {
-            let item = &summaries[*index];
-            if let Some(parent) = item.cognitive_parent {
-                for (root, ancestor) in &item.parents {
-                    if ancestor.is_none() {
-                        cognitive_parents.to_mut().insert(*root, Some(parent));
-                    }
-                }
-            }
-        }
-        let cognitive =
-            cognitive::Context::new(&events, &cognitive_parents).analyze_functions(&scopes);
-        for (index, (function, (cognitive_complexity, cognitive_contributions))) in
-            scopes.into_iter().zip(cognitive).enumerate()
-        {
+        let language_metrics =
+            metrics::LanguageMetrics::calculate(&scopes, &summaries, indexes, selection);
+        for (index, function) in scopes.into_iter().enumerate() {
             let mut rows = BTreeSet::new();
             for summary_index in indexes {
                 let item = &summaries[*summary_index];
@@ -195,31 +162,21 @@ pub(super) fn build_facts(
                     &item.excluded,
                 ));
             }
-            let (cyclomatic_complexity, contributions) = cyclomatic::analyze(
-                &function,
-                assigned.get(&index).map_or(&[], Vec::as_slice),
-                &parents,
-            );
             let nloc = rows.len();
-            let halstead = HalsteadMetrics::from_tokens(
-                assigned_tokens.get(&index).cloned().unwrap_or_default(),
-            );
+            let function_metrics = language_metrics.for_function(&function, index, nloc);
+            file_cyclomatic_complexity += function_metrics.cyclomatic_for_file;
             analyses.push(FunctionAnalysis {
                 name: function.name,
                 start_byte: function.range.start,
                 end_byte: function.range.end,
                 nloc,
-                cyclomatic_complexity,
-                cyclomatic_density: cyclomatic_density::calculate(cyclomatic_complexity, nloc),
-                contributions,
-                cognitive_complexity,
-                cognitive_contributions,
-                maintainability_index: Some(MaintainabilityIndex::calculate(
-                    halstead.volume,
-                    cyclomatic_complexity,
-                    nloc,
-                )),
-                halstead,
+                cyclomatic_complexity: function_metrics.cyclomatic_complexity,
+                cyclomatic_density: function_metrics.cyclomatic_density,
+                contributions: function_metrics.contributions,
+                cognitive_complexity: function_metrics.cognitive_complexity,
+                cognitive_contributions: function_metrics.cognitive_contributions,
+                maintainability_index: function_metrics.maintainability_index,
+                halstead: function_metrics.halstead,
             });
         }
     }
@@ -230,11 +187,6 @@ pub(super) fn build_facts(
             &right.name,
         ))
     });
-    let file_cyclomatic_complexity = analyses
-        .iter()
-        .map(|function| function.cyclomatic_complexity)
-        .sum();
-
     let mut injections = Vec::<InjectionAnalysis>::new();
     injections::collect_injection_analysis(parsed_injections, &mut injections);
     let mut definitions = Vec::new();
@@ -264,11 +216,13 @@ pub(super) fn build_facts(
             hash: blake3::hash(&source).to_hex().to_string(),
             language: root_choice.name.clone(),
             nloc: file_rows.len(),
-            maintainability_index: Some(MaintainabilityIndex::calculate(
-                file_halstead.volume,
-                file_cyclomatic_complexity,
-                file_rows.len(),
-            )),
+            maintainability_index: selection.needs_mi().then(|| {
+                MaintainabilityIndex::calculate(
+                    file_volume,
+                    file_cyclomatic_complexity,
+                    file_rows.len(),
+                )
+            }),
             halstead: file_halstead,
             functions: analyses,
             injections,
@@ -298,16 +252,6 @@ fn inherit_scope(
         *scope_start = scope.start;
         *scope_end = scope.end;
     }
-}
-
-fn is_complexity_event(role: SyntaxRole) -> bool {
-    matches!(
-        role,
-        SyntaxRole::Condition
-            | SyntaxRole::LogicalCondition
-            | SyntaxRole::Multiway
-            | SyntaxRole::Case
-    )
 }
 
 fn inside_any(range: Range<usize>, excluded: &[Range<usize>]) -> bool {

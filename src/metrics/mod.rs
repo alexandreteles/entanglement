@@ -5,6 +5,7 @@ pub mod halstead;
 pub mod maintainability;
 pub mod nloc;
 pub(crate) mod recursion;
+pub mod selection;
 
 use std::ops::Range;
 

@@ -2,6 +2,7 @@
 
 mod facts;
 mod injections;
+mod metrics;
 mod worker;
 
 pub(crate) use worker::{ParsedFile, Worker};
@@ -13,10 +14,12 @@ use rayon::prelude::*;
 
 use crate::Result;
 use crate::input;
+use crate::metrics::selection::Selection;
 
 /// Analyze each supported target once and keep its logical paths as aliases.
 pub(crate) fn analyze_paths<I, T: Send>(
     paths: I,
+    selection: Selection,
     project: impl Fn(ParsedFile) -> T + Sync,
 ) -> Result<Vec<T>>
 where
@@ -36,7 +39,7 @@ where
         .into_iter()
         .par_bridge()
         .map_init(
-            || Worker::new().map_err(|error| error.to_string()),
+            || Worker::new(selection).map_err(|error| error.to_string()),
             |worker, (target, aliases)| match worker {
                 Ok(worker) => worker
                     .analyze_target(target, aliases.into_iter().collect())
@@ -49,3 +52,7 @@ where
     files.sort_by(|left, right| left.0.cmp(&right.0));
     Ok(files.into_iter().map(|(_, file)| file).collect())
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/analysis_selection.rs"]
+mod selection_tests;

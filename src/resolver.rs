@@ -77,7 +77,7 @@ struct Index {
 /// Call this after all files have been parsed. The function sorts symbols and
 /// ambiguity results to keep output stable. It leaves method calls and names
 /// that cannot be resolved without guessing as `Unresolved`.
-pub(crate) fn resolve(facts: &mut [FileFacts]) {
+pub(crate) fn resolve(facts: &mut [FileFacts], selection: crate::metrics::selection::Selection) {
     let mut index = Index::new(facts);
     index.resolve_imports();
     facts
@@ -110,7 +110,9 @@ pub(crate) fn resolve(facts: &mut [FileFacts]) {
                 .collect();
         });
     drop(index);
-    crate::metrics::recursion::annotate(facts);
+    if selection.includes(crate::metrics::selection::Metric::Cogc) {
+        crate::metrics::recursion::annotate(facts);
+    }
 }
 
 fn joined_path(base: &[String], relative: &[String]) -> Vec<String> {

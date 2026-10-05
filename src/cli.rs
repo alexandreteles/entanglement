@@ -2,7 +2,9 @@
 
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{ArgAction, Parser, Subcommand, ValueEnum};
+
+use crate::metrics::selection::Metric;
 
 /// Command-line arguments for the analyzer.
 ///
@@ -11,6 +13,17 @@ use clap::{Parser, Subcommand, ValueEnum};
 #[derive(Debug, Parser)]
 #[command(name = "entanglement", version, about = "Analyze Rust code metrics")]
 pub struct Cli {
+    /// Select report metrics (repeatable and comma-delimited; defaults to all).
+    #[arg(
+        long,
+        global = true,
+        value_enum,
+        value_delimiter = ',',
+        action = ArgAction::Append,
+        default_value = "all"
+    )]
+    pub metrics: Vec<Metric>,
+
     /// Select the result format.
     #[arg(long, value_enum, global = true, default_value_t = OutputFormat::Human)]
     pub format: OutputFormat,

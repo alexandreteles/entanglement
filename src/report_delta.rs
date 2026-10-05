@@ -5,10 +5,13 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use tree_sitter::InputEdit;
 
 use crate::metrics::halstead::{HalsteadMetrics, HalsteadToken, HalsteadTokenKind};
+use crate::metrics::selection::{Metric, Selection};
 use crate::model;
 
+mod functions;
 mod maintainability;
 
+pub(crate) use functions::function_deltas;
 pub(crate) use maintainability::compare as maintainability_delta;
 
 type TokenIdentity = (HalsteadTokenKind, String);
@@ -18,108 +21,16 @@ type TokenIndexes = (
     HashMap<TokenIdentity, VecDeque<usize>>,
 );
 
-/// Compare function scores and contributions before and after source edits.
-pub(crate) fn function_deltas(
-    before: Option<&model::FileAnalysis>,
-    after: Option<&model::FileAnalysis>,
-    edits: &[InputEdit],
-) -> Vec<model::FunctionDelta> {
-    let old_functions = before.map_or(&[][..], |file| file.functions.as_slice());
-    let new_functions = after.map_or(&[][..], |file| file.functions.as_slice());
-    let mut available: Vec<_> = new_functions.iter().map(Some).collect();
-    let mut pairs = Vec::new();
-    for old in old_functions {
-        let mapped = edited_position(old.start_byte, edits);
-        let matches: Vec<_> = available
-            .iter()
-            .enumerate()
-            .filter_map(|(index, new)| {
-                new.filter(|new| new.name == old.name)
-                    .map(|new| (index, new))
-            })
-            .collect();
-        let index = matches
-            .iter()
-            .find(|(_, new)| mapped == Some(new.start_byte))
-            .map(|(index, _)| *index)
-            .or_else(|| {
-                (matches.len() == 1
-                    && old_functions
-                        .iter()
-                        .filter(|function| function.name == old.name)
-                        .count()
-                        == 1)
-                    .then(|| matches[0].0)
-            });
-        pairs.push((Some(old), index.and_then(|index| available[index].take())));
-    }
-    pairs.extend(available.into_iter().flatten().map(|new| (None, Some(new))));
-    pairs
-        .into_iter()
-        .map(|(old, new)| {
-            let old_nloc = old.map_or(0, |function| function.nloc);
-            let new_nloc = new.map_or(0, |function| function.nloc);
-            let old_cc = old.map_or(0, |function| function.cyclomatic_complexity);
-            let new_cc = new.map_or(0, |function| function.cyclomatic_complexity);
-            let old_density = old.map_or(0.0, |function| function.cyclomatic_density);
-            let new_density = new.map_or(0.0, |function| function.cyclomatic_density);
-            let old_cognitive = old.map_or(0, |function| function.cognitive_complexity);
-            let new_cognitive = new.map_or(0, |function| function.cognitive_complexity);
-            let (added_contributions, removed_contributions) = contribution_changes(
-                old.map(|function| function.contributions.as_slice()),
-                new.map(|function| function.contributions.as_slice()),
-                edits,
-            );
-            let (added_cognitive_contributions, removed_cognitive_contributions) =
-                contribution_changes(
-                    old.map(|function| function.cognitive_contributions.as_slice()),
-                    new.map(|function| function.cognitive_contributions.as_slice()),
-                    edits,
-                );
-            model::FunctionDelta {
-                name: old
-                    .or(new)
-                    .expect("A function pair has a function")
-                    .name
-                    .clone(),
-                nloc: metric_delta(old_nloc, new_nloc, |before, after| {
-                    after as i64 - before as i64
-                }),
-                cyclomatic_complexity: metric_delta(old_cc, new_cc, |before, after| {
-                    after as i64 - before as i64
-                }),
-                cyclomatic_density: metric_delta(old_density, new_density, |before, after| {
-                    after - before
-                }),
-                cognitive_complexity: metric_delta(
-                    old_cognitive,
-                    new_cognitive,
-                    |before, after| after as i64 - before as i64,
-                ),
-                maintainability_index: maintainability_delta(
-                    old.and_then(|function| function.maintainability_index.as_ref()),
-                    new.and_then(|function| function.maintainability_index.as_ref()),
-                ),
-                halstead: halstead_delta(
-                    old.map(|function| &function.halstead),
-                    new.map(|function| &function.halstead),
-                    edits,
-                ),
-                added_contributions,
-                removed_contributions,
-                added_cognitive_contributions,
-                removed_cognitive_contributions,
-            }
-        })
-        .collect()
-}
-
 /// Compare the whole-file Halstead indicators and token occurrences.
-pub(crate) fn halstead_delta(
+pub(super) fn halstead_delta(
     before: Option<&HalsteadMetrics>,
     after: Option<&HalsteadMetrics>,
     edits: &[InputEdit],
+    selection: Selection,
 ) -> model::HalsteadDelta {
+    if !selection.includes(Metric::Halstead) {
+        return empty_halstead_delta();
+    }
     let zero = HalsteadMetrics::calculate(0, 0, 0, 0);
     let before = before.unwrap_or(&zero);
     let after = after.unwrap_or(&zero);
@@ -156,6 +67,38 @@ pub(crate) fn halstead_delta(
         estimated_bugs: float_delta(before.estimated_bugs, after.estimated_bugs),
         added_tokens,
         removed_tokens,
+    }
+}
+
+fn empty_halstead_delta() -> model::HalsteadDelta {
+    model::HalsteadDelta {
+        distinct_operators: metric_delta(0, 0, difference_usize),
+        distinct_operands: metric_delta(0, 0, difference_usize),
+        total_operators: metric_delta(0, 0, difference_usize),
+        total_operands: metric_delta(0, 0, difference_usize),
+        vocabulary: metric_delta(0, 0, difference_usize),
+        length: metric_delta(0, 0, difference_usize),
+        estimated_length: float_delta(0.0, 0.0),
+        volume: float_delta(0.0, 0.0),
+        difficulty: float_delta(0.0, 0.0),
+        effort: float_delta(0.0, 0.0),
+        time: float_delta(0.0, 0.0),
+        program_level: float_delta(0.0, 0.0),
+        estimated_bugs: float_delta(0.0, 0.0),
+        added_tokens: Vec::new(),
+        removed_tokens: Vec::new(),
+    }
+}
+
+fn empty_maintainability_delta() -> model::MaintainabilityDelta {
+    model::MaintainabilityDelta {
+        before: None,
+        after: None,
+        score: None,
+        volume_effect: None,
+        cyclomatic_effect: None,
+        nloc_effect: None,
+        clamp_adjustment: None,
     }
 }
 

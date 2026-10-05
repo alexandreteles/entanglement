@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use petgraph::algo::kosaraju_scc;
 use petgraph::graph::{DiGraph, NodeIndex};
 
-use crate::model::{DefinitionKind, FileFacts, Resolution};
+use crate::model::{ComplexityContribution, DefinitionKind, FileFacts, Resolution};
 
 /// Add one cognitive-complexity point to each function in a resolved cycle.
 pub(crate) fn annotate(facts: &mut [FileFacts]) {
@@ -62,17 +62,15 @@ pub(crate) fn annotate(facts: &mut [FileFacts]) {
 
     for node in recursive_nodes {
         let (file_index, function_index) = graph[node];
-        let function = &mut facts[file_index].analysis.functions[function_index];
-        let Some(mut contribution) = function
-            .contributions
-            .iter()
-            .find(|contribution| contribution.kind == "baseline")
-            .cloned()
-        else {
-            continue;
+        let fact = &mut facts[file_index];
+        let function = &mut fact.analysis.functions[function_index];
+        let contribution = ComplexityContribution {
+            kind: "recursion".into(),
+            value: 1,
+            start_byte: function.start_byte,
+            end_byte: function.start_byte,
+            line: memchr::memchr_iter(b'\n', &fact.source[..function.start_byte]).count() + 1,
         };
-        contribution.kind = "recursion".into();
-        contribution.value = 1;
         function.cognitive_complexity += 1;
         function.cognitive_contributions.push(contribution);
         function
