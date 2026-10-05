@@ -40,21 +40,6 @@ For a `candidate` file input, use the nearest ancestor directory containing a
 recognized project manifest or `.git` to resolve code references. If there is
 no such directory, use the root directory from the diff path.
 
-Halstead reports use `n = n1 + n2`, `N = N1 + N2`, estimated length
-`n1 log2(n1) + n2 log2(n2)`, volume `N log2(n)`, difficulty
-`(n1 / 2) × (N2 / n2)`, effort `difficulty × volume`, time `effort / 18`
-seconds, and program level `1 / difficulty`. Estimated bugs use `volume / 3000`.
-When a denominator is zero, the affected derived value is reported as zero so
-JSON remains finite.
-
-File metrics include top-level syntax and tokens from supported embedded
-languages once; unsupported embedded ranges are excluded. Function metrics
-cover the full function item, including its signature. Tokens inside a nested
-function belong to the innermost function, while closure tokens stay with the
-enclosing function. Rust primitive types, `self`, `crate`, `super`, and macro
-metavariables count as operands. Shebangs, comments, and whitespace are
-excluded.
-
 Supply a unified diff with `--diff PATH`. Use `--diff -` to read the diff from
 standard input. For a directory input, diff paths are relative to that
 directory. For a file input, the diff must contain one file patch. Its old
