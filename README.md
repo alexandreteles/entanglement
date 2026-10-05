@@ -93,7 +93,10 @@ before/after/deltas, MI score effects by volume, CC, NLOC, and clamping, plus
 added and removed token and CC contributors. Selecting a subset omits unselected
 metric fields. A missing file or function side has no synthetic MI score.
 Positive MI change means improved maintainability. JSON includes code
-reference results when applicable.
+reference results when applicable. Patch and candidate function deltas include
+`before_range` and `after_range` byte spans as `{start_byte, end_byte}` objects;
+`start_byte` is inclusive, `end_byte` is exclusive, and an absent function side
+is `null`.
 
 | Code reference state | Meaning |
 | --- | --- |
