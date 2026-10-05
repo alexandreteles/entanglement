@@ -203,6 +203,12 @@ pub struct FilePatchAnalysis {
 pub struct FunctionDelta {
     /// The function name.
     pub name: String,
+    /// The inclusive start and exclusive end source byte offsets before the patch.
+    /// JSON uses null when this side has no matching function.
+    pub before_range: Option<SourceRange>,
+    /// The inclusive start and exclusive end source byte offsets after the patch.
+    /// JSON uses null when this side has no matching function.
+    pub after_range: Option<SourceRange>,
     /// The NLOC values before and after the patch.
     pub nloc: MetricDelta<usize>,
     /// The cyclomatic complexity values before and after the patch.
@@ -223,6 +229,15 @@ pub struct FunctionDelta {
     pub added_cognitive_contributions: Vec<ComplexityContribution>,
     /// The cognitive complexity events removed by the patch.
     pub removed_cognitive_contributions: Vec<ComplexityContribution>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+/// A source range expressed as byte offsets.
+pub struct SourceRange {
+    /// The inclusive start byte of the range.
+    pub start_byte: usize,
+    /// The exclusive end byte of the range.
+    pub end_byte: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]

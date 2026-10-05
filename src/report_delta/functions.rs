@@ -83,6 +83,14 @@ pub(crate) fn function_deltas(
                     .expect("A function pair has a function")
                     .name
                     .clone(),
+                before_range: old.map(|function| model::SourceRange {
+                    start_byte: function.start_byte,
+                    end_byte: function.end_byte,
+                }),
+                after_range: new.map(|function| model::SourceRange {
+                    start_byte: function.start_byte,
+                    end_byte: function.end_byte,
+                }),
                 nloc: metric_delta(old_nloc, new_nloc, |before, after| {
                     after as i64 - before as i64
                 }),
