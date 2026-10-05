@@ -50,6 +50,7 @@ not write source files.
 | --- | --- | --- |
 | NLOC (non-comment lines of code) | Count each source line covered by a code token once. Exclude comments and syntax that belongs to an unsupported embedded language. | Robert E. Park, [*Software Size Measurement: A Framework for Counting Source Statements*](https://www.sei.cmu.edu/library/software-size-measurement-a-framework-for-counting-source-statements/), CMU/SEI-92-TR-020 (1992). Defines a framework for physical source-line counting rules. Entanglement uses the rule in this row. |
 | Halstead metrics | Count Tree-sitter Rust terminals as operators when they are keywords, punctuation, or operator symbols; count identifiers, literals, and lifetime or label spellings as operands. Exact spellings define distinct operators and operands. Ignore comments and whitespace. Report n1, n2, N1, N2, vocabulary, length, estimated length, volume, difficulty, effort, time, program level, and estimated bugs per file and function. Empty inputs produce finite zero values. | Maurice H. Halstead, [*Elements of Software Science*](https://doi.org/10.1016/C2013-0-04680-3), Elsevier (1977). |
+| Maintainability index (MI) | `clamp((171 - 5.2 ln(V) - 0.23 CC - 16.2 ln(NLOC)) × 100 / 171, 0, 100)`, where V is Halstead volume and CC is cyclomatic complexity. Log inputs use `max(value, 1)`. File CC is the sum of function CC; function MI uses its own CC and NLOC. Bands are 0–<10 red/low, 10–<20 yellow/moderate, and 20–100 green/good. Higher scores indicate better maintainability. | Oman and Hagemeister, [*Metrics for Assessing a Software System's Maintainability*](https://doi.org/10.1109/ICSM.1992.242525), ICSM (1992); [Microsoft Code Metrics: Maintainability Index](https://learn.microsoft.com/en-us/visualstudio/code-quality/code-metrics-maintainability-index-range-and-meaning). |
 | Cyclomatic complexity (CC) | Start each function at 1. Add 1 for each control-flow decision and logical condition. For a captured multiway decision with N cases, add `max(N - 1, 0)`. | [NIST SP 500-235, *Structured Testing: A Testing Methodology Using the Cyclomatic Complexity Metric*](https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication500-235.pdf) (1996), sections 2.2 and 4.1. Defines the metric and decision-counting method. |
 | Cognitive complexity (CogC) | Start each function at 0. Each captured conditional (including a conditional binding), loop, or multiway decision adds 1 plus the current nesting depth. Alternate and chained branches add 1 without a nesting surcharge. Count a multiway decision once, with guarded cases treated as nested conditionals. Closures and nested functions add nesting for their contents; asynchronous blocks do not. Add 1 for the first logical AND or OR operator in a sequence, then for each change between operator kinds; parentheses keep a sequence together and negation splits it without adding a point. Labeled loop jumps add 1. Each function in a detected direct or mutual call cycle gets 1 recursion point; ordinary calls are free. | SonarSource, [*Cognitive Complexity*](https://www.sonarsource.com/docs/CognitiveComplexity.pdf). Entanglement maps its flow-break, nesting, and logical-sequence principles to captured syntax. |
 
@@ -57,14 +58,13 @@ Use `--format human` for a terminal report. This is the default format.
 Use `--format json` for a JSON document. You can put `--format` before or
 after the command.
 
-JSON includes file and function Halstead indicators, CC and CogC function
-contributions, and ranges for embedded languages. Patch and candidate reports
-include before/after/delta values for each Halstead indicator, plus added and
-removed token counts with token kind, spelling, and source line. Token changes
-explain contributors; volume and other derived values are recalculated from
-the full token set and are not additive. Patch comparisons also include
-separate CC and CogC contribution changes. JSON includes code reference
-results when applicable.
+JSON includes file and function Halstead and MI values, MI band boundaries,
+CC and CogC function contributions, and ranges for embedded languages. Patch
+and candidate reports include Halstead and MI before/after/deltas, MI score
+effects by volume, CC, NLOC, and clamping, plus added and removed token and CC
+contributors. A missing file or function side has no synthetic MI score.
+Positive MI change means improved maintainability. JSON includes code
+reference results when applicable.
 
 | Code reference state | Meaning |
 | --- | --- |
