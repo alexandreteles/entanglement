@@ -46,6 +46,34 @@ directory. For a file input, the diff must contain one file patch. Its old
 path must match the selected file. The `patch` and `candidate` commands do
 not write source files.
 
+## Selecting metrics
+
+All commands accept the global `--metrics` option before or after the command.
+Its value is a comma-separated list of canonical names: `nloc`, `cc`,
+`density`, `cogc`, `halstead`, and `mi`. Repeat the option to add more
+metrics. With no option, all metrics are reported; `--metrics all` selects the
+same set. NLOC is always included, even when it is not named. Unknown names
+and empty values are errors.
+
+The CLI also accepts `cyclomatic` and `cyclomatic-complexity` for `cc`,
+`cyclomatic-density` for `density`, `cognitive` and
+`cognitive-complexity` for `cogc`, and `maintainability` and
+`maintainability-index` for `mi`.
+
+```sh
+entanglement --metrics=cogc repo src --format json
+entanglement candidate . --diff change.patch --metrics cc,halstead --format json
+entanglement --metrics mi --metrics density file "$SOURCE_FILE"
+```
+
+Selecting `density` calculates cyclomatic complexity as an input, but hides
+the separate CC values and contributors unless `cc` is also selected.
+Selecting `mi` calculates Halstead volume and cyclomatic complexity as inputs,
+but hides their separate report sections unless `halstead` or `cc` is selected.
+The MI report retains its own input and score-effect details. Selecting
+`cogc` still includes recursion results, which require repository-wide analysis
+for repository and candidate commands.
+
 | Metric | Counting rule in Entanglement | Paper or publication |
 | --- | --- | --- |
 | NLOC (non-comment lines of code) | Count each source line covered by a code token once. Exclude comments and syntax that belongs to an unsupported embedded language. | Robert E. Park, [*Software Size Measurement: A Framework for Counting Source Statements*](https://www.sei.cmu.edu/library/software-size-measurement-a-framework-for-counting-source-statements/), CMU/SEI-92-TR-020 (1992). Defines a framework for physical source-line counting rules. Entanglement uses the rule in this row. |
@@ -58,11 +86,12 @@ Use `--format human` for a terminal report. This is the default format.
 Use `--format json` for a JSON document. You can put `--format` before or
 after the command.
 
-JSON includes file and function Halstead and MI values, MI band boundaries,
-CC and CogC function contributions, and ranges for embedded languages. Patch
-and candidate reports include Halstead and MI before/after/deltas, MI score
-effects by volume, CC, NLOC, and clamping, plus added and removed token and CC
-contributors. A missing file or function side has no synthetic MI score.
+With all metrics selected, JSON includes file and function Halstead and MI
+values, MI band boundaries, CC and CogC function contributions, and ranges for
+embedded languages. Patch and candidate reports include Halstead and MI
+before/after/deltas, MI score effects by volume, CC, NLOC, and clamping, plus
+added and removed token and CC contributors. Selecting a subset omits unselected
+metric fields. A missing file or function side has no synthetic MI score.
 Positive MI change means improved maintainability. JSON includes code
 reference results when applicable.
 
