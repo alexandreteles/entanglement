@@ -141,3 +141,7 @@ pub fn assign_events(
     }
     assigned
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/cyclomatic.rs"]
+mod tests;
