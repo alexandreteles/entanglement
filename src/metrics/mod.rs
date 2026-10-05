@@ -1,6 +1,7 @@
 pub mod cognitive;
 pub mod cyclomatic;
 pub mod cyclomatic_density;
+pub mod halstead;
 pub mod nloc;
 pub(crate) mod recursion;
 

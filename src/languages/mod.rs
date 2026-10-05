@@ -1,5 +1,6 @@
 mod assets;
 pub mod rust;
+mod rust_tokens;
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -10,6 +11,7 @@ use tree_sitter::{Language, Tree};
 use tree_sitter_loader::Loader;
 
 use crate::Result;
+use crate::metrics::halstead::HalsteadToken;
 use crate::metrics::{SyntaxEvent, cyclomatic::FunctionScope};
 use crate::model::{Definition, Import, LocalBinding, Reference};
 
@@ -30,6 +32,7 @@ pub(crate) struct CapturedTree {
     pub events: Vec<SyntaxEvent>,
     pub parents: HashMap<usize, Option<usize>>,
     pub functions: Vec<FunctionScope>,
+    pub tokens: Vec<HalsteadToken>,
     pub definitions: Vec<Definition>,
     pub imports: Vec<Import>,
     pub references: Vec<Reference>,

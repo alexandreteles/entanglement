@@ -228,6 +228,11 @@ impl PatchChange {
                 .expect("A patch has a path")
                 .display()
                 .to_string(),
+            halstead: report_delta::halstead_delta(
+                old.as_ref().map(|file| &file.halstead),
+                new.as_ref().map(|file| &file.halstead),
+                &self.edits,
+            ),
             functions: report_delta::function_deltas(old.as_ref(), new.as_ref(), &self.edits),
             before: old,
             after: new,

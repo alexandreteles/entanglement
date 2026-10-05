@@ -15,7 +15,9 @@ use crate::languages::{CapturedTree, InjectionRequest, LanguageChoice, Registry}
 use crate::metrics::{
     SyntaxEvent, SyntaxRole, cognitive,
     cyclomatic::{self, FunctionScope},
-    cyclomatic_density, nloc,
+    cyclomatic_density,
+    halstead::{self, HalsteadMetrics, HalsteadToken},
+    nloc,
 };
 use crate::model::{
     Definition, FileAnalysis, FileFacts, FunctionAnalysis, Import, LocalBinding, ModulePath,
@@ -53,6 +55,7 @@ struct TreeSummary {
     parents: HashMap<usize, Option<usize>>,
     cognitive_parent: Option<usize>,
     functions: Vec<FunctionScope>,
+    tokens: Vec<HalsteadToken>,
     excluded: Vec<Range<usize>>,
     definitions: Vec<Definition>,
     imports: Vec<Import>,
@@ -402,12 +405,15 @@ fn summary(
         .into_iter()
         .filter(|item| !inside_any(item.range.clone(), &excluded))
         .collect();
+    let mut tokens = captured.tokens;
+    tokens.retain(|token| !inside_any(token.start_byte..token.end_byte, &excluded));
     TreeSummary {
         language_id: choice.id.clone(),
         events: captured.events,
         parents: captured.parents,
         cognitive_parent: None,
         functions,
+        tokens,
         excluded,
         definitions,
         imports,
@@ -423,6 +429,11 @@ fn build_facts(
     summaries: Vec<TreeSummary>,
     parsed_injections: &[ParsedInjection],
 ) -> FileFacts {
+    let file_tokens = summaries
+        .iter()
+        .flat_map(|item| item.tokens.iter().cloned())
+        .collect::<Vec<_>>();
+    let file_halstead = HalsteadMetrics::from_tokens(file_tokens);
     let mut file_rows = BTreeSet::new();
     for item in &summaries {
         file_rows.extend(nloc::rows(&item.events, 0..source.len(), &item.excluded));
@@ -460,6 +471,7 @@ fn build_facts(
         let indexes = &by_language[&language];
         let mut events = Vec::new();
         let mut parents = HashMap::new();
+        let mut tokens = Vec::new();
         for index in indexes {
             let item = &summaries[*index];
             events.extend(item.events.iter().copied().filter(|event| {
@@ -467,8 +479,10 @@ fn build_facts(
                     && !inside_any(event.range(), &item.excluded)
             }));
             parents.extend(item.parents.iter().map(|(key, value)| (*key, *value)));
+            tokens.extend(item.tokens.iter().cloned());
         }
         let assigned = cyclomatic::assign_events(&scopes, &events);
+        let assigned_tokens = halstead::assign_tokens(&scopes, &tokens);
         // Injection trees have independent roots. Connect them only for cognitive
         // nesting; keep the existing cyclomatic ancestry unchanged.
         let mut cognitive_parents = std::borrow::Cow::Borrowed(&parents);
@@ -512,6 +526,9 @@ fn build_facts(
                 contributions,
                 cognitive_complexity,
                 cognitive_contributions,
+                halstead: HalsteadMetrics::from_tokens(
+                    assigned_tokens.get(&index).cloned().unwrap_or_default(),
+                ),
             });
         }
     }
@@ -552,6 +569,7 @@ fn build_facts(
             hash: blake3::hash(&source).to_hex().to_string(),
             language: root_choice.name.clone(),
             nloc: file_rows.len(),
+            halstead: file_halstead,
             functions: analyses,
             injections,
             resolution: Vec::new(),
