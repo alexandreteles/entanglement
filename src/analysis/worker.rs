@@ -8,6 +8,7 @@ use tree_sitter::{InputEdit, Parser, Range as TsRange, Tree};
 use crate::Result;
 use crate::input;
 use crate::languages::{LanguageChoice, Registry};
+use crate::metrics::selection::Selection;
 use crate::model::{FileFacts, ModulePath};
 
 use super::{
@@ -18,6 +19,7 @@ use super::{
 /// Keep parser state for one file task and reuse it for later files.
 pub(crate) struct Worker {
     pub(super) registry: Arc<Registry>,
+    pub(super) selection: Selection,
     parsers: HashMap<String, Parser>,
 }
 
@@ -31,9 +33,10 @@ pub(crate) struct ParsedFile {
 
 impl Worker {
     /// Create a worker with the registered grammars and empty parser state.
-    pub fn new() -> Result<Self> {
+    pub fn new(selection: Selection) -> Result<Self> {
         Ok(Self {
             registry: Registry::shared()?,
+            selection,
             parsers: HashMap::new(),
         })
     }
@@ -83,7 +86,14 @@ impl Worker {
             &mut old_trees,
             0,
         )?;
-        let mut facts = facts::build_facts(path, source.into(), &choice, summaries, &injections);
+        let mut facts = facts::build_facts(
+            path,
+            source.into(),
+            &choice,
+            summaries,
+            &injections,
+            self.selection,
+        );
         facts.target = target;
         facts.aliases = aliases;
         Ok(ParsedFile {

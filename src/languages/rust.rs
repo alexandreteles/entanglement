@@ -132,7 +132,7 @@ struct CaptureFacts<'a> {
 }
 
 impl LanguageHandler for Analyzer {
-    fn capture(&self, tree: &Tree, source: &[u8]) -> Result<CapturedTree> {
+    fn capture(&self, tree: &Tree, source: &[u8], include_tokens: bool) -> Result<CapturedTree> {
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&self.query, tree.root_node(), source);
         let mut facts = CaptureFacts {
@@ -149,12 +149,12 @@ impl LanguageHandler for Analyzer {
             facts.record_tags(&self.captures, captures, source);
             facts.record_injection(&self.captures, query_match.pattern_index, captures, source);
         }
-        facts.normalize(tree)
+        facts.normalize(tree, include_tokens)
     }
 }
 
 impl<'a> CaptureFacts<'a> {
-    fn normalize(mut self, tree: &Tree) -> Result<CapturedTree> {
+    fn normalize(mut self, tree: &Tree, include_tokens: bool) -> Result<CapturedTree> {
         deduplicate(&mut self.definitions, |item| {
             (item.range.start, item.range.end)
         });
@@ -210,7 +210,11 @@ impl<'a> CaptureFacts<'a> {
             )
         });
 
-        let tokens = super::rust_tokens::capture(tree.root_node(), self.graph.source);
+        let tokens = if include_tokens {
+            super::rust_tokens::capture(tree.root_node(), self.graph.source)
+        } else {
+            Vec::new()
+        };
         Ok(CapturedTree {
             events: self.events,
             parents: self.parents,

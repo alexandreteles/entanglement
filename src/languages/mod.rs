@@ -41,7 +41,8 @@ pub(crate) struct CapturedTree {
 }
 
 pub(crate) trait LanguageHandler: Send + Sync {
-    fn capture(&self, tree: &Tree, source: &[u8]) -> Result<CapturedTree>;
+    /// Capture syntax facts, optionally collecting Halstead terminal tokens.
+    fn capture(&self, tree: &Tree, source: &[u8], include_tokens: bool) -> Result<CapturedTree>;
 }
 
 #[derive(Clone)]
@@ -136,12 +137,19 @@ impl Registry {
     }
 
     /// Run the registered language query and return normalized syntax facts.
-    pub fn capture(&self, id: &str, tree: &Tree, source: &[u8]) -> Result<CapturedTree> {
+    /// Collect Halstead terminal tokens only when `include_tokens` is true.
+    pub fn capture(
+        &self,
+        id: &str,
+        tree: &Tree,
+        source: &[u8],
+        include_tokens: bool,
+    ) -> Result<CapturedTree> {
         self.handlers
             .get(id)
             .ok_or_else(|| -> crate::Error {
                 std::io::Error::other(format!("No analyzer is registered for language {id}")).into()
             })?
-            .capture(tree, source)
+            .capture(tree, source, include_tokens)
     }
 }

@@ -56,7 +56,9 @@ impl Worker {
         old_trees: &mut BTreeMap<TreeKey, Tree>,
         depth: usize,
     ) -> Result<(Vec<ParsedInjection>, Vec<TreeSummary>)> {
-        let mut captured = self.registry.capture(&choice.id, tree, source)?;
+        let mut captured =
+            self.registry
+                .capture(&choice.id, tree, source, self.selection.needs_halstead())?;
         remap_node_ids(&mut captured, next_node_id);
         let requests = selected_requests(std::mem::take(&mut captured.injections));
         let excluded = requests

@@ -12,6 +12,8 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use metrics::selection::Selection;
+
 use tree_sitter::InputEdit;
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -24,9 +26,10 @@ type SourcePaths = Box<dyn Iterator<Item = Result<PathBuf>> + Send>;
 fn main() -> std::process::ExitCode {
     use clap::Parser;
     let arguments = cli::Cli::parse();
-    let report = run(arguments.command).and_then(|result| match arguments.format {
-        cli::OutputFormat::Human => Ok(ui::human::render(&result)),
-        cli::OutputFormat::Json => ui::json::render(&result),
+    let selection = Selection::new(&arguments.metrics);
+    let report = run(arguments.command, selection).and_then(|result| match arguments.format {
+        cli::OutputFormat::Human => Ok(ui::human::render(&result, selection)),
+        cli::OutputFormat::Json => ui::json::render(&result, selection),
     });
     match report {
         Ok(report) => {
@@ -50,11 +53,11 @@ fn main() -> std::process::ExitCode {
 }
 
 /// Execute a file or repository analysis, or apply a virtual patch.
-fn run(command: cli::Command) -> Result<model::AnalysisResult> {
+fn run(command: cli::Command, selection: Selection) -> Result<model::AnalysisResult> {
     match command {
         cli::Command::File { path } => {
             let path = std::path::absolute(path)?;
-            let parsed = analysis::Worker::new()?
+            let parsed = analysis::Worker::new(selection)?
                 .analyze_path(&path)?
                 .ok_or_else(|| {
                     std::io::Error::other(format!(
@@ -63,7 +66,7 @@ fn run(command: cli::Command) -> Result<model::AnalysisResult> {
                     ))
                 })?;
             let mut facts = vec![parsed.facts];
-            resolver::resolve(&mut facts);
+            resolver::resolve(&mut facts, selection);
             Ok(model::AnalysisResult {
                 files: facts.into_iter().map(|fact| fact.analysis).collect(),
                 patch: None,
@@ -73,16 +76,16 @@ fn run(command: cli::Command) -> Result<model::AnalysisResult> {
         cli::Command::Repo { path } => {
             let path = std::path::absolute(path)?;
             let mut facts: Vec<_> =
-                analysis::analyze_paths(input::discover(&path)?, |file| file.facts)?;
-            resolver::resolve(&mut facts);
+                analysis::analyze_paths(input::discover(&path)?, selection, |file| file.facts)?;
+            resolver::resolve(&mut facts, selection);
             Ok(model::AnalysisResult {
                 files: facts.into_iter().map(|fact| fact.analysis).collect(),
                 patch: None,
                 maintainability_index_bands: metrics::maintainability::BANDS,
             })
         }
-        cli::Command::Patch { file, diff } => analyze_patch(&file, &diff, true),
-        cli::Command::Candidate { path, diff } => analyze_patch(&path, &diff, false),
+        cli::Command::Patch { file, diff } => analyze_patch(&file, &diff, true, selection),
+        cli::Command::Candidate { path, diff } => analyze_patch(&path, &diff, false, selection),
     }
 }
 
@@ -91,27 +94,32 @@ fn run(command: cli::Command) -> Result<model::AnalysisResult> {
 /// A file target accepts one patch whose old path matches that file. A
 /// directory target accepts patches relative to that directory. Reject empty
 /// diffs and attempts to overwrite another file. Never write source bytes.
-fn analyze_patch(path: &Path, diff: &Path, single: bool) -> Result<model::AnalysisResult> {
+fn analyze_patch(
+    path: &Path,
+    diff: &Path,
+    single: bool,
+    selection: Selection,
+) -> Result<model::AnalysisResult> {
     let diff = input::read_diff(diff)?;
     let patches = input::parse_diff(&diff)?;
     let (root, paths) = patch_sources(path, &patches, single)?;
-    let mut parsed = analysis::analyze_paths(paths, std::convert::identity)?;
+    let mut parsed = analysis::analyze_paths(paths, selection, std::convert::identity)?;
     if single && parsed.is_empty() {
         return Err("The selected file has no supported language".into());
     }
     let mut before: Vec<_> = parsed.iter().map(|file| file.facts.clone()).collect();
-    resolver::resolve(&mut before);
-    let mut worker = analysis::Worker::new()?;
+    resolver::resolve(&mut before, selection);
+    let mut worker = analysis::Worker::new(selection)?;
     let changes: Vec<_> = patches
         .iter()
         .map(|patch| apply_file_patch(&mut worker, &mut parsed, &root, patch))
         .collect::<Result<_>>()?;
     let mut after: Vec<_> = parsed.into_iter().map(|file| file.facts).collect();
     after.sort_by(|a, b| a.path.cmp(&b.path));
-    resolver::resolve(&mut after);
+    resolver::resolve(&mut after, selection);
     let files = changes
         .into_iter()
-        .map(|change| change.compare(&before, &after))
+        .map(|change| change.compare(&before, &after, selection))
         .collect();
     Ok(model::AnalysisResult {
         files: after.into_iter().map(|file| file.analysis).collect(),
@@ -213,6 +221,7 @@ impl PatchChange {
         self,
         before: &[model::FileFacts],
         after: &[model::FileFacts],
+        selection: Selection,
     ) -> model::FilePatchAnalysis {
         let old = self
             .old_target
@@ -241,8 +250,14 @@ impl PatchChange {
                 old.as_ref().map(|file| &file.halstead),
                 new.as_ref().map(|file| &file.halstead),
                 &self.edits,
+                selection,
             ),
-            functions: report_delta::function_deltas(old.as_ref(), new.as_ref(), &self.edits),
+            functions: report_delta::function_deltas(
+                old.as_ref(),
+                new.as_ref(),
+                &self.edits,
+                selection,
+            ),
             before: old,
             after: new,
         }
