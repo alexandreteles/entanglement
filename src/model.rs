@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
+use crate::metrics::halstead::{HalsteadMetrics, HalsteadTokenKind};
+
 #[derive(Debug, Clone, Serialize)]
 /// The full report for one command.
 pub struct AnalysisResult {
@@ -23,6 +25,8 @@ pub struct FileAnalysis {
     pub language: String,
     /// The number of source rows with code.
     pub nloc: usize,
+    /// Halstead operators, operands, and derived metrics for the whole file.
+    pub halstead: HalsteadMetrics,
     /// The metrics for functions in this file.
     pub functions: Vec<FunctionAnalysis>,
     /// The source ranges that use an injected language.
@@ -42,6 +46,8 @@ pub struct FunctionAnalysis {
     pub end_byte: usize,
     /// The number of source rows with code in the function.
     pub nloc: usize,
+    /// Halstead operators, operands, and derived metrics for the function.
+    pub halstead: HalsteadMetrics,
     /// The cyclomatic complexity score.
     pub cyclomatic_complexity: usize,
     /// The complexity score divided by NLOC, with zero treated as one.
@@ -177,6 +183,8 @@ pub struct FilePatchAnalysis {
     pub before: Option<FileAnalysis>,
     /// The file report after the patch, or no value for a deleted file.
     pub after: Option<FileAnalysis>,
+    /// The Halstead metric and token contribution changes for this file.
+    pub halstead: HalsteadDelta,
     /// The metric and contribution changes for matching functions.
     pub functions: Vec<FunctionDelta>,
 }
@@ -194,6 +202,8 @@ pub struct FunctionDelta {
     pub cyclomatic_density: MetricDelta<f64, f64>,
     /// The cognitive complexity values before and after the patch.
     pub cognitive_complexity: MetricDelta<usize>,
+    /// The Halstead metric and token contribution changes for this function.
+    pub halstead: HalsteadDelta,
     /// The complexity events added by the patch.
     pub added_contributions: Vec<ComplexityContribution>,
     /// The complexity events removed by the patch.
@@ -202,6 +212,54 @@ pub struct FunctionDelta {
     pub added_cognitive_contributions: Vec<ComplexityContribution>,
     /// The cognitive complexity events removed by the patch.
     pub removed_cognitive_contributions: Vec<ComplexityContribution>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+/// The Halstead indicators and lexical contributors changed by a patch.
+pub struct HalsteadDelta {
+    /// The distinct operator count (n1) before and after the patch.
+    pub distinct_operators: MetricDelta<usize>,
+    /// The distinct operand count (n2) before and after the patch.
+    pub distinct_operands: MetricDelta<usize>,
+    /// The operator occurrence count (N1) before and after the patch.
+    pub total_operators: MetricDelta<usize>,
+    /// The operand occurrence count (N2) before and after the patch.
+    pub total_operands: MetricDelta<usize>,
+    /// The vocabulary before and after the patch.
+    pub vocabulary: MetricDelta<usize>,
+    /// The source length before and after the patch.
+    pub length: MetricDelta<usize>,
+    /// The estimated length before and after the patch.
+    pub estimated_length: MetricDelta<f64, f64>,
+    /// The volume before and after the patch.
+    pub volume: MetricDelta<f64, f64>,
+    /// The difficulty before and after the patch.
+    pub difficulty: MetricDelta<f64, f64>,
+    /// The effort before and after the patch.
+    pub effort: MetricDelta<f64, f64>,
+    /// The estimated time before and after the patch.
+    pub time: MetricDelta<f64, f64>,
+    /// The program level before and after the patch.
+    pub program_level: MetricDelta<f64, f64>,
+    /// The estimated bugs before and after the patch.
+    pub estimated_bugs: MetricDelta<f64, f64>,
+    /// Lexical contributors added by the patch; counts are positive.
+    pub added_tokens: Vec<HalsteadTokenChange>,
+    /// Lexical contributors removed by the patch; counts are positive.
+    pub removed_tokens: Vec<HalsteadTokenChange>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+/// A grouped Halstead token occurrence change.
+pub struct HalsteadTokenChange {
+    /// Whether these occurrences are operators or operands.
+    pub kind: HalsteadTokenKind,
+    /// The exact token spelling.
+    pub token: String,
+    /// A representative source line for this group.
+    pub line: usize,
+    /// The number of occurrences added or removed.
+    pub count: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]

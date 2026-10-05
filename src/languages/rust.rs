@@ -470,10 +470,12 @@ impl<'a> CaptureFacts<'a> {
             )
         });
 
+        let tokens = super::rust_tokens::capture(tree.root_node(), self.graph.source);
         Ok(CapturedTree {
             events: self.events,
             parents: self.parents,
             functions: self.functions,
+            tokens,
             definitions,
             imports,
             references,
