@@ -2,6 +2,10 @@
 
 use std::fmt::Write;
 
+use super::maintainability::{
+    write_bands as write_maintainability_bands, write_delta as write_maintainability_delta,
+    write_index as write_maintainability,
+};
 use crate::metrics::halstead::HalsteadMetrics;
 use crate::model::{
     AnalysisResult, ComplexityContribution, FileAnalysis, HalsteadDelta, HalsteadTokenChange,
@@ -16,6 +20,7 @@ use crate::model::{
 pub fn render(result: &AnalysisResult) -> String {
     let mut output = String::new();
     if let Some(patch) = &result.patch {
+        write_maintainability_bands(&mut output, &result.maintainability_index_bands);
         for file in &patch.files {
             if !output.is_empty() {
                 output.push('\n');
@@ -32,6 +37,11 @@ pub fn render(result: &AnalysisResult) -> String {
                 "File NLOC: {} → {}",
                 metric_value(before_nloc),
                 metric_value(after_nloc)
+            );
+            write_maintainability_delta(
+                &mut output,
+                "File maintainability index",
+                &file.maintainability_index,
             );
             write_halstead_delta(&mut output, "File Halstead", &file.halstead);
             for function in &file.functions {
@@ -68,12 +78,20 @@ pub fn render(result: &AnalysisResult) -> String {
                     &function.added_cognitive_contributions,
                     &function.removed_cognitive_contributions,
                 );
+                write_maintainability_delta(
+                    &mut output,
+                    "Maintainability index",
+                    &function.maintainability_index,
+                );
                 write_halstead_delta(&mut output, "Halstead", &function.halstead);
             }
         }
         return output;
     }
 
+    if !result.files.is_empty() {
+        write_maintainability_bands(&mut output, &result.maintainability_index_bands);
+    }
     for file in &result.files {
         if !output.is_empty() {
             output.push('\n');
@@ -113,8 +131,18 @@ fn render_file(output: &mut String, file: &FileAnalysis) {
         );
     }
     let _ = writeln!(output, "File NLOC: {}", file.nloc);
+    write_maintainability(
+        output,
+        "File maintainability index",
+        file.maintainability_index.as_ref(),
+    );
     write_halstead(output, "File Halstead", &file.halstead);
     for function in &file.functions {
+        write_maintainability(
+            output,
+            &format!("Maintainability index for {}", function.name),
+            function.maintainability_index.as_ref(),
+        );
         write_halstead(
             output,
             &format!("Halstead for {}", function.name),

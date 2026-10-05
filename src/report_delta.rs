@@ -7,6 +7,10 @@ use tree_sitter::InputEdit;
 use crate::metrics::halstead::{HalsteadMetrics, HalsteadToken, HalsteadTokenKind};
 use crate::model;
 
+mod maintainability;
+
+pub(crate) use maintainability::compare as maintainability_delta;
+
 type TokenIdentity = (HalsteadTokenKind, String);
 type TokenPosition = (HalsteadTokenKind, String, usize);
 type TokenIndexes = (
@@ -91,6 +95,10 @@ pub(crate) fn function_deltas(
                     old_cognitive,
                     new_cognitive,
                     |before, after| after as i64 - before as i64,
+                ),
+                maintainability_index: maintainability_delta(
+                    old.and_then(|function| function.maintainability_index.as_ref()),
+                    new.and_then(|function| function.maintainability_index.as_ref()),
                 ),
                 halstead: halstead_delta(
                     old.map(|function| &function.halstead),

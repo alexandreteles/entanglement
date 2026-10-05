@@ -67,6 +67,7 @@ fn run(command: cli::Command) -> Result<model::AnalysisResult> {
             Ok(model::AnalysisResult {
                 files: facts.into_iter().map(|fact| fact.analysis).collect(),
                 patch: None,
+                maintainability_index_bands: metrics::maintainability::BANDS,
             })
         }
         cli::Command::Repo { path } => {
@@ -77,6 +78,7 @@ fn run(command: cli::Command) -> Result<model::AnalysisResult> {
             Ok(model::AnalysisResult {
                 files: facts.into_iter().map(|fact| fact.analysis).collect(),
                 patch: None,
+                maintainability_index_bands: metrics::maintainability::BANDS,
             })
         }
         cli::Command::Patch { file, diff } => analyze_patch(&file, &diff, true),
@@ -114,6 +116,7 @@ fn analyze_patch(path: &Path, diff: &Path, single: bool) -> Result<model::Analys
     Ok(model::AnalysisResult {
         files: after.into_iter().map(|file| file.analysis).collect(),
         patch: Some(model::PatchAnalysis { files }),
+        maintainability_index_bands: metrics::maintainability::BANDS,
     })
 }
 
@@ -228,6 +231,12 @@ impl PatchChange {
                 .expect("A patch has a path")
                 .display()
                 .to_string(),
+            maintainability_index: report_delta::maintainability_delta(
+                old.as_ref()
+                    .and_then(|file| file.maintainability_index.as_ref()),
+                new.as_ref()
+                    .and_then(|file| file.maintainability_index.as_ref()),
+            ),
             halstead: report_delta::halstead_delta(
                 old.as_ref().map(|file| &file.halstead),
                 new.as_ref().map(|file| &file.halstead),
