@@ -1,17 +1,21 @@
 # Entanglement
 
-Entanglement uses Tree-sitter to measure source code.
+Entanglement uses Tree-sitter to measure source code. It reports code size,
+complexity, Halstead metrics, and maintainability. It can compare these metrics
+before and after a patch without changing source files.
 
-Build the program with the stable Rust toolchain:
+## Build and run
+
+Use the stable Rust toolchain to build the program:
 
 ```sh
 cargo build --release
 ```
 
-Run tests with `cargo test --locked`.
+The executable is `target/release/entanglement`. The examples below assume it
+is on your `PATH`. Run tests with `cargo test --locked`.
 
-Set `SOURCE_FILE` to a source file supported by a registered grammar, then use
-one of these commands:
+Set `SOURCE_FILE` to a supported source file. Then select a command:
 
 ```sh
 entanglement file "$SOURCE_FILE"
@@ -29,112 +33,112 @@ git diff -- "$SOURCE_FILE" | entanglement candidate . --diff -
 | `patch` | One source file and `--diff` | Apply one file patch in memory. Compare the complete file before and after the patch. |
 | `candidate` | One directory or source file and `--diff` | Apply the diff in memory. Analyze the source files before and after the change. Use the surrounding repository for a file input. |
 
-The file search includes hidden files unless Git ignore rules exclude them.
-It skips `.git` and follows symbolic links to files and directories. It
-analyzes each file on disk once and keeps all discovered paths for module
-resolution. The `candidate` command also includes old files named in the diff,
-even if Git ignore rules exclude them. A broken link or a directory link cycle
-causes an error.
+### File search and patch input
 
-For a `candidate` file input, use the nearest ancestor directory containing a
-manifest declared by a registered language or `.git` to resolve code
-references. If there is no such directory, use the root directory from the
-diff path. The current descriptors recognize `Cargo.toml`, `package.json`,
-`tsconfig.json`, `jsconfig.json`, `pyproject.toml`, `setup.py`, and
-`setup.cfg`.
+File search uses Git ignore rules. It includes hidden files, skips `.git`,
+and follows symbolic links. Entanglement analyzes each file once. It keeps
+all discovered paths to resolve module references. Broken links and directory
+link cycles cause an error.
 
-Supply a unified diff with `--diff PATH`. Use `--diff -` to read the diff from
-standard input. For a directory input, diff paths are relative to that
-directory. For a file input, the diff must contain one file patch. Its old
-path must match the selected file. The `patch` and `candidate` commands do
-not write source files.
+Use `--diff PATH` to supply a unified diff. Use `--diff -` to read it from
+standard input. For a directory input, diff paths must be relative to that
+directory. For a file input, the diff must contain one file patch. The old
+path must match the selected file. Both `patch` and `candidate` apply changes
+in memory. They do not write source files.
 
-## Languages and embedded code
+The `candidate` command includes old files named in the diff, even if Git
+ignore rules exclude them. For a file input, it finds the nearest parent
+that contains `.git` or a supported project manifest. It uses that directory
+to resolve references. If none exists, it uses the root directory from the
+diff path.
 
-Entanglement selects grammars and analyzers from language descriptors. The
-current registry includes Rust, Python, TypeScript, TSX, JavaScript, HTML,
-and CSS. Python accepts `.py` and `.pyi`; function, async-function,
-generator, method, and lambda bodies use the shared function metrics.
-Extensionless scripts with a recognized Python 3 shebang are also selected.
-TypeScript accepts `.ts`, `.mts`, and `.cts`; TSX accepts `.tsx`; JavaScript
-accepts `.js`, `.jsx`, `.mjs`, and `.cjs`. JSX stays part of its JavaScript or
-TSX syntax tree, so expressions and callback functions inside React or Solid
-components are measured as host-language code. Interfaces and type
-declarations are syntax, not runtime functions.
+Supported manifests are `Cargo.toml`, `package.json`, `tsconfig.json`,
+`jsconfig.json`, `pyproject.toml`, `setup.py`, and `setup.cfg`.
 
-HTML `<script>` blocks default to JavaScript. A TypeScript `lang` attribute or
-TypeScript MIME type selects TypeScript, while `type="module"` remains
-JavaScript. HTML `<style>` blocks select CSS. JavaScript and TypeScript tagged
-templates select a registered embedded grammar by the tag name; the `html` and
-`css` tags therefore analyze their template bodies. Host expressions inside
-`${...}` remain part of the JavaScript or TypeScript function and its metrics.
-The JSON `injections` list reports source byte ranges and whether an analyzer
-handled each range. An unknown injected language remains visible there with
-`analyzed: false`.
+## Languages
 
-Python can embed a registered language through one direct string-literal
-argument to a call whose simple callee matches that language label, such as
-`html(f"<p>{value}</p>")` or `tools.css(r"a { color: red }")`. Literal source
-stays in the guest language, while f-string replacement fields stay Python
-and retain their host metrics. HTML `<script lang="python">` and
-`<script type="python">` blocks select the same registered analyzer. A single
-plain, raw, or f-string literal is required; adjacent strings, bytes literals,
-variables, multiple arguments, and keyword arguments are not inferred as
-templates. Non-raw escapes, doubled-brace escapes, or f-string conversion/format
-specifiers are reported unanalyzed because their runtime text cannot be mapped
-safely to source ranges. Ordinary strings and unrelated calls such as
-`print("<p>")` remain Python. Comments are excluded from token metrics, while
-docstrings count as ordinary string literals.
-Comprehension `for` and filter clauses contribute cognitive complexity in
-source order, with each clause nested under the preceding clause. This is
-Entanglement's evaluation-order convention: one generator with one filter has
-cognitive complexity 3, and two generators with one filter have complexity 6.
+Entanglement supports Rust, Python, TypeScript, TSX, JavaScript, HTML, and CSS.
+Language descriptors select the grammar and analyzer.
 
-To add a language, add its Tree-sitter grammar dependency and assets, then add
-a descriptor with the grammar scope and name, file selectors, shared syntax
-query, token classification, injection rules, project manifests, and a
-resolution family when the language has local references to resolve. Shared
-queries map grammar captures to common function, decision, logical-operator,
-reference, and injection roles. The common analyzer consumes those roles for
-NLOC, complexity, Halstead, maintainability, injections, and reports. A small
-language adapter is appropriate only when the grammar needs syntax-specific
-normalization; adding a language should not require new command, metric, or
-report branches. Add fixtures for native syntax and mixed-language ownership,
-then run `entanglement repo` and `entanglement candidate` on them.
+Python supports `.py`, `.pyi`, and files without an extension that have a
+recognized Python 3 shebang. Functions, async functions, generators, methods,
+and lambdas use the shared function metrics. Comments do not count toward
+token metrics. Docstrings count as string literals.
 
-The JavaScript and TypeScript resolver follows local relative imports that
-resolve to analyzed files, including supported extension and `index` forms,
-and handles local named, default, namespace, alias, and re-export references.
-Bare package imports are external. It does not apply `tsconfig` path aliases,
-package export maps, type inference, or dynamic method dispatch; references
-that need those features stay unresolved.
+TypeScript supports `.ts`, `.mts`, and `.cts`. TSX supports `.tsx`.
+JavaScript supports `.js`, `.jsx`, `.mjs`, and `.cjs`. JSX expressions and
+callbacks use the metrics of the JavaScript or TSX file that contains them.
+Interfaces and type declarations do not count as runtime functions.
 
-The Python resolver follows dotted and package-relative imports under an
-established project root or its `src` directory. It recognizes `.py`,
-`.pyi`, package `__init__.py` files, explicit aliases, and package
-re-exports; explicit imports of underscore-prefixed names are allowed.
-Bare imports without an indexed local target are external; missing project-local
-modules remain unresolved. Dynamic imports, dynamic `__all__`, star imports
-whose targets cannot be proved, class or instance method dispatch, and effects
-that depend on `global` or `nonlocal` rebinding remain unresolved when the
-target cannot be established exactly.
-Assignments shadow same-named imports throughout their function. A module-level
-assignment can invalidate a same-module imported binding, including in earlier
-deferred function bodies; comprehension targets stay in their own scope.
+### Embedded languages
 
-## Selecting metrics
+Entanglement uses registered grammars to analyze embedded code. It keeps
+expressions in the surrounding language. For example, `${...}` inside an
+HTML tagged template still contributes to JavaScript or TypeScript metrics.
 
-All commands accept the global `--metrics` option before or after the command.
-Its value is a comma-separated list of canonical names: `nloc`, `cc`,
-`density`, `cogc`, `halstead`, and `mi`. Repeat the option to add more
-metrics. With no option, all metrics are reported; `--metrics all` selects the
-same set. NLOC is always included, even when it is not named. Unknown names
-and empty values are errors.
+HTML `<script>` blocks use JavaScript by default. A TypeScript `lang`
+attribute or MIME type selects TypeScript. `type="module"` selects
+JavaScript. HTML `<style>` blocks use CSS. JavaScript and TypeScript tagged
+templates select a grammar by tag name, such as `html` or `css`.
 
-The CLI also accepts `cyclomatic` and `cyclomatic-complexity` for `cc`,
-`cyclomatic-density` for `density`, `cognitive` and
-`cognitive-complexity` for `cogc`, and `maintainability` and
-`maintainability-index` for `mi`.
+Python uses the call name to select a registered grammar. The call must have
+one direct string literal argument, such as `html(f"<p>{value}</p>")` or
+`tools.css(r"a { color: red }")`. Literal text uses the embedded language.
+F-string replacement fields remain Python. HTML `<script lang="python">`
+and `<script type="python">` blocks also select Python.
+
+Python templates require one plain, raw, or f-string literal. Adjacent
+strings, bytes literals, variables, multiple arguments, and keyword
+arguments do not select an embedded language. Ordinary strings and unrelated
+calls, such as `print("<p>")`, remain Python.
+
+The JSON `injections` list gives source byte ranges and their analysis state.
+Unknown embedded languages have `analyzed: false`. Python strings also have
+this state when non-raw escapes, doubled braces, or f-string conversions or
+format specifiers prevent a safe mapping from runtime text to source ranges.
+
+### Python comprehension complexity
+
+Comprehension `for` and filter clauses add cognitive complexity in source
+order. Each clause nests under the previous clause. Under this convention,
+one generator with one filter has complexity 3. Two generators with one
+filter have complexity 6.
+
+### Resolve code references
+
+The JavaScript and TypeScript resolver follows relative imports to analyzed
+files. It supports file extensions, `index` files, named and default imports,
+namespaces, aliases, and re-exports. Bare package imports are external.
+References that need `tsconfig` path aliases, package export maps, type
+inference, or dynamic method dispatch remain unresolved.
+
+The Python resolver follows dotted and package-relative imports under a
+known project root or its `src` directory. It supports `.py`, `.pyi`, package
+`__init__.py` files, aliases, and re-exports. Explicit imports can include
+names that start with an underscore. Bare imports without a known local
+target are external. Missing local modules remain unresolved.
+
+Python references remain unresolved when an exact target cannot be proved.
+This includes dynamic imports, dynamic `__all__`, uncertain star imports,
+class or instance method dispatch, and `global` or `nonlocal` rebinding.
+Assignments hide imports with the same name throughout a function.
+A module assignment can invalidate an imported binding used by a function,
+even if the function appears before the assignment. Comprehension targets
+stay in their own scope.
+
+## Select metrics
+
+Use `--metrics` before or after any command. Supply a comma-separated list:
+`nloc`, `cc`, `density`, `cogc`, `halstead`, or `mi`. Repeat the option to add
+metrics. The default is all metrics, also available as `--metrics all`.
+NLOC is always included. Unknown names and empty values cause an error.
+
+The CLI accepts these alternative names:
+
+- `cc`: `cyclomatic` or `cyclomatic-complexity`.
+- `density`: `cyclomatic-density`.
+- `cogc`: `cognitive` or `cognitive-complexity`.
+- `mi`: `maintainability` or `maintainability-index`.
 
 ```sh
 entanglement --metrics=cogc repo src --format json
@@ -142,13 +146,11 @@ entanglement candidate . --diff change.patch --metrics cc,halstead --format json
 entanglement --metrics mi --metrics density file "$SOURCE_FILE"
 ```
 
-Selecting `density` calculates cyclomatic complexity as an input, but hides
-the separate CC values and contributors unless `cc` is also selected.
-Selecting `mi` calculates Halstead volume and cyclomatic complexity as inputs,
-but hides their separate report sections unless `halstead` or `cc` is selected.
-The MI report retains its own input and score-effect details. Selecting
-`cogc` still includes recursion results, which require repository-wide analysis
-for repository and candidate commands.
+Some metrics need other metrics as inputs. `density` needs CC. `mi` needs
+Halstead volume and CC. These inputs appear in separate report sections only
+if you select them. The MI report always includes its inputs and score effects.
+CogC includes recursion results. The `repo` and `candidate` commands analyze
+references across the repository to detect recursion.
 
 | Metric | Counting rule in Entanglement | Paper or publication |
 | --- | --- | --- |
@@ -158,21 +160,25 @@ for repository and candidate commands.
 | Cyclomatic complexity (CC) | Start each function at 1. Add 1 for each control-flow decision and logical condition. For a captured multiway decision with N cases, add `max(N - 1, 0)`. | [NIST SP 500-235, *Structured Testing: A Testing Methodology Using the Cyclomatic Complexity Metric*](https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication500-235.pdf) (1996), sections 2.2 and 4.1. Defines the metric and decision-counting method. |
 | Cognitive complexity (CogC) | Start each function at 0. Each captured conditional (including a conditional binding), loop, or multiway decision adds 1 plus the current nesting depth. Alternate and chained branches add 1 without a nesting surcharge. Count a multiway decision once, with guarded cases treated as nested conditionals. Closures and nested functions add nesting for their contents; asynchronous blocks do not. Add 1 for the first logical AND or OR operator in a sequence, then for each change between operator kinds; parentheses keep a sequence together and negation splits it without adding a point. Labeled loop jumps add 1. Each function in a detected direct or mutual call cycle gets 1 recursion point; ordinary calls are free. | SonarSource, [*Cognitive Complexity*](https://www.sonarsource.com/docs/CognitiveComplexity.pdf). Entanglement maps its flow-break, nesting, and logical-sequence principles to captured syntax. |
 
-Use `--format human` for a terminal report. This is the default format.
-Use `--format json` for a JSON document. You can put `--format` before or
+## Read reports
+
+Use `--format human` for a terminal report. This is the default.
+Use `--format json` for a JSON document. The option can appear before or
 after the command.
 
 With all metrics selected, JSON includes file and function Halstead and MI
-values, MI band boundaries, CC and CogC function contributions, and ranges for
-embedded languages. Patch and candidate reports include Halstead and MI
-before/after/deltas, MI score effects by volume, CC, NLOC, and clamping, plus
-added and removed token and CC contributors. Selecting a subset omits unselected
-metric fields. A missing file or function side has no synthetic MI score.
-Positive MI change means improved maintainability. JSON includes code
-reference results when applicable. Patch and candidate function deltas include
-`before_range` and `after_range` byte spans as `{start_byte, end_byte}` objects;
-`start_byte` is inclusive, `end_byte` is exclusive, and an absent function side
-is `null`.
+values, MI bands, CC and CogC contributions, and embedded-language ranges.
+If you select fewer metrics, the report omits the other metric fields.
+
+Patch and candidate reports include values before and after the change,
+their differences, and added or removed token and CC contributors. They show
+how volume, CC, NLOC, and clamping affect MI. A positive MI change indicates
+better maintainability. A missing file or function has no invented MI score.
+
+Function changes include `before_range` and `after_range`. Each range has
+`start_byte` and `end_byte`: the start is inclusive and the end is exclusive.
+A missing function side is `null`. JSON also includes code reference results
+where applicable.
 
 | Code reference state | Meaning |
 | --- | --- |
@@ -180,3 +186,18 @@ is `null`.
 | `ambiguous` | More than one local symbol matches the reference. This can occur when module contexts resolve the same name to different symbols. |
 | `external` | The reference names a symbol outside the analyzed files. |
 | `unresolved` | The resolver cannot find a valid target. References that need type inference or method dispatch have this state. Different results from module contexts can also cause this state. If independent module roots declare the same source file, references from that file to other files have this state. The resolver does not select one root. |
+
+## Add a language
+
+New languages use the shared commands, metrics, and reports.
+
+1. Add the Tree-sitter grammar dependency and assets.
+2. Add a language descriptor. Include the grammar scope and name, file
+   selectors, syntax query, token classification, injection rules, and
+   project manifests. Add a resolution family if local references need it.
+3. Map grammar captures to shared function, decision, logical-operator,
+   reference, and injection roles. The common analyzer uses these roles.
+4. Add a small adapter only if the grammar needs syntax normalization.
+5. Add fixtures for native syntax and embedded code. Check which language
+   owns each range. Run `entanglement repo` and `entanglement candidate`
+   to evaluate the fixtures.
