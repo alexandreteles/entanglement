@@ -255,6 +255,7 @@ dependencies = [
  "clap",
  "diffy",
  "ignore",
+ "indexmap",
  "memchr",
  "petgraph",
  "rayon",
@@ -264,6 +265,7 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-css",
  "tree-sitter-html",
+ "tree-sitter-htmlx-svelte",
  "tree-sitter-javascript",
  "tree-sitter-loader",
  "tree-sitter-python",
@@ -399,6 +401,8 @@ checksum = "cc4e190f5d26ca7051642629da2c52fc03bde85a03197c99408dcd291734c855"
 dependencies = [
  "equivalent",
  "hashbrown 0.17.1",
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -723,6 +727,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "261b708e5d92061ede329babaaa427b819329a9d427a1d710abb0f67bbef63ee"
 dependencies = [
  "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-htmlx-svelte"
+version = "0.1.16"
+source = "git+https://github.com/Aunali321/tree-sitter-htmlx?rev=70ea39cc6c39907a2f683a63602997bd0bf58843#70ea39cc6c39907a2f683a63602997bd0bf58843"
+dependencies = [
+ "cc",
+ "tree-sitter",
  "tree-sitter-language",
 ]
 
