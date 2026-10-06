@@ -50,6 +50,19 @@ fn file_mode_accepts_invalid_utf8_and_malformed_rust() {
     assert!(malformed_file["functions"].as_array().is_some());
 }
 
+#[test]
+fn repo_skips_binary_files_without_a_registered_extension() {
+    let temp = tempfile::tempdir().expect("create temporary directory");
+    std::fs::write(temp.path().join("logo.png"), b"\x89PNG\r\n\x1a\n\xff\xfe")
+        .expect("write binary fixture");
+    std::fs::write(temp.path().join("lib.rs"), b"fn kept() {}\n").expect("write Rust fixture");
+
+    let repo_report = report(&run(&["repo"], temp.path()));
+    let files = repo_report["files"].as_array().expect("files array");
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0]["language"], "rust");
+}
+
 #[cfg(unix)]
 #[test]
 fn repo_follows_file_and_directory_symlinks_without_duplicate_reports() {
