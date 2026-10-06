@@ -117,7 +117,7 @@ fn assert_patch_metrics(report: &Value) {
 }
 
 #[test]
-fn file_mode_preserves_rust_metrics_and_injection_ranges() {
+fn file_mode_preserves_rust_metrics_without_inferred_html_macro_language() {
     let report = run(&["file"], &fixture("file.rs"), None);
     assert_eq!(report["files"].as_array().unwrap().len(), 1);
 
@@ -162,9 +162,13 @@ fn file_mode_preserves_rust_metrics_and_injection_ranges() {
 
     let embedded = function(source, "embedded");
     assert_eq!(embedded["cyclomatic_complexity"], 1);
-    assert_eq!(source["injections"].as_array().unwrap().len(), 1);
-    assert_eq!(source["injections"][0]["language"], "html");
-    assert_eq!(source["injections"][0]["analyzed"], false);
+    assert!(
+        !source["injections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| { item["language"] == "html" })
+    );
 }
 
 #[test]

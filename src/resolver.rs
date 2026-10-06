@@ -10,6 +10,7 @@ use rayon::prelude::*;
 
 use crate::model::{FileFacts, ReferenceAnalysis, Resolution, SymbolId};
 
+mod files;
 mod indexing;
 mod module_graph;
 mod resolution;
@@ -80,10 +81,19 @@ struct Index {
 pub(crate) fn resolve(facts: &mut [FileFacts], selection: crate::metrics::selection::Selection) {
     let mut index = Index::new(facts);
     index.resolve_imports();
+    let file_resolutions = files::resolve(facts);
     facts
         .par_iter_mut()
         .enumerate()
         .for_each(|(file_index, fact)| {
+            if let Some(resolutions) = file_resolutions[file_index].as_ref() {
+                fact.analysis.resolution = resolutions.clone();
+                return;
+            }
+            if fact.resolution_family != crate::languages::ResolutionFamily::RustCrates {
+                fact.analysis.resolution.clear();
+                return;
+            }
             let context = &index.contexts[file_index];
             fact.analysis.resolution = fact
                 .references

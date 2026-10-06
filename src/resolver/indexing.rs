@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::languages::ResolutionFamily;
 use crate::model::{Definition, DefinitionKind, FileFacts, Import, ModulePath, SymbolId};
 
 use super::{ImportEntry, Index, ModuleKey, Symbol, joined_path};
@@ -21,6 +22,9 @@ impl Index {
 
     fn add_symbols(&mut self, facts: &[FileFacts]) {
         for (file_index, fact) in facts.iter().enumerate() {
+            if fact.resolution_family != ResolutionFamily::RustCrates {
+                continue;
+            }
             for context in &self.contexts[file_index] {
                 let file_module = joined_path(&context.module, &fact.module.0);
                 self.modules.insert(ModuleKey {
@@ -82,6 +86,9 @@ impl Index {
 
     fn add_imports(&mut self, facts: &[FileFacts]) {
         for (file_index, fact) in facts.iter().enumerate() {
+            if fact.resolution_family != ResolutionFamily::RustCrates {
+                continue;
+            }
             for context in &self.contexts[file_index] {
                 let file_module = joined_path(&context.module, &fact.module.0);
                 for import in &fact.imports {

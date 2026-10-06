@@ -1,0 +1,20 @@
+{
+  "grammars": [
+    {
+      "name": "html",
+      "camelcase": "HTML",
+      "scope": "source.html",
+      "path": ".",
+      "external-files": ["src/tag.h"],
+      "file-types": ["html"],
+      "highlights": "queries/highlights.scm",
+      "injections": "queries/injections.scm",
+      "injection-regex": "^html$"
+    }
+  ],
+  "metadata": {
+    "version": "0.23.2",
+    "license": "MIT",
+    "description": "HTML grammar for tree-sitter"
+  }
+}

@@ -328,8 +328,11 @@ pub(crate) struct FileFacts {
     /// The selected logical path for the report.
     pub path: PathBuf,
     pub module: ModulePath,
+    pub resolution_family: crate::languages::ResolutionFamily,
+    pub file_module_rules: Option<&'static crate::languages::FileModuleRules>,
     pub definitions: Vec<Definition>,
     pub imports: Vec<Import>,
+    pub exports: Vec<Export>,
     pub references: Vec<Reference>,
     pub locals: Vec<LocalBinding>,
     pub analysis: FileAnalysis,
@@ -342,6 +345,7 @@ pub(crate) struct LocalBinding {
     pub end_byte: usize,
     pub scope_start: usize,
     pub scope_end: usize,
+    pub context_id: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -356,18 +360,47 @@ pub(crate) struct Definition {
     pub is_public: bool,
     pub inline_module: bool,
     pub external_module: bool,
+    pub context_id: usize,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct Import {
     pub path: Vec<String>,
     pub alias: Option<String>,
+    /// Module specifier for languages with file-based module systems.
+    pub source: Option<String>,
+    /// Imported export name, or `None` when the binding does not name one
+    /// export (for example a namespace or side-effect import).
+    pub imported_name: Option<String>,
+    /// Whether this import binds a module namespace rather than one export.
+    pub namespace: bool,
     pub start_byte: usize,
     pub end_byte: usize,
     pub module: ModulePath,
     pub scope_start: usize,
     pub scope_end: usize,
     pub is_public: bool,
+    pub context_id: usize,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct Export {
+    /// Module specifier for a re-export, or `None` for a local export.
+    pub source: Option<String>,
+    /// Source export name for a re-export.
+    pub imported_name: Option<String>,
+    /// Local binding name for a local export.
+    pub local_name: Option<String>,
+    /// Name visible to importers (`default` for a default export, `*` for a
+    /// wildcard re-export).
+    pub exported_name: String,
+    /// Whether this export exposes a module namespace.
+    pub namespace: bool,
+    pub start_byte: usize,
+    pub end_byte: usize,
+    pub scope_start: usize,
+    pub scope_end: usize,
+    pub context_id: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -382,6 +415,7 @@ pub(crate) struct Reference {
     /// Start byte of the enclosing function when this reference is a call
     /// target outside a deferred closure or async block.
     pub call_owner: Option<usize>,
+    pub context_id: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -74,6 +74,7 @@ impl Worker {
         let tree = self.parse_tree(&choice, &source, &[], old_root.as_ref())?;
         let mut active = HashSet::from([(choice.id.clone(), 0, source.len())]);
         let mut next_node_id = 0;
+        let mut next_context_id = 0;
         let (injections, summaries) = self.analyze_layer(
             &choice,
             &tree,
@@ -83,6 +84,7 @@ impl Worker {
             None,
             &mut active,
             &mut next_node_id,
+            &mut next_context_id,
             &mut old_trees,
             0,
         )?;

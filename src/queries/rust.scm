@@ -56,11 +56,3 @@ _ @syntax.node
 (let_condition pattern: (_) @local.pattern) @local.condition
 (match_arm pattern: (match_pattern) @local.pattern) @local.match
 (closure_expression parameters: (closure_parameters (_) @local.pattern)) @local.closure
-
-((macro_invocation
-   macro: (identifier) @_rshtml_macro
-   (token_tree) @injection.content)
- (#eq? @_rshtml_macro "v")
- (#set! injection.language "html")
- (#set! injection.priority "1")
- (#set! injection.include-children))

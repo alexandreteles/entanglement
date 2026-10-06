@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
 
+use crate::languages::ResolutionFamily;
 use crate::model::{DefinitionKind, FileFacts};
 
 use super::{CrateKey, FileContext, joined_path};
@@ -10,6 +11,9 @@ type ModuleRoute = (usize, FileContext, PathBuf, BTreeSet<PathBuf>);
 pub(super) fn file_contexts(facts: &[FileFacts]) -> Vec<Vec<FileContext>> {
     let mut by_path = BTreeMap::<PathBuf, usize>::new();
     for (index, fact) in facts.iter().enumerate() {
+        if fact.resolution_family != ResolutionFamily::RustCrates {
+            continue;
+        }
         for path in &fact.aliases {
             by_path.insert(path.clone(), index);
         }
@@ -18,10 +22,14 @@ pub(super) fn file_contexts(facts: &[FileFacts]) -> Vec<Vec<FileContext>> {
         .iter()
         .enumerate()
         .flat_map(|(index, fact)| {
+            if fact.resolution_family != ResolutionFamily::RustCrates {
+                return Vec::new();
+            }
             fact.aliases
                 .iter()
                 .filter(|path| is_crate_root(path))
                 .map(move |path| (path.clone(), index))
+                .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
     roots.sort_by(|left, right| left.0.cmp(&right.0));
@@ -50,6 +58,9 @@ pub(super) fn file_contexts(facts: &[FileFacts]) -> Vec<Vec<FileContext>> {
 
     let mut incoming = BTreeSet::new();
     for fact in facts {
+        if fact.resolution_family != ResolutionFamily::RustCrates {
+            continue;
+        }
         for path in &fact.aliases {
             for declaration in fact.definitions.iter().filter(|definition| {
                 definition.kind == DefinitionKind::Module && definition.external_module
@@ -68,6 +79,9 @@ pub(super) fn file_contexts(facts: &[FileFacts]) -> Vec<Vec<FileContext>> {
     }
 
     for index in 0..facts.len() {
+        if facts[index].resolution_family != ResolutionFamily::RustCrates {
+            continue;
+        }
         if assignments[index].is_empty() && !incoming.contains(&index) {
             for path in &facts[index].aliases {
                 pending.push_back((
@@ -94,6 +108,9 @@ pub(super) fn file_contexts(facts: &[FileFacts]) -> Vec<Vec<FileContext>> {
         .iter()
         .enumerate()
         .map(|(index, fact)| {
+            if fact.resolution_family != ResolutionFamily::RustCrates {
+                return Vec::new();
+            }
             let contexts = assignments[index].iter().cloned().collect::<Vec<_>>();
             let same_crate = contexts.first().is_some_and(|first| {
                 contexts
