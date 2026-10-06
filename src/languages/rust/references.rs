@@ -54,12 +54,16 @@ impl<'a> CaptureFacts<'a> {
                 Import {
                     path: import.path,
                     alias: import.alias,
+                    source: None,
+                    imported_name: None,
+                    namespace: false,
                     start_byte: import.range.start,
                     end_byte: import.range.end,
                     module,
                     scope_start,
                     scope_end,
                     is_public: import.is_public,
+                    context_id: 0,
                 }
             })
             .collect()
@@ -128,6 +132,7 @@ impl<'a> CaptureFacts<'a> {
                         &reference.range,
                         reference.kind,
                     ),
+                    context_id: 0,
                 }
             })
             .collect()

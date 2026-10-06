@@ -8,45 +8,44 @@ use scopes::{lexical_scope, local_bindings, relative_module};
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
-use tree_sitter::{Query, QueryCursor, StreamingIterator, Tree};
+use tree_sitter::{Language, Tree};
 
-use super::{CapturedTree, InjectionRequest, LanguageHandler};
+use super::query::QueryAnalyzer;
+use super::{CapturedTree, InjectionRequest, LanguageHandler, LanguageSpec, ResolutionFamily};
 use crate::Result;
-use crate::metrics::{SyntaxEvent, SyntaxRole, cyclomatic::FunctionScope};
+use crate::metrics::{SyntaxEvent, cyclomatic::FunctionScope};
 use crate::model::{Definition, DefinitionKind, ReferenceKind};
 
 const ANALYSIS_QUERY: &str = include_str!("../queries/rust.scm");
 
+pub(super) const LANGUAGE_SPEC: LanguageSpec = LanguageSpec {
+    scope: "source.rust",
+    resolution_family: ResolutionFamily::RustCrates,
+    project_manifests: &["Cargo.toml"],
+    file_module_rules: None,
+    build,
+};
+
+fn build(_: &str, language: &Language) -> Result<Box<dyn LanguageHandler>> {
+    Ok(Box::new(Analyzer::new(language)?))
+}
+
 pub(super) struct Analyzer {
-    query: Query,
+    query: QueryAnalyzer,
     captures: Captures,
 }
 
 struct Captures {
-    roles: HashMap<u32, SyntaxRole>,
-    definition_ids: HashSet<u32>,
     local_scopes: HashMap<u32, LocalScopeKind>,
     reference_kinds: HashMap<u32, ReferenceKind>,
     syntax_node: u32,
-    metric_function: u32,
     import: u32,
     reference_path: u32,
     local_pattern: u32,
-    injection_content: u32,
-    injection_language: Option<u32>,
     name: u32,
     definitions: Vec<(u32, DefinitionKind)>,
     reference_call: u32,
     reference_implementation: u32,
-    injection_patterns: HashMap<usize, InjectionProperties>,
-}
-
-#[derive(Clone, Default)]
-struct InjectionProperties {
-    language: Option<String>,
-    language_capture: Option<u32>,
-    include_children: bool,
-    priority: i32,
 }
 
 #[derive(Default)]
@@ -133,8 +132,6 @@ struct CaptureFacts<'a> {
 
 impl LanguageHandler for Analyzer {
     fn capture(&self, tree: &Tree, source: &[u8], include_tokens: bool) -> Result<CapturedTree> {
-        let mut cursor = QueryCursor::new();
-        let mut matches = cursor.matches(&self.query, tree.root_node(), source);
         let mut facts = CaptureFacts {
             graph: NodeGraph {
                 nodes: HashMap::new(),
@@ -142,13 +139,16 @@ impl LanguageHandler for Analyzer {
             },
             ..Default::default()
         };
-
-        while let Some(query_match) = matches.next() {
-            let captures = query_match.captures();
-            facts.record_syntax(&self.captures, captures, source);
-            facts.record_tags(&self.captures, captures, source);
-            facts.record_injection(&self.captures, query_match.pattern_index, captures, source);
-        }
+        let common = self
+            .query
+            .capture_with(tree, source, false, |_, captures, source| {
+                facts.record_semantics(&self.captures, captures, source);
+                facts.record_tags(&self.captures, captures, source);
+            });
+        facts.events = common.events;
+        facts.parents = common.parents;
+        facts.functions = common.functions;
+        facts.injections = common.injections;
         facts.normalize(tree, include_tokens)
     }
 }
@@ -222,6 +222,7 @@ impl<'a> CaptureFacts<'a> {
             tokens,
             definitions,
             imports,
+            exports: Vec::new(),
             references,
             locals,
             injections: self.injections,
@@ -250,6 +251,7 @@ impl<'a> CaptureFacts<'a> {
                     is_public: has_visibility(item.node_id, &self.graph),
                     inline_module: item.inline_module,
                     external_module: item.external_module,
+                    context_id: 0,
                 })
             })
             .collect::<Option<Vec<_>>>()

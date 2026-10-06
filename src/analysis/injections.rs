@@ -4,6 +4,7 @@ use std::ops::Range;
 use tree_sitter::{InputEdit, Range as TsRange, Tree};
 
 use crate::Result;
+use crate::languages::query::ranges;
 use crate::languages::{CapturedTree, InjectionRequest, LanguageChoice};
 use crate::metrics::{SyntaxRole, cyclomatic::FunctionScope};
 use crate::model::{Definition, InjectionAnalysis, ModulePath};
@@ -53,9 +54,12 @@ impl Worker {
         inherited_scope: Option<Range<usize>>,
         active: &mut HashSet<(String, usize, usize)>,
         next_node_id: &mut usize,
+        next_context_id: &mut usize,
         old_trees: &mut BTreeMap<TreeKey, Tree>,
         depth: usize,
     ) -> Result<(Vec<ParsedInjection>, Vec<TreeSummary>)> {
+        let context_id = *next_context_id;
+        *next_context_id += 1;
         let mut captured =
             self.registry
                 .capture(&choice.id, tree, source, self.selection.needs_halstead())?;
@@ -63,7 +67,11 @@ impl Worker {
         let requests = selected_requests(std::mem::take(&mut captured.injections));
         let excluded = requests
             .iter()
-            .map(|item| item.range.clone())
+            .flat_map(|item| {
+                item.guest_ranges
+                    .iter()
+                    .map(|range| range.start_byte..range.end_byte)
+            })
             .collect::<Vec<_>>();
         let child_contexts = requests
             .iter()
@@ -85,14 +93,20 @@ impl Worker {
                         &captured.definitions,
                         &request.range,
                     ),
-                    enclosing_function(&captured.functions, &request.range)
-                        .or_else(|| inherited_scope.clone()),
+                    request
+                        .inherit_scope
+                        .then(|| {
+                            enclosing_function(&captured.functions, &request.range)
+                                .or_else(|| inherited_scope.clone())
+                        })
+                        .flatten(),
                 )
             })
             .collect::<Vec<_>>();
         let mut summaries = vec![facts::summary(
             choice,
             captured,
+            context_id,
             excluded,
             inherited_module,
             &owner_range,
@@ -155,6 +169,7 @@ impl Worker {
                 child_scope,
                 active,
                 next_node_id,
+                next_context_id,
                 old_trees,
                 depth + 1,
             )?;
@@ -180,7 +195,13 @@ fn selected_requests(requests: Vec<InjectionRequest>) -> Vec<InjectionRequest> {
     let mut selected = BTreeMap::<(usize, usize), InjectionRequest>::new();
     for request in requests {
         let key = (request.range.start, request.range.end);
-        match selected.get(&key) {
+        match selected.get_mut(&key) {
+            Some(current) if current.language == request.language => {
+                current.guest_ranges =
+                    ranges::intersect_sets(&current.guest_ranges, &request.guest_ranges);
+                current.priority = current.priority.max(request.priority);
+                current.inherit_scope |= request.inherit_scope;
+            }
             Some(current)
                 if current.priority > request.priority
                     || (current.priority == request.priority
@@ -190,7 +211,13 @@ fn selected_requests(requests: Vec<InjectionRequest>) -> Vec<InjectionRequest> {
             }
         }
     }
-    selected.into_values().collect()
+    selected
+        .into_values()
+        .map(|mut request| {
+            ranges::normalize(&mut request.guest_ranges);
+            request
+        })
+        .collect()
 }
 
 fn remap_node_ids(captured: &mut CapturedTree, next_id: &mut usize) {
@@ -250,67 +277,23 @@ fn enclosing_function(functions: &[FunctionScope], range: &Range<usize>) -> Opti
 }
 
 fn injection_ranges(tree: &Tree, request: &InjectionRequest) -> Vec<TsRange> {
-    let content = TsRange {
-        start_byte: request.range.start,
-        start_point: request.start_point,
-        end_byte: request.range.end,
-        end_point: request.end_point,
-    };
-    let mut ranges = Vec::new();
-    if request.include_children {
-        ranges.push(content);
-    } else {
-        let mut children = request.child_ranges.clone();
-        children.sort_by_key(|range| (range.start_byte, range.end_byte));
-        let mut start_byte = content.start_byte;
-        let mut start_point = content.start_point;
-        for child in children {
-            let child_start = child.start_byte.max(content.start_byte);
-            let child_end = child.end_byte.min(content.end_byte);
-            if start_byte < child_start {
-                ranges.push(TsRange {
-                    start_byte,
-                    start_point,
-                    end_byte: child_start,
-                    end_point: if child_start == child.start_byte {
-                        child.start_point
-                    } else {
-                        content.start_point
-                    },
-                });
-            }
-            if child_end > start_byte {
-                start_byte = child_end;
-                start_point = if child_end == child.end_byte {
-                    child.end_point
-                } else {
-                    content.end_point
-                };
-            }
-        }
-        if start_byte < content.end_byte {
-            ranges.push(TsRange {
-                start_byte,
-                start_point,
-                end_byte: content.end_byte,
-                end_point: content.end_point,
-            });
-        }
-    }
+    let ranges = request.guest_ranges.clone();
     let parent_ranges = tree.included_ranges();
     let parent_ranges = if parent_ranges.is_empty() {
         vec![tree.root_node().range()]
     } else {
         parent_ranges
     };
-    ranges
+    let mut ranges = ranges
         .into_iter()
         .flat_map(|range| {
             parent_ranges
                 .iter()
                 .filter_map(move |parent| intersect(range, *parent))
         })
-        .collect()
+        .collect::<Vec<_>>();
+    ranges::normalize(&mut ranges);
+    ranges
 }
 
 fn intersect(left: TsRange, right: TsRange) -> Option<TsRange> {

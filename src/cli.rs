@@ -11,7 +11,7 @@ use crate::metrics::selection::Metric;
 /// Select one command and an output format. `--format` is accepted before or
 /// after the command. The default format is `human`.
 #[derive(Debug, Parser)]
-#[command(name = "entanglement", version, about = "Analyze Rust code metrics")]
+#[command(name = "entanglement", version, about = "Analyze source code metrics")]
 pub struct Cli {
     /// Select report metrics (repeatable and comma-delimited; defaults to all).
     #[arg(

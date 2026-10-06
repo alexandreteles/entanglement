@@ -1,0 +1,33 @@
+{
+  "grammars": [
+    {
+      "name": "typescript",
+      "camelcase": "TypeScript",
+      "scope": "source.ts",
+      "path": "typescript",
+      "external-files": ["common/scanner.h"],
+      "file-types": ["ts", "mts", "cts"],
+      "highlights": "queries/highlights.scm",
+      "locals": "queries/locals.scm",
+      "tags": "queries/tags.scm",
+      "injection-regex": "^(ts|typescript)$"
+    },
+    {
+      "name": "tsx",
+      "camelcase": "TSX",
+      "scope": "source.tsx",
+      "path": "tsx",
+      "external-files": ["common/scanner.h"],
+      "file-types": ["tsx"],
+      "highlights": "queries/highlights.scm",
+      "locals": "queries/locals.scm",
+      "tags": "queries/tags.scm",
+      "injection-regex": "^tsx$"
+    }
+  ],
+  "metadata": {
+    "version": "0.23.2",
+    "license": "MIT",
+    "description": "TypeScript and TSX grammars for tree-sitter"
+  }
+}

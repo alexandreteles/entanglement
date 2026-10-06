@@ -1,13 +1,13 @@
-use tree_sitter::{Language, Query};
+use tree_sitter::Language;
 
 use super::node_text;
 use super::references::raw_reference;
 use super::{
-    ANALYSIS_QUERY, Analyzer, CaptureFacts, Captures, InjectionProperties, InjectionRequest,
-    LocalScopeKind, NodeGraph, RawDefinition, RawLocal, RawPath,
+    ANALYSIS_QUERY, Analyzer, CaptureFacts, Captures, LocalScopeKind, NodeGraph, RawDefinition,
+    RawLocal, RawPath,
 };
 use crate::Result;
-use crate::metrics::{SyntaxEvent, SyntaxRole, cyclomatic::FunctionScope};
+use crate::languages::query::QueryAnalyzer;
 use crate::model::{DefinitionKind, ReferenceKind};
 
 impl Analyzer {
@@ -18,62 +18,8 @@ impl Analyzer {
             tree_sitter_rust::INJECTIONS_QUERY,
             ANALYSIS_QUERY
         );
-        let query = Query::new(language, &source)?;
-        let id = |name| {
-            query
-                .capture_index_for_name(name)
-                .expect("required capture")
-        };
-        let roles = [
-            ("syntax.node", SyntaxRole::Node),
-            ("comment", SyntaxRole::Comment),
-            ("metric.function", SyntaxRole::Function),
-            ("metric.cognitive.if", SyntaxRole::CognitiveIf),
-            (
-                "metric.cognitive.condition_boundary",
-                SyntaxRole::CognitiveConditionBoundary,
-            ),
-            ("metric.cognitive.else", SyntaxRole::CognitiveElse),
-            ("metric.cognitive.else_if", SyntaxRole::CognitiveElseIf),
-            ("metric.cognitive.loop", SyntaxRole::CognitiveLoop),
-            ("metric.cognitive.let_else", SyntaxRole::CognitiveLetElse),
-            ("metric.cognitive.multiway", SyntaxRole::CognitiveMultiway),
-            (
-                "metric.cognitive.logical_expression",
-                SyntaxRole::CognitiveLogicalExpression,
-            ),
-            (
-                "metric.cognitive.logical_and",
-                SyntaxRole::CognitiveLogicalAnd,
-            ),
-            (
-                "metric.cognitive.logical_or",
-                SyntaxRole::CognitiveLogicalOr,
-            ),
-            (
-                "metric.cognitive.parentheses",
-                SyntaxRole::CognitiveParentheses,
-            ),
-            ("metric.cognitive.closure", SyntaxRole::CognitiveClosure),
-            (
-                "metric.cognitive.labeled_jump",
-                SyntaxRole::CognitiveLabeledJump,
-            ),
-            ("metric.condition", SyntaxRole::Condition),
-            ("metric.logical_condition", SyntaxRole::LogicalCondition),
-            ("metric.multiway", SyntaxRole::Multiway),
-            ("metric.case", SyntaxRole::Case),
-            ("import", SyntaxRole::Import),
-            ("reference.path", SyntaxRole::Reference),
-            ("reference.call", SyntaxRole::Reference),
-            ("reference.implementation", SyntaxRole::Reference),
-            ("reference.value", SyntaxRole::Reference),
-            ("reference.type", SyntaxRole::Reference),
-            ("injection.content", SyntaxRole::InjectionContent),
-        ]
-        .into_iter()
-        .map(|(name, role)| (id(name), role))
-        .collect();
+        let query = QueryAnalyzer::new(language, &source)?;
+        let id = |name| query.capture_id(name).expect("required capture");
         let definitions = [
             ("definition.function", DefinitionKind::Function),
             ("definition.method", DefinitionKind::Method),
@@ -87,7 +33,6 @@ impl Analyzer {
         .into_iter()
         .map(|(name, kind)| (id(name), kind))
         .collect::<Vec<_>>();
-        let definition_ids = definitions.iter().map(|(capture, _)| *capture).collect();
         let local_scopes = [
             ("local.declaration", LocalScopeKind::Block),
             ("local.parameter", LocalScopeKind::Function),
@@ -107,59 +52,23 @@ impl Analyzer {
         .map(|(name, kind)| (id(name), kind))
         .collect();
         let captures = Captures {
-            roles,
-            definition_ids,
             local_scopes,
             reference_kinds,
             syntax_node: id("syntax.node"),
-            metric_function: id("metric.function"),
             import: id("import"),
             reference_path: id("reference.path"),
             local_pattern: id("local.pattern"),
-            injection_content: id("injection.content"),
-            injection_language: query.capture_index_for_name("injection.language"),
             name: id("name"),
             definitions,
             reference_call: id("reference.call"),
             reference_implementation: id("reference.implementation"),
-            injection_patterns: (0..query.pattern_count())
-                .filter_map(|index| {
-                    let mut properties = InjectionProperties::default();
-                    let mut found = false;
-                    for property in query.property_settings(index) {
-                        match property.key.as_ref() {
-                            "injection.language" => {
-                                found = true;
-                                properties.language = property.value.as_deref().map(str::to_owned);
-                                properties.language_capture =
-                                    property.capture_id.map(|id| id as u32);
-                            }
-                            "injection.include-children" => {
-                                found = true;
-                                properties.include_children =
-                                    property.value.as_deref() != Some("false");
-                            }
-                            "injection.priority" => {
-                                found = true;
-                                properties.priority = property
-                                    .value
-                                    .as_deref()
-                                    .and_then(|value| value.parse().ok())
-                                    .unwrap_or_default();
-                            }
-                            _ => {}
-                        }
-                    }
-                    found.then_some((index, properties))
-                })
-                .collect(),
         };
         Ok(Self { query, captures })
     }
 }
 
 impl<'a> CaptureFacts<'a> {
-    pub(super) fn record_syntax(
+    pub(super) fn record_semantics(
         &mut self,
         query: &Captures,
         captures: &[tree_sitter::QueryCapture<'a>],
@@ -167,25 +76,8 @@ impl<'a> CaptureFacts<'a> {
     ) {
         for capture in captures {
             let node = capture.node;
-            let parent = node.parent().map(|parent| parent.id());
             if capture.index == query.syntax_node {
-                self.parents.insert(node.id(), parent);
                 self.graph.nodes.insert(node.id(), node);
-            }
-            if let Some(role) = query.roles.get(&capture.index) {
-                self.events.push(event(*role, node));
-            }
-            if query.definition_ids.contains(&capture.index) {
-                self.events.push(event(SyntaxRole::Definition, node));
-            }
-            if capture.index == query.metric_function
-                && let Some(name) = node.child_by_field_name("name")
-            {
-                self.functions.push(FunctionScope {
-                    name: node_text(name, source),
-                    range: node.start_byte()..node.end_byte(),
-                    line: node.start_position().row + 1,
-                });
             }
             if capture.index == query.reference_path {
                 self.paths.push(RawPath {
@@ -241,53 +133,6 @@ impl<'a> CaptureFacts<'a> {
                 }
             }
         }
-    }
-
-    pub(super) fn record_injection(
-        &mut self,
-        query: &Captures,
-        pattern_index: usize,
-        captures: &[tree_sitter::QueryCapture<'_>],
-        source: &[u8],
-    ) {
-        let Some(content) = captures
-            .iter()
-            .find(|item| item.index == query.injection_content)
-        else {
-            return;
-        };
-        let has_language_capture = query
-            .injection_language
-            .is_some_and(|id| captures.iter().any(|capture| capture.index == id));
-        if has_language_capture || query.injection_patterns.contains_key(&pattern_index) {
-            self.events
-                .push(event(SyntaxRole::InjectionLanguage, content.node));
-        }
-        let mut properties = query
-            .injection_patterns
-            .get(&pattern_index)
-            .cloned()
-            .unwrap_or_default();
-        if properties.language.is_none() && properties.language_capture.is_none() {
-            properties.language_capture = query.injection_language.filter(|_| has_language_capture);
-        }
-        if let Some(injection) = injection_from_match(&properties, captures, content.node, source) {
-            self.injections.push(injection);
-        }
-    }
-}
-
-fn event(role: SyntaxRole, node: tree_sitter::Node<'_>) -> SyntaxEvent {
-    SyntaxEvent {
-        role,
-        start_byte: node.start_byte(),
-        end_byte: node.end_byte(),
-        start_row: node.start_position().row,
-        end_row: node.end_position().row,
-        end_column: node.end_position().column,
-        node_id: node.id(),
-        parent_id: node.parent().map(|parent| parent.id()),
-        terminal: node.child_count() == 0,
     }
 }
 
@@ -366,38 +211,4 @@ fn capture_node_id(captures: &[tree_sitter::QueryCapture<'_>], id: u32) -> Optio
         .iter()
         .find(|capture| capture.index == id)
         .map(|capture| capture.node.id())
-}
-
-fn injection_from_match(
-    properties: &InjectionProperties,
-    captures: &[tree_sitter::QueryCapture<'_>],
-    content: tree_sitter::Node<'_>,
-    source: &[u8],
-) -> Option<InjectionRequest> {
-    let language = properties.language.clone().or_else(|| {
-        properties.language_capture.and_then(|id| {
-            captures
-                .iter()
-                .find(|capture| capture.index == id)
-                .map(|capture| node_text(capture.node, source))
-        })
-    })?;
-    let child_ranges = if properties.include_children {
-        Vec::new()
-    } else {
-        let mut cursor = content.walk();
-        content
-            .named_children(&mut cursor)
-            .map(|child| child.range())
-            .collect()
-    };
-    Some(InjectionRequest {
-        language,
-        range: content.start_byte()..content.end_byte(),
-        child_ranges,
-        start_point: content.start_position(),
-        end_point: content.end_position(),
-        include_children: properties.include_children,
-        priority: properties.priority,
-    })
 }

@@ -17,16 +17,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for package in metadata.packages {
         let manifest = package.manifest_path.into_std_path_buf();
         let package_root = manifest.parent().ok_or("No grammar directory")?;
-        if !package_root.join("tree-sitter.json").is_file() {
+        let metadata_file = package_root.join("tree-sitter.json");
+        let override_file = Path::new("grammar-metadata")
+            .join(package.name.as_str())
+            .join("tree-sitter.json");
+        let metadata_file = if override_file.is_file() {
+            println!("cargo:rerun-if-changed={}", override_file.display());
+            override_file.canonicalize()?
+        } else if metadata_file.is_file() {
+            metadata_file
+        } else {
             continue;
-        }
+        };
         let root = format!("grammars/{}-{}", package.name, package.version);
         if !roots.insert(root.clone()) {
             return Err(format!("Duplicate grammar package path: {root}").into());
         }
-        let metadata = TreeSitterJSON::from_file(package_root)?;
+        let metadata_directory = metadata_file.parent().ok_or("No metadata directory")?;
+        let metadata = TreeSitterJSON::from_file(metadata_directory)?;
         let mut files = BTreeSet::new();
-        collect(package_root, Path::new("tree-sitter.json"), &mut files)?;
+        if metadata_file.starts_with(package_root) {
+            collect(package_root, Path::new("tree-sitter.json"), &mut files)?;
+        } else {
+            files.insert(PathBuf::from("tree-sitter.json"));
+        }
         for grammar in metadata.grammars {
             add_grammar_assets(package_root, grammar, &mut files)?;
         }
@@ -42,7 +56,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         generated.push_str(&format!("{root:?},\n"));
         for file in files {
-            let path = package_root.join(&file);
+            let path = if file == Path::new("tree-sitter.json")
+                && !metadata_file.starts_with(package_root)
+            {
+                metadata_file.clone()
+            } else {
+                package_root.join(&file)
+            };
             assets.push_str(&format!(
                 "({root:?}, {file:?}, include_bytes!({path:?})),\n"
             ));
@@ -57,6 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rerun-if-changed=Cargo.lock");
+    println!("cargo:rerun-if-changed=grammar-metadata");
     Ok(())
 }
 

@@ -185,12 +185,11 @@ fn patch_sources(
         Box::new(std::iter::once(Ok(target.clone())))
     } else {
         let repository = if target.is_file() {
+            let manifests = languages::Registry::shared()?.project_manifests();
             target
                 .ancestors()
                 .skip(1)
-                .find(|directory| {
-                    directory.join("Cargo.toml").is_file() || directory.join(".git").exists()
-                })
+                .find(|directory| is_project_root(directory, &manifests))
                 .unwrap_or(&root)
         } else {
             &root
@@ -204,6 +203,14 @@ fn patch_sources(
         Box::new(paths.chain(old_paths.into_iter().map(Ok)))
     };
     Ok((root, paths))
+}
+
+/// Recognize a project root using manifests supplied by language descriptors.
+fn is_project_root(directory: &Path, manifests: &[&str]) -> bool {
+    directory.join(".git").exists()
+        || manifests
+            .iter()
+            .any(|manifest| directory.join(manifest).is_file())
 }
 
 /// The paths and incremental edits for one virtual file change.

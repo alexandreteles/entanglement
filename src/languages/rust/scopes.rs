@@ -33,6 +33,7 @@ pub(super) fn local_bindings(local: &RawLocal, graph: &NodeGraph<'_>) -> Vec<Loc
                     end_byte: range.end,
                     scope_start: declaration.end_byte(),
                     scope_end: end,
+                    context_id: 0,
                 })
                 .collect();
         }
@@ -52,6 +53,7 @@ pub(super) fn local_bindings(local: &RawLocal, graph: &NodeGraph<'_>) -> Vec<Loc
             end_byte: range.end,
             scope_start: scope.start_byte(),
             scope_end: scope.end_byte(),
+            context_id: 0,
         })
         .collect()
 }

@@ -44,21 +44,20 @@ fn nested_function_tokens_belong_to_the_smallest_scope() {
 }
 
 #[test]
-fn injected_macro_content_does_not_leak_into_rust_halstead_tokens() {
+fn a_rust_macro_name_does_not_select_html() {
     let report = analyze("fn page() { let amount = 1; v! { <div>injected</div> } }");
     let file = &report["files"][0];
 
     assert!(
-        file["injections"].as_array().is_some_and(|injections| {
-            injections
-                .iter()
-                .any(|injection| injection["language"] == "html")
-        }),
-        "the Rust analyzer should report the recognized HTML injection"
+        !file["injections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| { item["language"] == "html" })
     );
-    assert!(!operand(&file["halstead"], "injected"));
+    assert!(operand(&file["halstead"], "amount"));
     let function = &file["functions"][0];
-    assert!(!operand(&function["halstead"], "injected"));
+    assert!(operand(&function["halstead"], "amount"));
 }
 
 fn operand(halstead: &Value, spelling: &str) -> bool {
