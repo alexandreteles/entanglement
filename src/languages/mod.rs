@@ -1,4 +1,5 @@
 mod assets;
+mod go;
 mod python;
 pub(crate) mod query;
 mod registry;
@@ -55,6 +56,7 @@ pub(crate) trait LanguageHandler: Send + Sync {
 pub(crate) enum ResolutionFamily {
     RustCrates,
     FileModules,
+    GoPackages,
     None,
 }
 

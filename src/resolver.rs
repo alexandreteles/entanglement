@@ -13,6 +13,7 @@ use crate::model::{FileFacts, ReferenceAnalysis, Resolution, SymbolId};
 mod files;
 mod indexing;
 mod module_graph;
+mod packages;
 mod resolution;
 
 /// Keep a shared-file fallback separate from every logical crate root.
@@ -82,11 +83,15 @@ pub(crate) fn resolve(facts: &mut [FileFacts], selection: crate::metrics::select
     let mut index = Index::new(facts);
     index.resolve_imports();
     let file_resolutions = files::resolve(facts);
+    let package_resolutions = packages::resolve(facts);
     facts
         .par_iter_mut()
         .enumerate()
         .for_each(|(file_index, fact)| {
-            if let Some(resolutions) = file_resolutions[file_index].as_ref() {
+            if let Some(resolutions) = file_resolutions[file_index]
+                .as_ref()
+                .or(package_resolutions[file_index].as_ref())
+            {
                 fact.analysis.resolution = resolutions.clone();
                 return;
             }

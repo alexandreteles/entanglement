@@ -6,7 +6,7 @@ use crate::model::{FileFacts, ReferenceAnalysis, Resolution};
 
 mod bindings;
 mod exports;
-mod indexing;
+pub(super) mod indexing;
 mod layout;
 mod references;
 mod symbols;
