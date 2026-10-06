@@ -15,7 +15,7 @@ impl Index<'_> {
     ) -> Vec<Target> {
         let key = (file, name.to_owned());
         if !visiting.insert(key.clone()) {
-            return vec![Target::Unresolved];
+            return Vec::new();
         }
         let exports = &self.facts[file].exports;
         let explicit = exports

@@ -48,7 +48,12 @@ impl<'a> Index<'a> {
                 }
             }
         }
-        files.into_iter().map(Target::Namespace).collect()
+        let targets = files.into_iter().map(Target::Namespace).collect::<Vec<_>>();
+        if targets.is_empty() {
+            vec![Target::Unresolved]
+        } else {
+            targets
+        }
     }
 }
 
