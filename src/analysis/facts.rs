@@ -18,19 +18,19 @@ use super::injections::{self, ParsedInjection};
 use super::metrics;
 
 pub(super) struct TreeSummary {
-    language_id: String,
+    metric_id: String,
     resolution_family: ResolutionFamily,
     file_module_rules: Option<&'static FileModuleRules>,
-    semantic_context: usize,
+    pub(super) semantic_context: usize,
     pub(super) events: Vec<SyntaxEvent>,
     pub(super) parents: HashMap<usize, Option<usize>>,
     pub(super) cognitive_parent: Option<usize>,
     functions: Vec<FunctionScope>,
     pub(super) tokens: Vec<HalsteadToken>,
     pub(super) excluded: Vec<Range<usize>>,
-    definitions: Vec<Definition>,
-    imports: Vec<Import>,
-    exports: Vec<Export>,
+    pub(super) definitions: Vec<Definition>,
+    pub(super) imports: Vec<Import>,
+    pub(super) exports: Vec<Export>,
     references: Vec<Reference>,
     locals: Vec<LocalBinding>,
 }
@@ -39,6 +39,7 @@ pub(super) fn summary(
     choice: &LanguageChoice,
     captured: CapturedTree,
     semantic_context: usize,
+    metric_id: String,
     excluded: Vec<Range<usize>>,
     inherited_module: &ModulePath,
     owner_range: &Range<usize>,
@@ -95,6 +96,13 @@ pub(super) fn summary(
             owner_range,
             inherited_scope,
         );
+        if reference.call_owner.is_none()
+            && reference.kind == crate::model::ReferenceKind::Call
+        {
+            if let Some(scope) = inherited_scope {
+                reference.call_owner = Some(scope.start);
+            }
+        }
         prepend_module(&mut reference.module, prefix);
     }
     let mut locals = captured.locals;
@@ -116,7 +124,7 @@ pub(super) fn summary(
     let mut tokens = captured.tokens;
     tokens.retain(|token| !inside_any(token.start_byte..token.end_byte, &excluded));
     TreeSummary {
-        language_id: choice.id.clone(),
+        metric_id,
         resolution_family: choice.resolution_family,
         file_module_rules: choice.file_module_rules,
         semantic_context,
@@ -131,6 +139,44 @@ pub(super) fn summary(
         exports,
         references,
         locals,
+    }
+}
+
+impl TreeSummary {
+    pub(super) fn discard_exports(&mut self) {
+        self.exports.clear();
+    }
+
+    pub(super) fn share_top_level_bindings_into(
+        &self,
+        target: &mut TreeSummary,
+        owner_range: &Range<usize>,
+        target_scope: &Range<usize>,
+    ) {
+        target.definitions.extend(
+            self.definitions
+                .iter()
+                .filter(|item| item.scope_start <= owner_range.start && owner_range.end <= item.scope_end)
+                .cloned()
+                .map(|mut item| {
+                    item.context_id = target.semantic_context;
+                    item.scope_start = target_scope.start;
+                    item.scope_end = target_scope.end;
+                    item
+                }),
+        );
+        target.imports.extend(
+            self.imports
+                .iter()
+                .filter(|item| item.scope_start <= owner_range.start && owner_range.end <= item.scope_end)
+                .cloned()
+                .map(|mut item| {
+                    item.context_id = target.semantic_context;
+                    item.scope_start = target_scope.start;
+                    item.scope_end = target_scope.end;
+                    item
+                }),
+        );
     }
 }
 
@@ -150,11 +196,11 @@ pub(super) fn build_facts(
         file_rows.extend(nloc::rows(&item.events, 0..source.len(), &item.excluded));
     }
 
-    let mut by_language = BTreeMap::<String, Vec<usize>>::new();
+    let mut by_metric = BTreeMap::<String, Vec<usize>>::new();
     let mut functions = BTreeMap::<(usize, usize, String, String), FunctionScope>::new();
     for (index, item) in summaries.iter().enumerate() {
-        by_language
-            .entry(item.language_id.clone())
+        by_metric
+            .entry(item.metric_id.clone())
             .or_default()
             .push(index);
         for function in &item.functions {
@@ -163,24 +209,24 @@ pub(super) fn build_facts(
                     function.range.start,
                     function.range.end,
                     function.name.clone(),
-                    item.language_id.clone(),
+                    item.metric_id.clone(),
                 ))
                 .or_insert_with(|| function.clone());
         }
     }
 
-    let mut functions_by_language = BTreeMap::<String, Vec<FunctionScope>>::new();
-    for ((_, _, _, language), function) in functions {
-        functions_by_language
-            .entry(language)
+    let mut functions_by_metric = BTreeMap::<String, Vec<FunctionScope>>::new();
+    for ((_, _, _, metric), function) in functions {
+        functions_by_metric
+            .entry(metric)
             .or_default()
             .push(function);
     }
 
     let mut analyses = Vec::new();
     let mut file_cyclomatic_complexity = 0;
-    for (language, scopes) in functions_by_language {
-        let indexes = &by_language[&language];
+    for (metric, scopes) in functions_by_metric {
+        let indexes = &by_metric[&metric];
         let language_metrics =
             metrics::LanguageMetrics::calculate(&scopes, &summaries, indexes, selection);
         for (index, function) in scopes.into_iter().enumerate() {

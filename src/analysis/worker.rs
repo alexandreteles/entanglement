@@ -82,6 +82,8 @@ impl Worker {
             0..source.len(),
             &ModulePath::default(),
             None,
+            None,
+            choice.id.clone(),
             &mut active,
             &mut next_node_id,
             &mut next_context_id,

@@ -19,12 +19,15 @@ use super::{
 };
 use crate::Result;
 
-const WEB_EXTENSIONS: &[&str] = &["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs", "d.ts"];
+const WEB_EXTENSIONS: &[&str] = &[
+    "ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs", "d.ts", "svelte",
+];
 const WEB_REMAPS: &[(&str, &[&str])] = &[
     ("js", &["ts", "tsx"]),
     ("jsx", &["tsx"]),
     ("mjs", &["mts"]),
     ("cjs", &["cts"]),
+    ("svelte", &["svelte.ts", "svelte.js"]),
 ];
 const WEB_INDEX_STEMS: &[&str] = &["index"];
 const WEB_UNRESOLVED_PREFIXES: &[&str] = &["@/", "~/", "$lib"];
@@ -69,9 +72,9 @@ pub(super) const LANGUAGE_SPECS: &[LanguageSpec] = &[
     },
     LanguageSpec {
         scope: "source.svelte",
-        resolution_family: ResolutionFamily::None,
-        project_manifests: &[],
-        file_module_rules: None,
+        resolution_family: ResolutionFamily::FileModules,
+        project_manifests: &["package.json", "tsconfig.json", "jsconfig.json"],
+        file_module_rules: Some(&WEB_MODULE_RULES),
         build,
     },
     LanguageSpec {

@@ -332,7 +332,8 @@ fn svelte_scripts_styles_and_template_expressions_use_registered_analyzers() {
     "#lib": "./src/lib/index.js",
     "#lib/*": "./src/lib/*",
     "#config": { "types": "./src/config.ts", "default": "./src/config.js" },
-    "#vendor": "external-package"
+    "#vendor": "external-package",
+    "#fallback": { "import": { "development": "./src/dev.ts" }, "default": "./src/config.ts" }
   }
 }
 "##,
@@ -364,12 +365,13 @@ fn svelte_scripts_styles_and_template_expressions_use_registered_analyzers() {
   import { setting } from '#config';
   import { vendor } from '#vendor';
   import { missing } from '#missing';
+  import { setting as fallbackSetting } from '#fallback';
   let { items, open }: { items: string[]; open: boolean } = $props();
   function pick(value: string): string {
     return open && value ? pick(format(value)) : play(request(value));
   }
   function kit(value: string) {
-    return kitFormat(share(setting(vendor(missing(value)))));
+    return kitFormat(share(setting(fallbackSetting(vendor(missing(value))))));
   }
 </script>
 
@@ -394,6 +396,7 @@ fn svelte_scripts_styles_and_template_expressions_use_registered_analyzers() {
 
     let row = file(&output, "Row.svelte");
     assert_eq!(row["language"], "svelte");
+    assert_eq!(function(row, "<component>")["cyclomatic_complexity"], 4);
     let pick = function(row, "pick");
     assert_eq!(pick["cyclomatic_complexity"], 3);
     assert!(recursive(pick));
@@ -415,6 +418,7 @@ fn svelte_scripts_styles_and_template_expressions_use_registered_analyzers() {
     assert!(has_resolution(row, "kitFormat", "exact"));
     assert!(has_resolution(row, "share", "exact"));
     assert!(has_resolution(row, "setting", "exact"));
+    assert!(has_resolution(row, "fallbackSetting", "exact"));
     assert!(has_resolution(row, "vendor", "external"));
     assert!(has_resolution(row, "missing", "unresolved"));
 
@@ -426,7 +430,56 @@ fn svelte_scripts_styles_and_template_expressions_use_registered_analyzers() {
         .map(|item| item["language"].as_str().unwrap())
         .collect::<Vec<_>>();
     assert!(languages.iter().all(|language| *language == "javascript"));
+    assert_eq!(function(plain, "<component>")["cyclomatic_complexity"], 1);
     assert_eq!(function(plain, "anonymous@4")["cyclomatic_complexity"], 2);
+    assert!(has_resolution(plain, "count", "exact"));
+}
+
+#[test]
+fn svelte_component_scope_module_bindings_snippets_and_default_imports() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("app");
+    write(&root.join("package.json"), "{}\n");
+    write(
+        &root.join("src/Child.svelte"),
+        r#"<script>
+  export let label = 'child';
+</script>
+<p>{label}</p>
+"#,
+    );
+    write(
+        &root.join("src/App.svelte"),
+        r#"<script module>
+  export const shared = true;
+</script>
+<script>
+  import Child from './Child.svelte';
+  let ready = shared;
+  let item = 'outer';
+</script>
+
+{#snippet row(item)}
+  {#if item && ready}
+    <Child label={item} />
+  {/if}
+{/snippet}
+
+{#each [1] as item}
+  {@render row(item)}
+{/each}
+"#,
+    );
+
+    let output = report(&run("repo", &root, None, Some("cc,cogc")));
+    let app = file(&output, "App.svelte");
+    assert_eq!(function(app, "<component>")["cyclomatic_complexity"], 2);
+    assert_eq!(function(app, "row")["cyclomatic_complexity"], 3);
+    assert!(has_resolution(app, "shared", "exact"));
+    assert!(has_resolution(app, "ready", "exact"));
+    assert!(has_resolution(app, "Child", "exact"));
+    assert!(has_resolution(app, "row", "exact"));
+    assert!(has_resolution(app, "item", "unresolved"));
 }
 
 #[test]

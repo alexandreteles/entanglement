@@ -47,6 +47,10 @@ impl QueryFacts {
                 guest_ranges,
                 priority: properties.priority,
                 inherit_scope: properties.inherit_scope,
+                inherit_metrics: properties.inherit_metrics,
+                inherit_context: properties.inherit_context,
+                share_bindings: properties.share_bindings,
+                publish_exports: properties.publish_exports,
                 registered_only: properties.registered_only,
             });
         }
@@ -110,8 +114,21 @@ pub(super) fn merge(injections: &mut Vec<InjectionRequest>) {
 }
 
 fn merge_request(current: &mut InjectionRequest, other: &InjectionRequest) {
+    if other.priority > current.priority {
+        current.inherit_scope = other.inherit_scope;
+        current.inherit_metrics = other.inherit_metrics;
+        current.inherit_context = other.inherit_context;
+        current.share_bindings = other.share_bindings;
+        current.publish_exports = other.publish_exports;
+        current.registered_only = other.registered_only;
+    } else if other.priority == current.priority {
+        current.inherit_scope |= other.inherit_scope;
+        current.inherit_metrics |= other.inherit_metrics;
+        current.inherit_context |= other.inherit_context;
+        current.share_bindings |= other.share_bindings;
+        current.publish_exports &= other.publish_exports;
+        current.registered_only &= other.registered_only;
+    }
     current.priority = current.priority.max(other.priority);
-    current.inherit_scope |= other.inherit_scope;
-    current.registered_only &= other.registered_only;
     current.guest_ranges = ranges::intersect_sets(&current.guest_ranges, &other.guest_ranges);
 }
