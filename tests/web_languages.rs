@@ -545,6 +545,11 @@ fn svelte_template_bindings_stop_at_branch_and_element_boundaries() {
     let file = &report["files"][0];
 
     assert_eq!(
+        resolution_at(file, source, "value = 2", 0)["resolution"]["status"],
+        "unresolved",
+        "the @const name should bind itself rather than the script value"
+    );
+    assert_eq!(
         resolution_at(file, source, "{value}", 0)["resolution"]["status"],
         "unresolved",
         "the @const binding should shadow the script value in the if body"
@@ -563,6 +568,11 @@ fn svelte_template_bindings_stop_at_branch_and_element_boundaries() {
         resolution_at(file, source, "inner()", 2)["resolution"]["status"],
         "unresolved",
         "a snippet declared inside an element should not escape to siblings"
+    );
+    assert_eq!(
+        resolution_at(file, source, "sibling = 4", 0)["resolution"]["status"],
+        "unresolved",
+        "the element @const name should bind itself rather than the script sibling"
     );
     assert_eq!(
         resolution_at(file, source, "{sibling}", 0)["resolution"]["status"],

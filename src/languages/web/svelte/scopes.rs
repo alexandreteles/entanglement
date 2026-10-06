@@ -28,9 +28,8 @@ pub(super) fn snippet_scope(node: Node<'_>) -> Option<Range<usize>> {
     Some(node.end_byte()..block.end_byte())
 }
 
-pub(super) fn declaration_scope(node: Node<'_>, root: &Range<usize>) -> Option<Range<usize>> {
-    let scope = lexical_parent_scope(node, root);
-    (node.end_byte() < scope.end).then_some(node.end_byte()..scope.end)
+pub(super) fn declaration_scope(node: Node<'_>, root: &Range<usize>) -> Range<usize> {
+    node.start_byte()..lexical_parent_scope(node, root).end
 }
 
 pub(super) fn lexical_parent_scope(node: Node<'_>, root: &Range<usize>) -> Range<usize> {
