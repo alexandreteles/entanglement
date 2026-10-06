@@ -1,6 +1,8 @@
+use std::io::ErrorKind;
 use std::path::Path;
 
-use tree_sitter::Tree;
+use tree_sitter::{Language, Tree};
+use tree_sitter_loader::{LanguageConfiguration, LoaderError};
 
 use super::Registry;
 use crate::Result;
@@ -12,9 +14,7 @@ impl Registry {
         let selected = self.loader.language_configuration_for_file_name(path)?;
         let selected = match selected {
             Some(selected) => Some(selected),
-            None if path.is_file() => self
-                .loader
-                .language_configuration_for_first_line_regex(path)?,
+            None if path.is_file() => self.select_first_line(path)?,
             None => None,
         };
         let Some((language, configuration)) = selected else {
@@ -25,6 +25,20 @@ impl Registry {
             configuration.language_name.clone(),
             language,
         )
+    }
+
+    /// A first line that is not UTF-8 cannot match a shebang pattern.
+    fn select_first_line(
+        &self,
+        path: &Path,
+    ) -> Result<Option<(Language, &LanguageConfiguration<'static>)>> {
+        match self
+            .loader
+            .language_configuration_for_first_line_regex(path)
+        {
+            Err(LoaderError::IO(error)) if error.error.kind() == ErrorKind::InvalidData => Ok(None),
+            selected => Ok(selected?),
+        }
     }
 
     /// Select a registered language from loader injection metadata.
