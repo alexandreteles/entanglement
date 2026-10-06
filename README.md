@@ -40,7 +40,8 @@ For a `candidate` file input, use the nearest ancestor directory containing a
 manifest declared by a registered language or `.git` to resolve code
 references. If there is no such directory, use the root directory from the
 diff path. The current descriptors recognize `Cargo.toml`, `package.json`,
-`tsconfig.json`, and `jsconfig.json`.
+`tsconfig.json`, `jsconfig.json`, `pyproject.toml`, `setup.py`, and
+`setup.cfg`.
 
 Supply a unified diff with `--diff PATH`. Use `--diff -` to read the diff from
 standard input. For a directory input, diff paths are relative to that
@@ -51,7 +52,10 @@ not write source files.
 ## Languages and embedded code
 
 Entanglement selects grammars and analyzers from language descriptors. The
-current registry includes Rust, TypeScript, TSX, JavaScript, HTML, and CSS.
+current registry includes Rust, Python, TypeScript, TSX, JavaScript, HTML,
+and CSS. Python accepts `.py` and `.pyi`; function, async-function,
+generator, method, and lambda bodies use the shared function metrics.
+Extensionless scripts with a recognized Python 3 shebang are also selected.
 TypeScript accepts `.ts`, `.mts`, and `.cts`; TSX accepts `.tsx`; JavaScript
 accepts `.js`, `.jsx`, `.mjs`, and `.cjs`. JSX stays part of its JavaScript or
 TSX syntax tree, so expressions and callback functions inside React or Solid
@@ -67,6 +71,24 @@ templates select a registered embedded grammar by the tag name; the `html` and
 The JSON `injections` list reports source byte ranges and whether an analyzer
 handled each range. An unknown injected language remains visible there with
 `analyzed: false`.
+
+Python can embed a registered language through one direct string-literal
+argument to a call whose simple callee matches that language label, such as
+`html(f"<p>{value}</p>")` or `tools.css(r"a { color: red }")`. Literal source
+stays in the guest language, while f-string replacement fields stay Python
+and retain their host metrics. HTML `<script lang="python">` and
+`<script type="python">` blocks select the same registered analyzer. A single
+plain, raw, or f-string literal is required; adjacent strings, bytes literals,
+variables, multiple arguments, and keyword arguments are not inferred as
+templates. Non-raw escapes, doubled-brace escapes, or f-string conversion/format
+specifiers are reported unanalyzed because their runtime text cannot be mapped
+safely to source ranges. Ordinary strings and unrelated calls such as
+`print("<p>")` remain Python. Comments are excluded from token metrics, while
+docstrings count as ordinary string literals.
+Comprehension `for` and filter clauses contribute cognitive complexity in
+source order, with each clause nested under the preceding clause. This is
+Entanglement's evaluation-order convention: one generator with one filter has
+cognitive complexity 3, and two generators with one filter have complexity 6.
 
 To add a language, add its Tree-sitter grammar dependency and assets, then add
 a descriptor with the grammar scope and name, file selectors, shared syntax
@@ -86,6 +108,19 @@ and handles local named, default, namespace, alias, and re-export references.
 Bare package imports are external. It does not apply `tsconfig` path aliases,
 package export maps, type inference, or dynamic method dispatch; references
 that need those features stay unresolved.
+
+The Python resolver follows dotted and package-relative imports under an
+established project root or its `src` directory. It recognizes `.py`,
+`.pyi`, package `__init__.py` files, explicit aliases, and package
+re-exports; explicit imports of underscore-prefixed names are allowed.
+Bare imports without an indexed local target are external; missing project-local
+modules remain unresolved. Dynamic imports, dynamic `__all__`, star imports
+whose targets cannot be proved, class or instance method dispatch, and effects
+that depend on `global` or `nonlocal` rebinding remain unresolved when the
+target cannot be established exactly.
+Assignments shadow same-named imports throughout their function. A module-level
+assignment can invalidate a same-module imported binding, including in earlier
+deferred function bodies; comprehension targets stay in their own scope.
 
 ## Selecting metrics
 

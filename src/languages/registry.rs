@@ -5,7 +5,7 @@ use std::sync::{Arc, OnceLock};
 
 use tree_sitter_loader::Loader;
 
-use super::{LanguageHandler, LanguageSpec, assets, rust, web};
+use super::{LanguageHandler, LanguageSpec, assets, python, rust, web};
 use crate::Result;
 
 pub(crate) struct Registry {
@@ -64,7 +64,10 @@ impl Registry {
 
 fn registered_specs() -> Result<HashMap<&'static str, &'static LanguageSpec>> {
     let mut specs = HashMap::new();
-    for spec in std::iter::once(&rust::LANGUAGE_SPEC).chain(web::LANGUAGE_SPECS.iter()) {
+    for spec in std::iter::once(&rust::LANGUAGE_SPEC)
+        .chain(std::iter::once(&python::LANGUAGE_SPEC))
+        .chain(web::LANGUAGE_SPECS.iter())
+    {
         if specs.insert(spec.scope, spec).is_some() {
             return Err(std::io::Error::other(format!(
                 "Duplicate language descriptor for scope {}",

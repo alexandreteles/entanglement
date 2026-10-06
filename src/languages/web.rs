@@ -12,7 +12,10 @@ mod typescript;
 use tree_sitter::{Language, Tree};
 
 use super::query::{QueryAnalyzer, QueryFacts};
-use super::{CapturedTree, FileModuleRules, LanguageHandler, LanguageSpec, ResolutionFamily};
+use super::{
+    CapturedTree, FileModuleLayout, FileModuleRules, LanguageHandler, LanguageSpec,
+    ResolutionFamily,
+};
 use crate::Result;
 
 const WEB_EXTENSIONS: &[&str] = &["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs", "d.ts"];
@@ -29,6 +32,9 @@ const WEB_MODULE_RULES: FileModuleRules = FileModuleRules {
     remaps: WEB_REMAPS,
     index_stems: WEB_INDEX_STEMS,
     unresolved_prefixes: WEB_UNRESOLVED_PREFIXES,
+    layout: FileModuleLayout::SlashRelative,
+    module_bindings_shadow: false,
+    wildcard_imports_shadow: false,
 };
 
 pub(super) const LANGUAGE_SPECS: &[LanguageSpec] = &[

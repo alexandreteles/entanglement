@@ -3,8 +3,8 @@ use std::collections::BTreeSet;
 use crate::languages::ResolutionFamily;
 use crate::model::{FileFacts, Import, Reference, ReferenceAnalysis, ReferenceKind, Resolution};
 
-use super::bindings::{ImportLookup, imported_binding, local_binding_rank};
-use super::symbols::local_symbols;
+use super::bindings::{BindingTarget, binding_target};
+use super::layout::resolve_submodule;
 use super::{Index, Target, to_resolution};
 
 impl Index<'_> {
@@ -36,41 +36,10 @@ impl Index<'_> {
             return Resolution::Unresolved;
         }
         let name = &reference.path[0];
-        let local = local_symbols(fact, name, reference.start_byte, reference.context_id);
-        let local_rank = local.as_ref().map(|(rank, _)| *rank);
-        let shadow_rank =
-            local_binding_rank(fact, name, reference.start_byte, reference.context_id);
-        let import = imported_binding(fact, name, reference.start_byte, reference.context_id);
-        let import_rank = match import {
-            ImportLookup::One(_, rank) | ImportLookup::Ambiguous(rank) => Some(rank),
-            ImportLookup::None => None,
-        };
-        let best_rank = [local_rank, shadow_rank, import_rank]
-            .into_iter()
-            .flatten()
-            .min();
-        let Some(best_rank) = best_rank else {
-            return Resolution::Unresolved;
-        };
-        let winners = usize::from(local_rank == Some(best_rank))
-            + usize::from(shadow_rank == Some(best_rank))
-            + usize::from(import_rank == Some(best_rank));
-        if winners != 1 {
-            return Resolution::Unresolved;
-        }
-        if local_rank == Some(best_rank) {
-            if reference.path.len() != 1 {
-                return Resolution::Unresolved;
-            }
-            return local
-                .map(|(_, targets)| to_resolution(targets))
-                .unwrap_or(Resolution::Unresolved);
-        }
-        match import {
-            ImportLookup::One(import, _) if import_rank == Some(best_rank) => {
-                self.resolve_import_reference(file, import, reference)
-            }
-            _ => Resolution::Unresolved,
+        match binding_target(fact, name, reference.start_byte, reference.context_id) {
+            BindingTarget::Local(targets) if reference.path.len() == 1 => to_resolution(targets),
+            BindingTarget::Import(import) => self.resolve_import_reference(file, import, reference),
+            BindingTarget::Local(_) | BindingTarget::Unresolved => Resolution::Unresolved,
         }
     }
 
@@ -83,31 +52,45 @@ impl Index<'_> {
         if import.source.is_none() {
             return Resolution::Unresolved;
         }
-        let mut targets = self.resolve_import_binding(file, import, &mut BTreeSet::new());
-        match reference.path.len() {
-            1 => to_resolution(targets),
-            2 => {
-                targets = targets
-                    .into_iter()
-                    .flat_map(|target| match target {
-                        Target::Namespace(module_file) => self.resolve_export(
-                            module_file,
-                            &reference.path[1],
-                            &mut BTreeSet::new(),
-                        ),
-                        Target::External => vec![Target::External],
-                        _ => vec![Target::Unresolved],
-                    })
-                    .collect();
-                to_resolution(targets)
-            }
-            _ if targets
-                .iter()
-                .all(|target| matches!(target, Target::External)) =>
-            {
-                Resolution::External
-            }
-            _ => Resolution::Unresolved,
+        let targets = self.resolve_import_binding(file, import, &mut BTreeSet::new());
+        let targets = reference
+            .path
+            .iter()
+            .skip(1)
+            .fold(targets, |targets, name| {
+                self.resolve_namespace_member(targets, name)
+            });
+        to_resolution(targets)
+    }
+
+    fn resolve_namespace_member(&self, targets: Vec<Target>, name: &str) -> Vec<Target> {
+        targets
+            .into_iter()
+            .flat_map(|target| match target {
+                Target::Namespace(module_file) => {
+                    let mut targets = self.resolve_export(module_file, name, &mut BTreeSet::new());
+                    if targets.is_empty() {
+                        targets = resolve_submodule(self, module_file, name);
+                    }
+                    targets
+                }
+                Target::External => vec![Target::External],
+                _ => vec![Target::Unresolved],
+            })
+            .collect()
+    }
+
+    pub(super) fn resolve_named_import(
+        &self,
+        module_file: usize,
+        name: &str,
+        visiting: &mut BTreeSet<(usize, String)>,
+    ) -> Vec<Target> {
+        let targets = self.resolve_export(module_file, name, visiting);
+        if targets.is_empty() {
+            resolve_submodule(self, module_file, name)
+        } else {
+            targets
         }
     }
 
@@ -129,7 +112,7 @@ impl Index<'_> {
                 Target::Namespace(module_file) => import
                     .imported_name
                     .as_deref()
-                    .map(|name| self.resolve_export(module_file, name, visiting))
+                    .map(|name| self.resolve_named_import(module_file, name, visiting))
                     .unwrap_or_else(|| vec![Target::Unresolved]),
                 target => vec![target],
             })

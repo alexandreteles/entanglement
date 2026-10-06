@@ -1,0 +1,20 @@
+{
+  "grammars": [
+    {
+      "name": "python",
+      "camelcase": "Python",
+      "scope": "source.python",
+      "path": ".",
+      "file-types": ["py", "pyi"],
+      "first-line-regex": "^#![ \\t]*(?:(?:\\S*/)?env(?:[ \\t]+-S)?[ \\t]+)?(?:\\S*/)?python(?:3(?:\\.[0-9]+)*)?(?:[ \\t].*)?$",
+      "highlights": "queries/highlights.scm",
+      "tags": "queries/tags.scm",
+      "injection-regex": "^python$"
+    }
+  ],
+  "metadata": {
+    "version": "0.25.0",
+    "license": "MIT",
+    "description": "Python grammar for tree-sitter"
+  }
+}

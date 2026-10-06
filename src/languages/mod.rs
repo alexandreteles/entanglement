@@ -1,4 +1,5 @@
 mod assets;
+mod python;
 pub(crate) mod query;
 mod registry;
 pub mod rust;
@@ -26,6 +27,8 @@ pub(crate) struct InjectionRequest {
     pub guest_ranges: Vec<tree_sitter::Range>,
     pub priority: i32,
     pub inherit_scope: bool,
+    /// Ignore optional language labels unless a registered analyzer matches.
+    pub registered_only: bool,
 }
 
 #[derive(Default)]
@@ -62,6 +65,20 @@ pub(crate) struct FileModuleRules {
     pub remaps: &'static [(&'static str, &'static [&'static str])],
     pub index_stems: &'static [&'static str],
     pub unresolved_prefixes: &'static [&'static str],
+    pub layout: FileModuleLayout,
+    pub module_bindings_shadow: bool,
+    pub wildcard_imports_shadow: bool,
+}
+
+/// File layout used by a registered file-module strategy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FileModuleLayout {
+    SlashRelative,
+    Dotted {
+        roots: &'static [&'static str],
+        project_markers: &'static [&'static str],
+        submodule_imports: bool,
+    },
 }
 
 /// Register one grammar scope, analyzer constructor, and project-root convention.

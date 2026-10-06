@@ -64,7 +64,7 @@ impl Worker {
             self.registry
                 .capture(&choice.id, tree, source, self.selection.needs_halstead())?;
         remap_node_ids(&mut captured, next_node_id);
-        let requests = selected_requests(std::mem::take(&mut captured.injections));
+        let requests = self.injection_requests(std::mem::take(&mut captured.injections))?;
         let excluded = requests
             .iter()
             .flat_map(|item| {
@@ -189,6 +189,19 @@ impl Worker {
 
         Ok((injections, summaries))
     }
+
+    /// Optional helper labels affect host ownership only when supported.
+    fn injection_requests(&self, requests: Vec<InjectionRequest>) -> Result<Vec<InjectionRequest>> {
+        let mut eligible = Vec::with_capacity(requests.len());
+        for request in requests {
+            if !request.registered_only
+                || self.registry.select_injection(&request.language)?.is_some()
+            {
+                eligible.push(request);
+            }
+        }
+        Ok(selected_requests(eligible))
+    }
 }
 
 fn selected_requests(requests: Vec<InjectionRequest>) -> Vec<InjectionRequest> {
@@ -201,6 +214,7 @@ fn selected_requests(requests: Vec<InjectionRequest>) -> Vec<InjectionRequest> {
                     ranges::intersect_sets(&current.guest_ranges, &request.guest_ranges);
                 current.priority = current.priority.max(request.priority);
                 current.inherit_scope |= request.inherit_scope;
+                current.registered_only &= request.registered_only;
             }
             Some(current)
                 if current.priority > request.priority
