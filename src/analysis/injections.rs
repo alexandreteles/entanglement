@@ -6,7 +6,7 @@ use tree_sitter::{InputEdit, Range as TsRange, Tree};
 use crate::Result;
 use crate::languages::query::ranges;
 use crate::languages::{CapturedTree, InjectionRequest, LanguageChoice};
-use crate::metrics::{SyntaxRole, cyclomatic::FunctionScope};
+use crate::metrics::{SyntaxEvent, SyntaxRole, cyclomatic::FunctionScope};
 use crate::model::{Definition, InjectionAnalysis, ModulePath};
 
 use super::{
@@ -26,6 +26,29 @@ pub(super) struct ParsedInjection {
 }
 
 pub(super) type TreeKey = (String, usize, usize);
+
+struct InjectionContext {
+    cognitive_parent: Option<usize>,
+    module: ModulePath,
+    scope: Option<Range<usize>>,
+}
+
+struct LayerContext<'a> {
+    choice: &'a LanguageChoice,
+    tree: &'a Tree,
+    source: &'a [u8],
+    owner_range: &'a Range<usize>,
+    context_id: usize,
+    metric_id: &'a str,
+    depth: usize,
+}
+
+struct TraversalState<'a> {
+    active: &'a mut HashSet<(String, usize, usize)>,
+    next_node_id: &'a mut usize,
+    next_context_id: &'a mut usize,
+    old_trees: &'a mut BTreeMap<TreeKey, Tree>,
+}
 
 pub(super) fn collect_injection_analysis(
     parsed: &[ParsedInjection],
@@ -70,146 +93,124 @@ impl Worker {
                 .capture(&choice.id, tree, source, self.selection.needs_halstead())?;
         remap_node_ids(&mut captured, next_node_id);
         let requests = self.injection_requests(std::mem::take(&mut captured.injections))?;
-        let excluded = requests
-            .iter()
-            .flat_map(|item| {
-                item.guest_ranges
-                    .iter()
-                    .map(|range| range.start_byte..range.end_byte)
-            })
-            .collect::<Vec<_>>();
-        let child_contexts = requests
-            .iter()
-            .map(|request| {
-                (
-                    captured
-                        .events
-                        .iter()
-                        .filter(|event| {
-                            event.role == SyntaxRole::Node
-                                && event.start_byte <= request.range.start
-                                && event.end_byte >= request.range.end
-                                && event.range() != request.range
-                        })
-                        .min_by_key(|event| event.end_byte - event.start_byte)
-                        .map(|event| event.node_id),
-                    inherited_module_for_range(
-                        inherited_module,
-                        &captured.definitions,
-                        &request.range,
-                    ),
-                    request
-                        .inherit_scope
-                        .then(|| {
-                            enclosing_function(&captured.functions, &request.range)
-                                .or_else(|| inherited_scope.clone())
-                        })
-                        .flatten(),
-                )
-            })
-            .collect::<Vec<_>>();
+        let excluded = excluded_ranges(&requests);
+        let child_contexts = injection_contexts(
+            &requests,
+            &captured,
+            inherited_module,
+            inherited_scope.as_ref(),
+        );
         let mut summaries = vec![facts::summary(
             choice,
             captured,
-            context_id,
-            metric_id.clone(),
-            excluded,
-            inherited_module,
-            &owner_range,
-            inherited_scope.as_ref(),
+            facts::SummaryContext {
+                semantic_context: context_id,
+                metric_id: metric_id.clone(),
+                excluded,
+                inherited_module,
+                owner_range: &owner_range,
+                inherited_scope: inherited_scope.as_ref(),
+            },
         )];
         let mut injections = Vec::with_capacity(requests.len());
-
-        for (request, (cognitive_parent, child_module, child_scope)) in
-            requests.into_iter().zip(child_contexts)
-        {
-            let Some(child_choice) = self.registry.select_injection(&request.language)? else {
-                injections.push(ParsedInjection {
-                    language: request.language,
-                    language_id: None,
-                    range: request.range,
-                    tree: None,
-                    children: Vec::new(),
-                });
-                continue;
-            };
-            let key = (
-                child_choice.id.clone(),
-                request.range.start,
-                request.range.end,
-            );
-            if depth >= MAX_INJECTION_DEPTH
-                || !is_smaller(&owner_range, &request.range)
-                || active.contains(&key)
-            {
-                injections.push(ParsedInjection {
-                    language: request.language,
-                    language_id: Some(child_choice.id),
-                    range: request.range,
-                    tree: None,
-                    children: Vec::new(),
-                });
-                continue;
-            }
-            let included_ranges = injection_ranges(tree, &request);
-            if included_ranges.is_empty() {
-                injections.push(ParsedInjection {
-                    language: request.language,
-                    language_id: Some(child_choice.id),
-                    range: request.range,
-                    tree: None,
-                    children: Vec::new(),
-                });
-                continue;
-            }
-            let old_tree = old_trees.remove(&key);
-            let child_tree =
-                self.parse_tree(&child_choice, source, &included_ranges, old_tree.as_ref())?;
-            active.insert(key.clone());
-            let (children, mut child_summaries) = self.analyze_layer(
-                &child_choice,
-                &child_tree,
-                source,
-                request.range.clone(),
-                &child_module,
-                child_scope,
-                request.inherit_context.then_some(context_id),
-                if request.inherit_metrics {
-                    metric_id.clone()
-                } else {
-                    child_choice.id.clone()
-                },
-                active,
-                next_node_id,
-                next_context_id,
-                old_trees,
-                depth + 1,
-            )?;
-            active.remove(&key);
-            if child_choice.id == choice.id || request.inherit_metrics {
-                child_summaries[0].cognitive_parent = cognitive_parent;
-            }
-            if !request.publish_exports {
-                child_summaries[0].discard_exports();
-            }
-            if request.share_bindings {
-                child_summaries[0].share_top_level_bindings_into(
-                    &mut summaries[0],
-                    &request.range,
-                    &owner_range,
-                );
-            }
+        let layer = LayerContext {
+            choice,
+            tree,
+            source,
+            owner_range: &owner_range,
+            context_id,
+            metric_id: &metric_id,
+            depth,
+        };
+        let mut state = TraversalState {
+            active,
+            next_node_id,
+            next_context_id,
+            old_trees,
+        };
+        for (request, context) in requests.into_iter().zip(child_contexts) {
+            let (injection, child_summaries) =
+                self.analyze_injection(request, context, &layer, &mut summaries[0], &mut state)?;
             summaries.extend(child_summaries);
-            injections.push(ParsedInjection {
-                language: request.language,
-                language_id: Some(child_choice.id),
-                range: request.range,
-                tree: Some(child_tree),
-                children,
-            });
+            injections.push(injection);
         }
 
         Ok((injections, summaries))
+    }
+
+    fn analyze_injection(
+        &mut self,
+        request: InjectionRequest,
+        context: InjectionContext,
+        layer: &LayerContext<'_>,
+        host_summary: &mut TreeSummary,
+        state: &mut TraversalState<'_>,
+    ) -> Result<(ParsedInjection, Vec<TreeSummary>)> {
+        let Some(child_choice) = self.registry.select_injection(&request.language)? else {
+            return Ok((pending_injection(request, None), Vec::new()));
+        };
+        let child_id = child_choice.id.clone();
+        let key = (child_id.clone(), request.range.start, request.range.end);
+        if !can_analyze_injection(layer, &request, &key, state.active) {
+            return Ok((pending_injection(request, Some(child_id)), Vec::new()));
+        }
+        let included_ranges = injection_ranges(layer.tree, &request);
+        if included_ranges.is_empty() {
+            return Ok((pending_injection(request, Some(child_id)), Vec::new()));
+        }
+
+        let old_tree = state.old_trees.remove(&key);
+        let child_tree = self.parse_tree(
+            &child_choice,
+            layer.source,
+            &included_ranges,
+            old_tree.as_ref(),
+        )?;
+        state.active.insert(key.clone());
+        let child_metric_id = if request.inherit_metrics {
+            layer.metric_id.to_owned()
+        } else {
+            child_id.clone()
+        };
+        let (children, mut child_summaries) = self.analyze_layer(
+            &child_choice,
+            &child_tree,
+            layer.source,
+            request.range.clone(),
+            &context.module,
+            context.scope,
+            request.inherit_context.then_some(layer.context_id),
+            child_metric_id,
+            &mut *state.active,
+            &mut *state.next_node_id,
+            &mut *state.next_context_id,
+            &mut *state.old_trees,
+            layer.depth + 1,
+        )?;
+        state.active.remove(&key);
+        if child_id == layer.choice.id || request.inherit_metrics {
+            child_summaries[0].cognitive_parent = context.cognitive_parent;
+        }
+        if !request.publish_exports {
+            child_summaries[0].discard_exports();
+        }
+        if request.share_bindings {
+            child_summaries[0].share_top_level_bindings_into(
+                host_summary,
+                &request.range,
+                layer.owner_range,
+            );
+        }
+        Ok((
+            ParsedInjection {
+                language: request.language,
+                language_id: Some(child_id),
+                range: request.range,
+                tree: Some(child_tree),
+                children,
+            },
+            child_summaries,
+        ))
     }
 
     /// Optional helper labels affect host ownership only when supported.
@@ -226,30 +227,97 @@ impl Worker {
     }
 }
 
+fn excluded_ranges(requests: &[InjectionRequest]) -> Vec<Range<usize>> {
+    requests
+        .iter()
+        .flat_map(|request| {
+            request
+                .guest_ranges
+                .iter()
+                .map(|range| range.start_byte..range.end_byte)
+        })
+        .collect()
+}
+
+fn injection_contexts(
+    requests: &[InjectionRequest],
+    captured: &CapturedTree,
+    inherited_module: &ModulePath,
+    inherited_scope: Option<&Range<usize>>,
+) -> Vec<InjectionContext> {
+    requests
+        .iter()
+        .map(|request| InjectionContext {
+            cognitive_parent: cognitive_parent(&captured.events, &request.range),
+            module: inherited_module_for_range(
+                inherited_module,
+                &captured.definitions,
+                &request.range,
+            ),
+            scope: injection_scope(
+                request.inherit_scope,
+                &captured.functions,
+                &request.range,
+                inherited_scope,
+            ),
+        })
+        .collect()
+}
+
+fn cognitive_parent(events: &[SyntaxEvent], range: &Range<usize>) -> Option<usize> {
+    events
+        .iter()
+        .filter(|event| {
+            event.role == SyntaxRole::Node
+                && event.start_byte <= range.start
+                && event.end_byte >= range.end
+                && event.range() != *range
+        })
+        .min_by_key(|event| event.end_byte - event.start_byte)
+        .map(|event| event.node_id)
+}
+
+fn injection_scope(
+    inherit_scope: bool,
+    functions: &[FunctionScope],
+    range: &Range<usize>,
+    inherited_scope: Option<&Range<usize>>,
+) -> Option<Range<usize>> {
+    if inherit_scope {
+        enclosing_function(functions, range).or_else(|| inherited_scope.cloned())
+    } else {
+        None
+    }
+}
+
+fn can_analyze_injection(
+    layer: &LayerContext<'_>,
+    request: &InjectionRequest,
+    key: &TreeKey,
+    active: &HashSet<TreeKey>,
+) -> bool {
+    layer.depth < MAX_INJECTION_DEPTH
+        && is_smaller(layer.owner_range, &request.range)
+        && !active.contains(key)
+}
+
+fn pending_injection(request: InjectionRequest, language_id: Option<String>) -> ParsedInjection {
+    ParsedInjection {
+        language: request.language,
+        language_id,
+        range: request.range,
+        tree: None,
+        children: Vec::new(),
+    }
+}
+
 fn selected_requests(requests: Vec<InjectionRequest>) -> Vec<InjectionRequest> {
     let mut selected = BTreeMap::<(usize, usize), InjectionRequest>::new();
     for request in requests {
         let key = (request.range.start, request.range.end);
         match selected.get_mut(&key) {
             Some(current) if current.language == request.language => {
-                current.guest_ranges =
-                    ranges::intersect_sets(&current.guest_ranges, &request.guest_ranges);
-                if request.priority > current.priority {
-                    current.inherit_scope = request.inherit_scope;
-                    current.inherit_metrics = request.inherit_metrics;
-                    current.inherit_context = request.inherit_context;
-                    current.share_bindings = request.share_bindings;
-                    current.publish_exports = request.publish_exports;
-                    current.registered_only = request.registered_only;
-                } else if request.priority == current.priority {
-                    current.inherit_scope |= request.inherit_scope;
-                    current.inherit_metrics |= request.inherit_metrics;
-                    current.inherit_context |= request.inherit_context;
-                    current.share_bindings |= request.share_bindings;
-                    current.publish_exports &= request.publish_exports;
-                    current.registered_only &= request.registered_only;
-                }
-                current.priority = current.priority.max(request.priority);
+                current.merge_duplicate(&request);
             }
             Some(current)
                 if current.priority > request.priority

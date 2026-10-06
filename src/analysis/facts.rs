@@ -35,16 +35,28 @@ pub(super) struct TreeSummary {
     locals: Vec<LocalBinding>,
 }
 
+pub(super) struct SummaryContext<'a> {
+    pub(super) semantic_context: usize,
+    pub(super) metric_id: String,
+    pub(super) excluded: Vec<Range<usize>>,
+    pub(super) inherited_module: &'a ModulePath,
+    pub(super) owner_range: &'a Range<usize>,
+    pub(super) inherited_scope: Option<&'a Range<usize>>,
+}
+
 pub(super) fn summary(
     choice: &LanguageChoice,
     captured: CapturedTree,
-    semantic_context: usize,
-    metric_id: String,
-    excluded: Vec<Range<usize>>,
-    inherited_module: &ModulePath,
-    owner_range: &Range<usize>,
-    inherited_scope: Option<&Range<usize>>,
+    context: SummaryContext<'_>,
 ) -> TreeSummary {
+    let SummaryContext {
+        semantic_context,
+        metric_id,
+        excluded,
+        inherited_module,
+        owner_range,
+        inherited_scope,
+    } = context;
     let prefix = &inherited_module.0;
     let mut definitions = captured.definitions;
     definitions.retain(|item| !inside_any(item.start_byte..item.end_byte, &excluded));
@@ -98,10 +110,9 @@ pub(super) fn summary(
         );
         if reference.call_owner.is_none()
             && reference.kind == crate::model::ReferenceKind::Call
+            && let Some(scope) = inherited_scope
         {
-            if let Some(scope) = inherited_scope {
-                reference.call_owner = Some(scope.start);
-            }
+            reference.call_owner = Some(scope.start);
         }
         prepend_module(&mut reference.module, prefix);
     }
@@ -156,7 +167,9 @@ impl TreeSummary {
         target.definitions.extend(
             self.definitions
                 .iter()
-                .filter(|item| item.scope_start <= owner_range.start && owner_range.end <= item.scope_end)
+                .filter(|item| {
+                    item.scope_start <= owner_range.start && owner_range.end <= item.scope_end
+                })
                 .cloned()
                 .map(|mut item| {
                     item.context_id = target.semantic_context;
@@ -168,7 +181,9 @@ impl TreeSummary {
         target.imports.extend(
             self.imports
                 .iter()
-                .filter(|item| item.scope_start <= owner_range.start && owner_range.end <= item.scope_end)
+                .filter(|item| {
+                    item.scope_start <= owner_range.start && owner_range.end <= item.scope_end
+                })
                 .cloned()
                 .map(|mut item| {
                     item.context_id = target.semantic_context;

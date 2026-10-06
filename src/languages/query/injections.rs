@@ -103,7 +103,7 @@ pub(super) fn merge(injections: &mut Vec<InjectionRequest>) {
             .last_mut()
             .filter(|current| current.range == item.range && current.language == item.language)
         {
-            Some(current) => merge_request(current, &item),
+            Some(current) => current.merge_duplicate(&item),
             None => merged.push(item),
         }
     }
@@ -111,24 +111,4 @@ pub(super) fn merge(injections: &mut Vec<InjectionRequest>) {
         ranges::normalize(&mut item.guest_ranges);
     }
     *injections = merged;
-}
-
-fn merge_request(current: &mut InjectionRequest, other: &InjectionRequest) {
-    if other.priority > current.priority {
-        current.inherit_scope = other.inherit_scope;
-        current.inherit_metrics = other.inherit_metrics;
-        current.inherit_context = other.inherit_context;
-        current.share_bindings = other.share_bindings;
-        current.publish_exports = other.publish_exports;
-        current.registered_only = other.registered_only;
-    } else if other.priority == current.priority {
-        current.inherit_scope |= other.inherit_scope;
-        current.inherit_metrics |= other.inherit_metrics;
-        current.inherit_context |= other.inherit_context;
-        current.share_bindings |= other.share_bindings;
-        current.publish_exports &= other.publish_exports;
-        current.registered_only &= other.registered_only;
-    }
-    current.priority = current.priority.max(other.priority);
-    current.guest_ranges = ranges::intersect_sets(&current.guest_ranges, &other.guest_ranges);
 }

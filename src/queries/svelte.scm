@@ -14,7 +14,7 @@ _ @syntax.node
 (each_block binding: (pattern) @svelte.each.binding)
 (each_block index: (pattern) @svelte.each.binding)
 (await_block binding: (pattern) @svelte.await.binding)
-(await_branch binding: (pattern) @svelte.await.binding)
+(await_branch (pattern) @svelte.await.binding)
 (snippet_block
   parameters: (snippet_parameters
     (pattern) @svelte.snippet.parameter))

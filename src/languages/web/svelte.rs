@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use tree_sitter::{Language, Node, Parser, QueryCapture, Tree};
+use tree_sitter::{Language, Node, QueryCapture, Tree};
 
 use crate::Result;
 use crate::languages::{CapturedTree, InjectionRequest, LanguageHandler};
@@ -11,6 +11,13 @@ use crate::model::{
 };
 
 use super::super::query::QueryAnalyzer;
+use bindings::parse_names;
+use scopes::{
+    ancestor, await_scope, declaration_scope, each_scope, lexical_parent_scope, snippet_scope,
+};
+
+mod bindings;
+mod scopes;
 
 pub(super) fn build(language: &Language) -> Result<Box<dyn LanguageHandler>> {
     let query = QueryAnalyzer::new(language, include_str!("../../queries/svelte.scm"))?;
@@ -53,7 +60,9 @@ impl LanguageHandler for Analyzer {
             range: range.clone(),
             line: root.start_position().row + 1,
         });
-        captured.definitions.push(component_definition(range.clone()));
+        captured
+            .definitions
+            .push(component_definition(range.clone()));
         captured.exports.push(component_export(range.clone()));
         captured.definitions.extend(extras.definitions);
         captured.references.extend(extras.references);
@@ -84,7 +93,8 @@ impl Extras {
         for capture in captures {
             let node = capture.node;
             if Some(capture.index) == analyzer.component_reference {
-                self.references.push(component_reference(node, source, &root));
+                self.references
+                    .push(component_reference(node, source, &root));
             } else if Some(capture.index) == analyzer.each_binding {
                 self.add_pattern(node, source, each_scope(node));
             } else if Some(capture.index) == analyzer.await_binding {
@@ -104,19 +114,24 @@ impl Extras {
     }
 
     fn add_declaration(&mut self, node: Node<'_>, source: &[u8], scope: Option<Range<usize>>) {
-        self.add_names(node, parse_names(node, source, true), scope);
+        // Keep the host binding outside the guest expression's excluded range.
+        let owner = ancestor(node, "const_tag")
+            .or_else(|| ancestor(node, "declaration_tag"))
+            .unwrap_or(node);
+        self.add_names(owner, parse_names(node, source, true), scope);
     }
 
     fn add_names(&mut self, node: Node<'_>, names: Vec<String>, scope: Option<Range<usize>>) {
         let Some(scope) = scope else { return };
-        self.locals.extend(names.into_iter().map(|name| LocalBinding {
-            name,
-            start_byte: node.start_byte(),
-            end_byte: node.end_byte(),
-            scope_start: scope.start,
-            scope_end: scope.end,
-            context_id: 0,
-        }));
+        self.locals
+            .extend(names.into_iter().map(|name| LocalBinding {
+                name,
+                start_byte: node.start_byte(),
+                end_byte: node.end_byte(),
+                scope_start: scope.start,
+                scope_end: scope.end,
+                context_id: 0,
+            }));
     }
 
     fn add_snippet(&mut self, name: Node<'_>, source: &[u8], root: &Range<usize>) {
@@ -199,56 +214,6 @@ fn trim_quotes(value: &str) -> &str {
         .trim_matches(|character| matches!(character, '\'' | '"'))
 }
 
-fn parse_names(node: Node<'_>, source: &[u8], declaration: bool) -> Vec<String> {
-    let body = text(node, source);
-    let typed = node
-        .named_child(0)
-        .is_some_and(|child| child.kind() == "ts");
-    let wrapped = if declaration {
-        format!("let {body};")
-    } else {
-        format!("function __entanglement({body}) {{}}")
-    };
-    let language: Language = if typed {
-        tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()
-    } else {
-        tree_sitter_javascript::LANGUAGE.into()
-    };
-    let mut parser = Parser::new();
-    if parser.set_language(&language).is_err() {
-        return Vec::new();
-    }
-    let Some(tree) = parser.parse(&wrapped, None) else {
-        return Vec::new();
-    };
-    let kind = if declaration {
-        "variable_declarator"
-    } else {
-        "formal_parameters"
-    };
-    let Some(pattern) = find_kind(tree.root_node(), kind).and_then(|node| {
-        declaration
-            .then(|| node.child_by_field_name("name"))
-            .flatten()
-            .or(Some(node))
-    }) else {
-        return Vec::new();
-    };
-    super::facts::binding_names(pattern, wrapped.as_bytes())
-        .into_iter()
-        .map(|(name, _)| name)
-        .collect()
-}
-
-fn find_kind(node: Node<'_>, kind: &str) -> Option<Node<'_>> {
-    if node.kind() == kind {
-        return Some(node);
-    }
-    let mut cursor = node.walk();
-    node.named_children(&mut cursor)
-        .find_map(|child| find_kind(child, kind))
-}
-
 fn component_definition(range: Range<usize>) -> Definition {
     Definition {
         name: "<component>".into(),
@@ -294,66 +259,6 @@ fn component_reference(node: Node<'_>, source: &[u8], root: &Range<usize>) -> Re
     }
 }
 
-fn each_scope(node: Node<'_>) -> Option<Range<usize>> {
-    let block = ancestor(node, "each_block")?;
-    let end = named_children(block)
-        .find(|child| child.kind() == "else_clause")
-        .map_or(block.end_byte(), |child| child.start_byte());
-    Some(node.end_byte()..end)
-}
-
-fn await_scope(node: Node<'_>) -> Option<Range<usize>> {
-    if let Some(branch) = ancestor(node, "await_branch") {
-        return Some(node.end_byte()..branch.end_byte());
-    }
-    let block = ancestor(node, "await_block")?;
-    let end = named_children(block)
-        .find(|child| child.kind() == "await_branch" && child.start_byte() > node.end_byte())
-        .map_or(block.end_byte(), |child| child.start_byte());
-    Some(node.end_byte()..end)
-}
-
-fn snippet_scope(node: Node<'_>) -> Option<Range<usize>> {
-    let block = ancestor(node, "snippet_block")?;
-    Some(node.end_byte()..block.end_byte())
-}
-
-fn declaration_scope(node: Node<'_>, root: &Range<usize>) -> Option<Range<usize>> {
-    let scope = lexical_parent_scope(node, root);
-    (node.end_byte() < scope.end).then_some(node.end_byte()..scope.end)
-}
-
-fn lexical_parent_scope(node: Node<'_>, root: &Range<usize>) -> Range<usize> {
-    let mut current = node.parent();
-    while let Some(item) = current {
-        if matches!(
-            item.kind(),
-            "snippet_block"
-                | "if_block"
-                | "each_block"
-                | "await_block"
-                | "await_branch"
-                | "key_block"
-                | "document"
-        ) {
-            return item.byte_range();
-        }
-        current = item.parent();
-    }
-    root.clone()
-}
-
-fn ancestor<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
-    let mut current = node.parent();
-    while let Some(item) = current {
-        if item.kind() == kind {
-            return Some(item);
-        }
-        current = item.parent();
-    }
-    None
-}
-
 fn ancestor_or_self<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
     (node.kind() == kind)
         .then_some(node)
@@ -375,9 +280,23 @@ fn classify_tokens(captured: &mut CapturedTree) {
     for token in &mut captured.tokens {
         if matches!(
             token.token.as_str(),
-            "{#" | "{:" | "{@" | "{/" | "}" | "if" | "else" | "each" | "await"
-                | "then" | "catch" | "key" | "snippet" | "render" | "attach" | "html"
-                | "debug" | "const"
+            "{#" | "{:"
+                | "{@"
+                | "{/"
+                | "}"
+                | "if"
+                | "else"
+                | "each"
+                | "await"
+                | "then"
+                | "catch"
+                | "key"
+                | "snippet"
+                | "render"
+                | "attach"
+                | "html"
+                | "debug"
+                | "const"
         ) {
             token.kind = HalsteadTokenKind::Operator;
         }
