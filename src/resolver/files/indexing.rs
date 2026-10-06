@@ -83,7 +83,7 @@ fn remapped_extensions<'a>(extension: &str, rules: &'a FileModuleRules) -> &'a [
         .unwrap_or(&[])
 }
 
-pub(super) fn normalize(path: &Path) -> PathBuf {
+pub(in crate::resolver) fn normalize(path: &Path) -> PathBuf {
     let mut normalized = PathBuf::new();
     for component in path.components() {
         match component {

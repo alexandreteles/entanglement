@@ -24,6 +24,7 @@ tree-sitter-typescript = "0.23.2"
 tree-sitter-python = "0.25.0"
 # Tree-sitter 0.27 and the GCC scanner fix are unreleased upstream: themixednuts/tree-sitter-htmlx#4 and #2.
 tree-sitter-htmlx-svelte = { git = "https://github.com/Aunali321/tree-sitter-htmlx", rev = "70ea39cc6c39907a2f683a63602997bd0bf58843" }
+tree-sitter-go = "0.25.0"
 
 [dev-dependencies]
 tempfile = "3.27.0"
