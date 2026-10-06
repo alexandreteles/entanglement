@@ -88,6 +88,25 @@ fn has_resolution(file: &Value, name: &str, status: &str) -> bool {
     })
 }
 
+fn resolution_at<'a>(file: &'a Value, source: &str, needle: &str, occurrence: usize) -> &'a Value {
+    let start = source
+        .match_indices(needle)
+        .nth(occurrence)
+        .unwrap_or_else(|| panic!("missing occurrence {occurrence} of {needle:?}"))
+        .0;
+    let reference_start = if needle.starts_with('{') {
+        start + 1
+    } else {
+        start
+    };
+    file["resolution"]
+        .as_array()
+        .expect("resolution list")
+        .iter()
+        .find(|item| item["start_byte"] == reference_start)
+        .unwrap_or_else(|| panic!("missing reference at byte {reference_start} for {needle:?}"))
+}
+
 #[test]
 fn file_mode_selects_each_typescript_and_javascript_family_extension() {
     let temp = tempfile::tempdir().unwrap();
@@ -480,6 +499,101 @@ fn svelte_component_scope_module_bindings_snippets_and_default_imports() {
     assert!(has_resolution(app, "Child", "exact"));
     assert!(has_resolution(app, "row", "exact"));
     assert!(has_resolution(app, "item", "unresolved"));
+}
+
+#[test]
+fn svelte_template_bindings_stop_at_branch_and_element_boundaries() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = r#"<script>
+  let value = 1;
+  let sibling = 3;
+  let fulfilled = 5;
+  let rejected = 6;
+  let promise = Promise.resolve(1);
+</script>
+
+{#if true}
+  {@const value = 2}
+  <span>{value}</span>
+{:else}
+  <span>{value}</span>
+{/if}
+
+<div>
+  {#snippet inner()}<span>inside</span>{/snippet}
+  {@render inner()}
+</div>
+{@render inner()}
+
+{#await promise}
+  <span>pending</span>
+{:then fulfilled}
+  <span>{fulfilled}</span>
+{:catch rejected}
+  <span>{rejected}</span>
+{/await}
+<span>{fulfilled}</span>
+<span>{rejected}</span>
+
+<div>
+  {@const sibling = 4}
+  <span>{sibling}</span>
+</div>
+<span>{sibling}</span>
+"#;
+    let report = analyze_source(temp.path(), "Scopes.svelte", source);
+    let file = &report["files"][0];
+
+    assert_eq!(
+        resolution_at(file, source, "{value}", 0)["resolution"]["status"],
+        "unresolved",
+        "the @const binding should shadow the script value in the if body"
+    );
+    assert_eq!(
+        resolution_at(file, source, "{value}", 1)["resolution"]["status"],
+        "exact",
+        "the else body should see the script value rather than the if-body @const"
+    );
+    assert_eq!(
+        resolution_at(file, source, "inner()", 1)["resolution"]["status"],
+        "exact",
+        "a snippet should be visible inside its containing element"
+    );
+    assert_eq!(
+        resolution_at(file, source, "inner()", 2)["resolution"]["status"],
+        "unresolved",
+        "a snippet declared inside an element should not escape to siblings"
+    );
+    assert_eq!(
+        resolution_at(file, source, "{sibling}", 0)["resolution"]["status"],
+        "unresolved",
+        "the element @const should shadow the script sibling binding inside the element"
+    );
+    assert_eq!(
+        resolution_at(file, source, "{sibling}", 1)["resolution"]["status"],
+        "exact",
+        "the element @const should not shadow the script sibling binding afterwards"
+    );
+    assert_eq!(
+        resolution_at(file, source, "{fulfilled}", 0)["resolution"]["status"],
+        "unresolved",
+        "the then-branch binding should shadow the script value inside its await branch"
+    );
+    assert_eq!(
+        resolution_at(file, source, "{fulfilled}", 1)["resolution"]["status"],
+        "exact",
+        "the then-branch binding should end with its await branch"
+    );
+    assert_eq!(
+        resolution_at(file, source, "{rejected}", 0)["resolution"]["status"],
+        "unresolved",
+        "the catch-branch binding should shadow the script value inside its await branch"
+    );
+    assert_eq!(
+        resolution_at(file, source, "{rejected}", 1)["resolution"]["status"],
+        "exact",
+        "the catch-branch binding should end with its await branch"
+    );
 }
 
 #[test]

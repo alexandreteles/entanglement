@@ -39,6 +39,32 @@ pub(crate) struct InjectionRequest {
     pub registered_only: bool,
 }
 
+impl InjectionRequest {
+    /// Combine duplicate requests for the same language and source range.
+    pub(crate) fn merge_duplicate(&mut self, other: &Self) {
+        debug_assert_eq!(self.language, other.language);
+        debug_assert_eq!(self.range, other.range);
+
+        if other.priority > self.priority {
+            self.inherit_scope = other.inherit_scope;
+            self.inherit_metrics = other.inherit_metrics;
+            self.inherit_context = other.inherit_context;
+            self.share_bindings = other.share_bindings;
+            self.publish_exports = other.publish_exports;
+            self.registered_only = other.registered_only;
+        } else if other.priority == self.priority {
+            self.inherit_scope |= other.inherit_scope;
+            self.inherit_metrics |= other.inherit_metrics;
+            self.inherit_context |= other.inherit_context;
+            self.share_bindings |= other.share_bindings;
+            self.publish_exports &= other.publish_exports;
+            self.registered_only &= other.registered_only;
+        }
+        self.priority = self.priority.max(other.priority);
+        self.guest_ranges = query::ranges::intersect_sets(&self.guest_ranges, &other.guest_ranges);
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct CapturedTree {
     pub events: Vec<SyntaxEvent>,
