@@ -57,7 +57,8 @@ Supported manifests are `Cargo.toml`, `package.json`, `tsconfig.json`,
 
 ## Languages
 
-Entanglement supports Rust, Python, TypeScript, TSX, JavaScript, HTML, and CSS.
+Entanglement supports Rust, Python, TypeScript, TSX, JavaScript, Svelte, HTML,
+and CSS.
 Language descriptors select the grammar and analyzer.
 
 Python supports `.py`, `.pyi`, and files without an extension that have a
@@ -69,6 +70,14 @@ TypeScript supports `.ts`, `.mts`, and `.cts`. TSX supports `.tsx`.
 JavaScript supports `.js`, `.jsx`, `.mjs`, and `.cjs`. JSX expressions and
 callbacks use the metrics of the JavaScript or TSX file that contains them.
 Interfaces and type declarations do not count as runtime functions.
+
+Svelte supports `.svelte`. The `<script>` block uses TypeScript when
+`lang="ts"` and JavaScript otherwise. `<style>` uses CSS. Each template
+expression, such as `{#if ready}`, `{item.name}`, `onclick={() => save()}`,
+or `{@attach focus}`, uses the script language. Callbacks in expressions are
+functions. Template blocks such as `{#if}` and `{#each}` do not add
+complexity. Template expressions do not resolve names from the `<script>`
+block.
 
 ### Embedded languages
 
@@ -109,8 +118,12 @@ filter have complexity 6.
 The JavaScript and TypeScript resolver follows relative imports to analyzed
 files. It supports file extensions, `index` files, named and default imports,
 namespaces, aliases, and re-exports. Bare package imports are external.
-References that need `tsconfig` path aliases, package export maps, type
-inference, or dynamic method dispatch remain unresolved.
+Subpath imports that start with `#`, such as SvelteKit's `#lib/*`, resolve
+through the `imports` field of the nearest `package.json`. Conditional
+targets use the `types`, `import`, and `default` conditions. A target that
+names a package is external. References that need `tsconfig` path aliases,
+the SvelteKit 2 `$lib` alias, package export maps, type inference, or
+dynamic method dispatch remain unresolved.
 
 The Python resolver follows dotted and package-relative imports under a
 known project root or its `src` directory. It supports `.py`, `.pyi`, package

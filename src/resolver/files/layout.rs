@@ -1,4 +1,5 @@
 pub(super) mod dotted;
+mod subpath;
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -14,6 +15,9 @@ pub(super) fn resolve_slash(
     source: &str,
     rules: &FileModuleRules,
 ) -> Vec<Target> {
+    if source.starts_with('#') {
+        return subpath::resolve(index, file, source, rules);
+    }
     if is_unresolved_alias(source, rules) {
         return vec![Target::Unresolved];
     }

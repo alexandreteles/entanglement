@@ -6,6 +6,7 @@ mod imports;
 mod javascript;
 mod module_facts;
 mod reexports;
+mod svelte;
 mod syntax;
 mod typescript;
 
@@ -26,7 +27,7 @@ const WEB_REMAPS: &[(&str, &[&str])] = &[
     ("cjs", &["cts"]),
 ];
 const WEB_INDEX_STEMS: &[&str] = &["index"];
-const WEB_UNRESOLVED_PREFIXES: &[&str] = &["@/", "~/", "#"];
+const WEB_UNRESOLVED_PREFIXES: &[&str] = &["@/", "~/", "$lib"];
 const WEB_MODULE_RULES: FileModuleRules = FileModuleRules {
     extensions: WEB_EXTENSIONS,
     remaps: WEB_REMAPS,
@@ -67,6 +68,13 @@ pub(super) const LANGUAGE_SPECS: &[LanguageSpec] = &[
         build,
     },
     LanguageSpec {
+        scope: "source.svelte",
+        resolution_family: ResolutionFamily::None,
+        project_manifests: &[],
+        file_module_rules: None,
+        build,
+    },
+    LanguageSpec {
         scope: "source.css",
         resolution_family: ResolutionFamily::None,
         project_manifests: &[],
@@ -80,6 +88,7 @@ fn build(scope: &str, language: &Language) -> Result<Box<dyn LanguageHandler>> {
         "source.js" => javascript::build(language),
         "source.ts" | "source.tsx" => typescript::build(language),
         "source.html" => html::build(language),
+        "source.svelte" => svelte::build(language),
         "source.css" => css::build(language),
         _ => Err(std::io::Error::other(format!("No web analyzer for scope {scope}")).into()),
     }
