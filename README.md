@@ -53,11 +53,11 @@ to resolve references. If none exists, it uses the root directory from the
 diff path.
 
 Supported manifests are `Cargo.toml`, `package.json`, `tsconfig.json`,
-`jsconfig.json`, `pyproject.toml`, `setup.py`, and `setup.cfg`.
+`jsconfig.json`, `pyproject.toml`, `setup.py`, `setup.cfg`, and `go.mod`.
 
 ## Languages
 
-Entanglement supports Rust, Python, TypeScript, TSX, JavaScript, Svelte, HTML,
+Entanglement supports Rust, Python, Go, TypeScript, TSX, JavaScript, Svelte, HTML,
 and CSS.
 Language descriptors select the grammar and analyzer.
 
@@ -115,6 +115,13 @@ Unknown embedded languages have `analyzed: false`. Python strings also have
 this state when non-raw escapes, doubled braces, or f-string conversions or
 format specifiers prevent a safe mapping from runtime text to source ranges.
 
+Go supports `.go`. Functions, methods, and function literals use the shared
+function metrics. A function literal assigned to one name takes that name.
+Each `switch`, type switch, and `select` adds one decision per non-default
+case. A `for` without a clause or condition adds loop nesting to cognitive
+complexity. It adds no CC decision. Labeled `break` and `continue` and every
+`goto` add a labeled-jump point.
+
 ### Python comprehension complexity
 
 Comprehension `for` and filter clauses add cognitive complexity in source
@@ -147,6 +154,20 @@ Assignments hide imports with the same name throughout a function.
 A module assignment can invalidate an imported binding used by a function,
 even if the function appears before the assignment. Comprehension targets
 stay in their own scope.
+
+The Go resolver treats the files in one directory with the same package
+clause as one package. Import paths resolve through the module path in the
+nearest `go.mod`. Exported names resolve across packages. Unexported names
+resolve only inside their package. Import paths outside the module and
+predeclared identifiers such as `len` are external. Function parameters and
+block-scoped declarations shadow package names from the end of their
+declaration. An unnamed external import binds its last path element, after
+a `/vN` major version suffix is removed.
+
+Go references remain unresolved when the target depends on types. This
+includes method calls, field access, composite literal keys, and dot
+imports. Files in one package that declare the same name, such as files
+with different build constraints, produce an ambiguous result.
 
 ## Select metrics
 
