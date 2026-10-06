@@ -104,7 +104,7 @@ impl Extras {
             } else if Some(capture.index) == analyzer.snippet_definition {
                 self.add_snippet(node, source, &root);
             } else if Some(capture.index) == analyzer.declaration {
-                self.add_declaration(node, source, declaration_scope(node, &root));
+                self.add_declaration(node, source, Some(declaration_scope(node, &root)));
             }
         }
     }
