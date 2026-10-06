@@ -1,5 +1,6 @@
 mod capture_schema;
 mod definitions;
+mod exports;
 mod namespaces;
 mod references;
 mod scope;
@@ -73,7 +74,14 @@ impl CaptureFacts {
                 if let Some(clause) = named_child(node, "export_clause") {
                     self.export_clause_ranges.push(clause.byte_range());
                 }
-                self.semantic.exports.extend(parse_export(node, source));
+                let exports = parse_export(node, source);
+                if exports.iter().any(|export| {
+                    export.exported_name == "default"
+                        && export.local_name.as_deref() == Some("default")
+                }) {
+                    self.add_default_callable_definition(node);
+                }
+                self.semantic.exports.extend(exports);
             }
         }
     }

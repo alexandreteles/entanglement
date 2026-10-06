@@ -41,7 +41,7 @@ fn parse_default_export(statement: Node<'_>, source: &[u8]) -> Vec<Export> {
             statement,
             None,
             None,
-            None,
+            Some("default".to_owned()),
             "default".to_owned(),
             false,
         )];
@@ -79,6 +79,38 @@ fn declaration_names(declaration: Node<'_>, source: &[u8]) -> Vec<String> {
             .and_then(|name| syntax::node_name(name, source))
             .into_iter()
             .collect(),
+    }
+}
+
+pub(super) fn default_callable(statement: Node<'_>) -> Option<Node<'_>> {
+    if !syntax::has_default_keyword(statement) {
+        return None;
+    }
+    let value = statement
+        .child_by_field_name("declaration")
+        .or_else(|| statement.child_by_field_name("value"))?;
+    let callable = unwrap_callable(value)?;
+    matches!(
+        callable.kind(),
+        "arrow_function"
+            | "function_expression"
+            | "function_declaration"
+            | "generator_function"
+            | "generator_function_declaration"
+    )
+    .then_some(callable)
+}
+
+fn unwrap_callable(mut node: Node<'_>) -> Option<Node<'_>> {
+    loop {
+        match node.kind() {
+            "parenthesized_expression" | "as_expression" | "satisfies_expression" => {
+                node = node
+                    .child_by_field_name("expression")
+                    .or_else(|| node.named_child(0))?;
+            }
+            _ => return Some(node),
+        }
     }
 }
 
