@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 
 use crate::model::Export;
 
-use super::bindings::{ImportLookup, imported_binding};
-use super::symbols::{anonymous_export_symbols, local_symbols};
+use super::bindings::{BindingTarget, binding_target, local_binding_rank};
+use super::symbols::anonymous_export_symbols;
 use super::{Index, Target, unique_targets};
 
 impl Index<'_> {
@@ -80,22 +80,15 @@ impl Index<'_> {
         let Some(name) = export.local_name.as_deref() else {
             return anonymous_export_symbols(&self.facts[file], export);
         };
-        match imported_binding(
+        match binding_target(
             &self.facts[file],
             name,
             export.start_byte,
             export.context_id,
         ) {
-            ImportLookup::One(import, _) => self.resolve_import_binding(file, import, visiting),
-            ImportLookup::Ambiguous(_) => vec![Target::Unresolved],
-            ImportLookup::None => local_symbols(
-                &self.facts[file],
-                name,
-                export.start_byte,
-                export.context_id,
-            )
-            .map(|(_, targets)| targets)
-            .unwrap_or_else(|| vec![Target::Unresolved]),
+            BindingTarget::Local(targets) => targets,
+            BindingTarget::Import(import) => self.resolve_import_binding(file, import, visiting),
+            BindingTarget::Unresolved => vec![Target::Unresolved],
         }
     }
 
@@ -106,6 +99,17 @@ impl Index<'_> {
         export: &Export,
         visiting: &mut BTreeSet<(usize, String)>,
     ) -> Vec<Target> {
+        if export.local_name.as_deref().is_some_and(|name| {
+            local_binding_rank(
+                &self.facts[file],
+                name,
+                export.start_byte,
+                export.context_id,
+            )
+            .is_some()
+        }) {
+            return vec![Target::Unresolved];
+        }
         self.resolve_module(file, source)
             .into_iter()
             .flat_map(|module| match module {
@@ -118,7 +122,7 @@ impl Index<'_> {
                 Target::Namespace(module_file) => export
                     .imported_name
                     .as_deref()
-                    .map(|name| self.resolve_export(module_file, name, visiting))
+                    .map(|name| self.resolve_named_import(module_file, name, visiting))
                     .unwrap_or_else(|| vec![Target::Unresolved]),
                 target => vec![target],
             })

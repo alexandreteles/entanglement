@@ -15,7 +15,7 @@ pub(super) fn local_symbols(
             definition.name == name
                 && definition.kind != DefinitionKind::Method
                 && definition.scope_start <= position
-                && position <= definition.scope_end
+                && position < definition.scope_end
                 && definition.context_id == context_id
         })
         .collect::<Vec<_>>();

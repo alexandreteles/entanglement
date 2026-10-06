@@ -47,6 +47,7 @@ impl QueryFacts {
                 guest_ranges,
                 priority: properties.priority,
                 inherit_scope: properties.inherit_scope,
+                registered_only: properties.registered_only,
             });
         }
     }
@@ -111,5 +112,6 @@ pub(super) fn merge(injections: &mut Vec<InjectionRequest>) {
 fn merge_request(current: &mut InjectionRequest, other: &InjectionRequest) {
     current.priority = current.priority.max(other.priority);
     current.inherit_scope |= other.inherit_scope;
+    current.registered_only &= other.registered_only;
     current.guest_ranges = ranges::intersect_sets(&current.guest_ranges, &other.guest_ranges);
 }

@@ -34,6 +34,7 @@ struct InjectionProperties {
     include_children: bool,
     priority: i32,
     inherit_scope: bool,
+    registered_only: bool,
 }
 
 /// Common facts emitted by language queries before syntax-specific adapters run.
@@ -88,6 +89,10 @@ impl QueryAnalyzer {
                     }
                     "injection.inherit-scope" => {
                         properties.inherit_scope = property.value.as_deref() == Some("true");
+                    }
+                    "injection.registered-only" => {
+                        found = true;
+                        properties.registered_only = property.value.as_deref() == Some("true");
                     }
                     _ => {}
                 }

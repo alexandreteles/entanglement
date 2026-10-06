@@ -1,14 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 
-use crate::languages::{FileModuleRules, ResolutionFamily};
+use crate::languages::{FileModuleLayout, FileModuleRules, ResolutionFamily};
 use crate::model::FileFacts;
 
 use super::Target;
+use super::layout;
 
 pub(super) struct Index<'a> {
     pub(super) facts: &'a [FileFacts],
-    by_path: BTreeMap<PathBuf, BTreeSet<usize>>,
+    pub(super) by_path: BTreeMap<PathBuf, BTreeSet<usize>>,
 }
 
 impl<'a> Index<'a> {
@@ -29,47 +30,18 @@ impl<'a> Index<'a> {
         let Some(rules) = self.facts[file].file_module_rules else {
             return vec![Target::Unresolved];
         };
-        if is_unresolved_alias(source, rules) {
-            return vec![Target::Unresolved];
-        }
-        if !is_relative_source(source) {
-            return vec![Target::External];
-        }
-
-        let mut files = BTreeSet::new();
-        for alias in &self.facts[file].aliases {
-            let Some(parent) = alias.parent() else {
-                continue;
-            };
-            let requested = parent.join(source);
-            for candidate in module_candidates(&requested, rules) {
-                if let Some(matches) = self.by_path.get(&normalize(&candidate)) {
-                    files.extend(matches.iter().copied());
-                }
-            }
-        }
-        let targets = files.into_iter().map(Target::Namespace).collect::<Vec<_>>();
-        if targets.is_empty() {
-            vec![Target::Unresolved]
-        } else {
-            targets
+        match rules.layout {
+            FileModuleLayout::SlashRelative => layout::resolve_slash(self, file, source, rules),
+            FileModuleLayout::Dotted {
+                roots,
+                project_markers,
+                ..
+            } => layout::dotted::resolve(self, file, source, rules, roots, project_markers),
         }
     }
 }
 
-fn is_relative_source(source: &str) -> bool {
-    matches!(source, "." | "..") || source.starts_with("./") || source.starts_with("../")
-}
-
-fn is_unresolved_alias(source: &str, rules: &FileModuleRules) -> bool {
-    rules
-        .unresolved_prefixes
-        .iter()
-        .any(|prefix| source.starts_with(prefix))
-        || source.starts_with('/')
-}
-
-fn module_candidates(requested: &Path, rules: &FileModuleRules) -> Vec<PathBuf> {
+pub(super) fn module_candidates(requested: &Path, rules: &FileModuleRules) -> Vec<PathBuf> {
     let extension = requested.extension().and_then(|value| value.to_str());
     let recognized = extension.is_some_and(|extension| rules.extensions.contains(&extension));
     let mut candidates = BTreeSet::from([requested.to_path_buf()]);
@@ -111,7 +83,7 @@ fn remapped_extensions<'a>(extension: &str, rules: &'a FileModuleRules) -> &'a [
         .unwrap_or(&[])
 }
 
-fn normalize(path: &Path) -> PathBuf {
+pub(super) fn normalize(path: &Path) -> PathBuf {
     let mut normalized = PathBuf::new();
     for component in path.components() {
         match component {
