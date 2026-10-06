@@ -71,13 +71,22 @@ JavaScript supports `.js`, `.jsx`, `.mjs`, and `.cjs`. JSX expressions and
 callbacks use the metrics of the JavaScript or TSX file that contains them.
 Interfaces and type declarations do not count as runtime functions.
 
-Svelte supports `.svelte`. The `<script>` block uses TypeScript when
-`lang="ts"` and JavaScript otherwise. `<style>` uses CSS. Each template
-expression, such as `{#if ready}`, `{item.name}`, `onclick={() => save()}`,
-or `{@attach focus}`, uses the script language. Callbacks in expressions are
-functions. Template blocks such as `{#if}` and `{#each}` do not add
-complexity. Template expressions do not resolve names from the `<script>`
-block.
+Svelte supports `.svelte`. The instance `<script>` block uses TypeScript
+when `lang="ts"` and JavaScript otherwise; `<script module>` keeps a
+separate module execution context. `<style>` uses CSS. Template expressions,
+such as `{#if ready}`, `{item.name}`, `onclick={() => save()}`, or
+`{@attach focus}`, use the component's script language and share the
+component lexical context.
+
+Each component has an implicit `<component>` metric scope. `{#if}` and
+`{#each}` contribute control-flow complexity to the smallest enclosing
+component or snippet scope, and `{#await}` is counted as a multiway decision.
+`{#snippet}` declarations are function scopes. JavaScript or TypeScript
+callbacks inside markup remain separate functions, so their decisions are not
+also charged to the component. Template bindings from each/await/snippet
+constructs shadow outer names in their lexical ranges. Component tags resolve
+through normal file-module imports, and every `.svelte` file exposes a
+synthetic default component export.
 
 ### Embedded languages
 

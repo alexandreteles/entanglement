@@ -84,10 +84,12 @@ impl ImportTarget {
     fn path(&self) -> Option<&str> {
         match self {
             Self::Path(path) => Some(path),
-            Self::Conditions(conditions) => conditions
-                .iter()
-                .find(|(condition, _)| CONDITIONS.contains(&condition.as_str()))
-                .and_then(|(_, target)| target.path()),
+            Self::Conditions(conditions) => conditions.iter().find_map(|(condition, target)| {
+                CONDITIONS
+                    .contains(&condition.as_str())
+                    .then(|| target.path())
+                    .flatten()
+            }),
             Self::Other(_) => None,
         }
     }

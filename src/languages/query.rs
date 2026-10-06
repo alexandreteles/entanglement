@@ -27,14 +27,35 @@ pub(crate) struct QueryAnalyzer {
     injection_patterns: HashMap<usize, InjectionProperties>,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct InjectionProperties {
     language: Option<String>,
     language_capture: Option<u32>,
     include_children: bool,
     priority: i32,
     inherit_scope: bool,
+    inherit_metrics: bool,
+    inherit_context: bool,
+    share_bindings: bool,
+    publish_exports: bool,
     registered_only: bool,
+}
+
+impl Default for InjectionProperties {
+    fn default() -> Self {
+        Self {
+            language: None,
+            language_capture: None,
+            include_children: false,
+            priority: 0,
+            inherit_scope: false,
+            inherit_metrics: false,
+            inherit_context: false,
+            share_bindings: false,
+            publish_exports: true,
+            registered_only: false,
+        }
+    }
 }
 
 /// Common facts emitted by language queries before syntax-specific adapters run.
@@ -89,6 +110,18 @@ impl QueryAnalyzer {
                     }
                     "injection.inherit-scope" => {
                         properties.inherit_scope = property.value.as_deref() == Some("true");
+                    }
+                    "injection.inherit-metrics" => {
+                        properties.inherit_metrics = property.value.as_deref() == Some("true");
+                    }
+                    "injection.inherit-context" => {
+                        properties.inherit_context = property.value.as_deref() == Some("true");
+                    }
+                    "injection.share-bindings" => {
+                        properties.share_bindings = property.value.as_deref() == Some("true");
+                    }
+                    "injection.publish-exports" => {
+                        properties.publish_exports = property.value.as_deref() != Some("false");
                     }
                     "injection.registered-only" => {
                         found = true;

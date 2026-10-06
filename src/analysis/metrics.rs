@@ -124,7 +124,9 @@ fn collect_language_inputs(
         inputs
             .events
             .extend(summary.events.iter().copied().filter(|event| {
-                selected_event(event, selection) && !inside_any(event.range(), &summary.excluded)
+                selected_event(event, selection)
+                    && (is_host_structure(event.role)
+                        || !inside_any(event.range(), &summary.excluded))
             }));
         if selection.needs_cc() || selection.needs_cognitive() {
             inputs
@@ -136,6 +138,13 @@ fn collect_language_inputs(
         }
     }
     inputs
+}
+
+fn is_host_structure(role: SyntaxRole) -> bool {
+    matches!(
+        role,
+        SyntaxRole::CognitiveConditionBoundary | SyntaxRole::CognitiveElseIf
+    )
 }
 
 fn selected_event(event: &SyntaxEvent, selection: Selection) -> bool {

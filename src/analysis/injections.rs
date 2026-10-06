@@ -52,14 +52,19 @@ impl Worker {
         owner_range: Range<usize>,
         inherited_module: &ModulePath,
         inherited_scope: Option<Range<usize>>,
+        inherited_context: Option<usize>,
+        metric_id: String,
         active: &mut HashSet<(String, usize, usize)>,
         next_node_id: &mut usize,
         next_context_id: &mut usize,
         old_trees: &mut BTreeMap<TreeKey, Tree>,
         depth: usize,
     ) -> Result<(Vec<ParsedInjection>, Vec<TreeSummary>)> {
-        let context_id = *next_context_id;
-        *next_context_id += 1;
+        let context_id = inherited_context.unwrap_or_else(|| {
+            let id = *next_context_id;
+            *next_context_id += 1;
+            id
+        });
         let mut captured =
             self.registry
                 .capture(&choice.id, tree, source, self.selection.needs_halstead())?;
@@ -107,6 +112,7 @@ impl Worker {
             choice,
             captured,
             context_id,
+            metric_id.clone(),
             excluded,
             inherited_module,
             &owner_range,
@@ -167,6 +173,12 @@ impl Worker {
                 request.range.clone(),
                 &child_module,
                 child_scope,
+                request.inherit_context.then_some(context_id),
+                if request.inherit_metrics {
+                    metric_id.clone()
+                } else {
+                    child_choice.id.clone()
+                },
                 active,
                 next_node_id,
                 next_context_id,
@@ -174,8 +186,18 @@ impl Worker {
                 depth + 1,
             )?;
             active.remove(&key);
-            if child_choice.id == choice.id {
+            if child_choice.id == choice.id || request.inherit_metrics {
                 child_summaries[0].cognitive_parent = cognitive_parent;
+            }
+            if !request.publish_exports {
+                child_summaries[0].discard_exports();
+            }
+            if request.share_bindings {
+                child_summaries[0].share_top_level_bindings_into(
+                    &mut summaries[0],
+                    &request.range,
+                    &owner_range,
+                );
             }
             summaries.extend(child_summaries);
             injections.push(ParsedInjection {
@@ -212,9 +234,22 @@ fn selected_requests(requests: Vec<InjectionRequest>) -> Vec<InjectionRequest> {
             Some(current) if current.language == request.language => {
                 current.guest_ranges =
                     ranges::intersect_sets(&current.guest_ranges, &request.guest_ranges);
+                if request.priority > current.priority {
+                    current.inherit_scope = request.inherit_scope;
+                    current.inherit_metrics = request.inherit_metrics;
+                    current.inherit_context = request.inherit_context;
+                    current.share_bindings = request.share_bindings;
+                    current.publish_exports = request.publish_exports;
+                    current.registered_only = request.registered_only;
+                } else if request.priority == current.priority {
+                    current.inherit_scope |= request.inherit_scope;
+                    current.inherit_metrics |= request.inherit_metrics;
+                    current.inherit_context |= request.inherit_context;
+                    current.share_bindings |= request.share_bindings;
+                    current.publish_exports &= request.publish_exports;
+                    current.registered_only &= request.registered_only;
+                }
                 current.priority = current.priority.max(request.priority);
-                current.inherit_scope |= request.inherit_scope;
-                current.registered_only &= request.registered_only;
             }
             Some(current)
                 if current.priority > request.priority

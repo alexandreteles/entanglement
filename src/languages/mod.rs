@@ -27,6 +27,14 @@ pub(crate) struct InjectionRequest {
     pub guest_ranges: Vec<tree_sitter::Range>,
     pub priority: i32,
     pub inherit_scope: bool,
+    /// Assign injected functions, decisions, and tokens to the host metric context.
+    pub inherit_metrics: bool,
+    /// Reuse the host semantic context so names can cross the language boundary.
+    pub inherit_context: bool,
+    /// Expose top-level injected bindings to the host while keeping guest lookup isolated.
+    pub share_bindings: bool,
+    /// Keep exports emitted by the injected analyzer in the file-module surface.
+    pub publish_exports: bool,
     /// Ignore optional language labels unless a registered analyzer matches.
     pub registered_only: bool,
 }
