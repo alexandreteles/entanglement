@@ -506,18 +506,26 @@ fn svelte_template_bindings_stop_at_branch_and_element_boundaries() {
     let temp = tempfile::tempdir().unwrap();
     let source = r#"<script>
   let value = 1;
+  let self = 9;
   let sibling = 3;
   let fulfilled = 5;
   let rejected = 6;
   let promise = Promise.resolve(1);
 </script>
 
-{#if true}
+{#if value}
+  <span>{value}</span>
   {@const value = 2}
   <span>{value}</span>
 {:else}
   <span>{value}</span>
 {/if}
+
+{#if true}
+  {@const { self } = { self }}
+  <span>{self}</span>
+{/if}
+<span>{self}</span>
 
 <div>
   {#snippet inner()}<span>inside</span>{/snippet}
@@ -550,14 +558,39 @@ fn svelte_template_bindings_stop_at_branch_and_element_boundaries() {
         "the @const name should bind itself rather than the script value"
     );
     assert_eq!(
+        resolution_at(file, source, "value}", 0)["resolution"]["status"],
+        "exact",
+        "the if condition should resolve before the fragment body binding starts"
+    );
+    assert_eq!(
         resolution_at(file, source, "{value}", 0)["resolution"]["status"],
         "unresolved",
-        "the @const binding should shadow the script value in the if body"
+        "the @const binding should shadow earlier sibling expressions in its fragment"
     );
     assert_eq!(
         resolution_at(file, source, "{value}", 1)["resolution"]["status"],
+        "unresolved",
+        "the @const binding should shadow the script value after its declaration"
+    );
+    assert_eq!(
+        resolution_at(file, source, "{value}", 2)["resolution"]["status"],
         "exact",
         "the else body should see the script value rather than the if-body @const"
+    );
+    assert_eq!(
+        resolution_at(file, source, "self }", 1)["resolution"]["status"],
+        "unresolved",
+        "a destructuring initializer should not resolve its own binding"
+    );
+    assert_eq!(
+        resolution_at(file, source, "{self}", 0)["resolution"]["status"],
+        "unresolved",
+        "the destructured binding should shadow the script value inside its fragment"
+    );
+    assert_eq!(
+        resolution_at(file, source, "{self}", 1)["resolution"]["status"],
+        "exact",
+        "the destructured binding should stop at its fragment boundary"
     );
     assert_eq!(
         resolution_at(file, source, "inner()", 1)["resolution"]["status"],
