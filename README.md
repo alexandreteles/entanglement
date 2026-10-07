@@ -4,16 +4,27 @@ Entanglement uses Tree-sitter to measure source code. It reports code size,
 complexity, Halstead metrics, and maintainability. It can compare these metrics
 before and after a patch without changing source files.
 
-## Build and run
+## Install, build, and run
 
-Use the stable Rust toolchain to build the program:
+Use the stable Rust toolchain to install from GitHub:
+
+```sh
+cargo install --git https://github.com/alexandreteles/entanglement.git --branch main --locked
+```
+
+This builds in release mode and installs the executable in `~/.cargo/bin`.
+Make sure that directory is on your `PATH`. From a local checkout, use
+`cargo install --path . --locked` instead.
+
+To build without installing:
 
 ```sh
 cargo build --release
 ```
 
-The executable is `target/release/entanglement`. The examples below assume it
-is on your `PATH`. Run tests with `cargo test --locked`.
+The executable is `target/release/entanglement`. If you have not installed it,
+use that path in place of `entanglement` in the examples below. Run tests with
+`cargo test --locked`.
 
 Set `SOURCE_FILE` to a supported source file. Then select a command:
 
