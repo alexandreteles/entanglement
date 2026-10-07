@@ -1,5 +1,5 @@
 mod assets;
-mod go;
+pub(crate) mod go;
 mod python;
 pub(crate) mod query;
 mod registry;

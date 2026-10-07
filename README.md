@@ -101,8 +101,9 @@ format specifiers prevent a safe mapping from runtime text to source ranges.
 Go supports `.go`. Functions, methods, and function literals use the shared
 function metrics. A function literal assigned to one name takes that name.
 Each `switch`, type switch, and `select` adds one decision per non-default
-case. A `for` without a clause or condition adds loop nesting to cognitive
-complexity. It adds no CC decision. Labeled `break` and `continue` and every
+case. An unconditional `for`, including `for ;;` and headers with no condition,
+adds loop nesting to cognitive complexity but no CC decision. Empty and
+default-only switches and selects add no CC decision. Labeled `break` and `continue` and every
 `goto` add a labeled-jump point.
 
 ### Python comprehension complexity
@@ -140,13 +141,37 @@ nearest `go.mod`. Exported names resolve across packages. Unexported names
 resolve only inside their package. Import paths outside the module and
 predeclared identifiers such as `len` are external. Function parameters and
 block-scoped declarations shadow package names from the end of their
-declaration. An unnamed external import binds its last path element, after
-a `/vN` major version suffix is removed.
+declaration. Ordinary parameters and receivers bind in the function body;
+type parameters also cover the appropriate declaration signature. A type-switch
+alias binds separately after each case's type list. Parenthesized direct calls
+and generic calls resolved to functions participate in recursion detection.
+
+Import strings and quoted module paths are decoded before lookup. The nearest
+`go.mod` is a boundary even when it is malformed or unreadable. Imports do not
+cross into a nested module merely because its directory exists. An unavailable
+unnamed external import uses a heuristic binding from its last path element,
+after a `/vN` major version suffix is removed; this never proves an exact symbol.
 
 Go references remain unresolved when the target depends on types. This
-includes method calls, field access, composite literal keys, and dot
-imports. Files in one package that declare the same name, such as files
-with different build constraints, produce an ambiguous result.
+includes method calls, field access, and dot imports. Bare composite-literal
+keys are omitted when their meaning requires type information.
+
+All requested Go files contribute source metrics; no GOOS, GOARCH, or build-tag
+configuration is selected. Test-only declarations are visible to same-package
+tests but not to production files or imports. A `_test` package-name suffix alone
+does not classify a source file as a test. Unique declarations in platform-named,
+build-constrained, or cgo files remain unresolved; duplicate candidate declarations
+remain ambiguous. This is a source inventory, not a type-checked build.
+
+Logical paths naming one physical file must agree on resolution. Separate Go
+injections do not share package members or imports. The grammar metadata also
+recognizes `go` in embedded-language labels. Workspace, replacement, vendoring,
+and dependency-graph selection are not implemented.
+
+Candidate analysis retains a run-local configuration snapshot. Changes to `go.mod`,
+including creation and deletion, affect the after-state without writing to disk.
+Unchanged observed manifest contents are shared by value across the before and
+after snapshots, not reread from the live filesystem.
 
 ## Select metrics
 

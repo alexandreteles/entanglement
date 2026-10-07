@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:
-      - name: Check out the reviewed commit
+      - name: Check out the reviewed commit and original PR
         shell: bash
         run: |
           set -euo pipefail
@@ -20,54 +20,37 @@ jobs:
           git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
           git fetch --no-tags origin "$GITHUB_SHA" b2335a764e2aebde234b19079ece5c99e52c1e0f
           git checkout --detach "$GITHUB_SHA"
-      - name: Select stable Rust
+          git worktree add --detach "$RUNNER_TEMP/go-pr16-base" b2335a764e2aebde234b19079ece5c99e52c1e0f
+      - name: Select stable Rust and fetch locked metadata dependencies
         run: |
           rustup update stable --no-self-update
           rustup default stable
           rustup component add rustfmt clippy
           rustc --version
           cargo --version
+          cargo fetch --locked
+      - name: Check formatting
+        run: cargo fmt --check
       - name: Run tests
         run: cargo test --locked
+      - name: Check lints
+        run: cargo clippy --locked --all-targets -- -D warnings
       - name: Build Entanglement
         run: cargo build --release --locked
-      - name: Measure source with Entanglement
+      - name: Measure source and candidate changes with Entanglement
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/review-results"
-          target/release/entanglement --format json repo src > "$RUNNER_TEMP/review-results/source.json"
-          python3 - "$RUNNER_TEMP/review-results/source.json" <<'PY'
-          import json, sys
-          files = json.load(open(sys.argv[1]))['files']
-          functions = [fn for f in files for fn in f['functions']]
-          print(json.dumps({'files': len(files), 'nloc': sum(f['nloc'] for f in files), 'functions': len(functions), 'cc': sum(f['cyclomatic_complexity'] for f in functions), 'cogc': sum(f['cognitive_complexity'] for f in functions), 'max_cc': max(f['cyclomatic_complexity'] for f in functions), 'max_cogc': max(f['cognitive_complexity'] for f in functions)}))
-          PY
-      - name: Prepare isolated offline review tools
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          bundle="$RUNNER_TEMP/go-review-tools"
-          mkdir -p "$bundle/source" "$bundle/toolchain"
-          git archive HEAD | tar -x -C "$bundle/source"
-          cargo vendor --locked --versioned-dirs "$bundle/vendor" > "$bundle/vendor-config.toml"
-          sysroot="$(rustc --print sysroot)"
-          cp -a "$sysroot/bin" "$sysroot/lib" "$bundle/toolchain/"
-          rm -rf "$bundle/toolchain/lib/rustlib/src"
-          if test -f target/release/entanglement; then
-            cp target/release/entanglement "$bundle/entanglement-baseline"
-          fi
-          tar -czf "$RUNNER_TEMP/go-review-tools.tar.gz" -C "$bundle" .
-      - name: Upload offline tools
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: go-review-tools
-          path: ${{ runner.temp }}/go-review-tools.tar.gz
-          retention-days: 1
-          compression-level: 0
-      - name: Upload source metrics
+          output="$RUNNER_TEMP/review-results"
+          baseline="$RUNNER_TEMP/go-pr16-base"
+          mkdir -p "$output"
+          tool="$PWD/target/release/entanglement"
+          "$tool" --metrics cc,cogc,mi --format json repo "$baseline/src" > "$output/before.json"
+          "$tool" --metrics cc,cogc,mi --format json repo "$PWD/src" > "$output/after.json"
+          git diff b2335a764e2aebde234b19079ece5c99e52c1e0f HEAD -- src > "$output/source.patch"
+          "$tool" --metrics cc,cogc,mi --format json candidate "$baseline" --diff "$output/source.patch" > "$output/candidate.json"
+          python3 scripts/go_review_metrics.py "$output/before.json" "$output/after.json" --before-root "$baseline" --after-root "$PWD" | tee "$output/summary.json"
+      - name: Upload metrics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

@@ -1,0 +1,166 @@
+{
+  "scope": "src/ only; excludes tests, queries, grammar metadata, and CI",
+  "before": {
+    "files": 96,
+    "nloc": 10975,
+    "functions": 502,
+    "cyclomatic_complexity": 1799,
+    "cognitive_complexity": 1517
+  },
+  "after": {
+    "files": 104,
+    "nloc": 11465,
+    "functions": 536,
+    "cyclomatic_complexity": 1927,
+    "cognitive_complexity": 1576
+  },
+  "delta": {
+    "files": 8,
+    "nloc": 490,
+    "functions": 34,
+    "cyclomatic_complexity": 128,
+    "cognitive_complexity": 59
+  },
+  "new_functions": 45,
+  "new_function_max_cc": 8,
+  "new_function_max_cogc": 7,
+  "existing_function_complexity_increases": [
+    {
+      "path": "src/resolver/packages/imports.rs",
+      "function": "import_target",
+      "cc_delta": 5,
+      "cogc_delta": 5
+    }
+  ],
+  "files": [
+    {
+      "path": "src/languages/go.rs",
+      "nloc_before": 42,
+      "nloc_after": 43,
+      "mi_before": 41.07722317867251,
+      "mi_after": 40.77862806421119
+    },
+    {
+      "path": "src/languages/go/captures.rs",
+      "nloc_before": 80,
+      "nloc_after": 87,
+      "mi_before": 33.46634196289938,
+      "mi_after": 32.2800537445187
+    },
+    {
+      "path": "src/languages/go/facts.rs",
+      "nloc_before": 137,
+      "nloc_after": 148,
+      "mi_before": 23.845044266056945,
+      "mi_after": 21.749970955540164
+    },
+    {
+      "path": "src/languages/go/literals.rs",
+      "nloc_before": 0,
+      "nloc_after": 64,
+      "mi_before": null,
+      "mi_after": 31.429243284401746
+    },
+    {
+      "path": "src/languages/go/scopes.rs",
+      "nloc_before": 54,
+      "nloc_after": 71,
+      "mi_before": 36.85981262795099,
+      "mi_after": 33.04955858466403
+    },
+    {
+      "path": "src/languages/go/scopes/parameters.rs",
+      "nloc_before": 0,
+      "nloc_after": 48,
+      "mi_before": null,
+      "mi_after": 37.65462104863008
+    },
+    {
+      "path": "src/languages/go/syntax.rs",
+      "nloc_before": 53,
+      "nloc_after": 79,
+      "mi_before": 36.31541857668821,
+      "mi_after": 30.019145538018634
+    },
+    {
+      "path": "src/languages/mod.rs",
+      "nloc_before": 82,
+      "nloc_after": 82,
+      "mi_before": 33.000320325545104,
+      "mi_after": 32.979384369028736
+    },
+    {
+      "path": "src/main.rs",
+      "nloc_before": 325,
+      "nloc_after": 329,
+      "mi_before": 5.325744148537084,
+      "mi_after": 5.135412849139191
+    },
+    {
+      "path": "src/resolver.rs",
+      "nloc_before": 112,
+      "nloc_after": 123,
+      "mi_before": 28.289408920349917,
+      "mi_after": 26.722065661405054
+    },
+    {
+      "path": "src/resolver/packages.rs",
+      "nloc_before": 198,
+      "nloc_after": 98,
+      "mi_before": 17.80290161592995,
+      "mi_after": 29.24579055306838
+    },
+    {
+      "path": "src/resolver/packages/contexts.rs",
+      "nloc_before": 0,
+      "nloc_after": 56,
+      "mi_before": null,
+      "mi_after": 36.3206775274819
+    },
+    {
+      "path": "src/resolver/packages/imports.rs",
+      "nloc_before": 111,
+      "nloc_after": 82,
+      "mi_before": 25.76326544589528,
+      "mi_after": 30.654514030832562
+    },
+    {
+      "path": "src/resolver/packages/inventory.rs",
+      "nloc_before": 0,
+      "nloc_after": 78,
+      "mi_before": null,
+      "mi_after": 33.724005034375836
+    },
+    {
+      "path": "src/resolver/packages/members.rs",
+      "nloc_before": 0,
+      "nloc_after": 120,
+      "mi_before": null,
+      "mi_after": 24.27193432949523
+    },
+    {
+      "path": "src/resolver/packages/modules.rs",
+      "nloc_before": 0,
+      "nloc_after": 65,
+      "mi_before": null,
+      "mi_after": 30.706721608716133
+    },
+    {
+      "path": "src/resolver/packages/universe.rs",
+      "nloc_before": 0,
+      "nloc_after": 46,
+      "mi_before": null,
+      "mi_after": 44.20048510790977
+    },
+    {
+      "path": "src/snapshot.rs",
+      "nloc_before": 0,
+      "nloc_after": 65,
+      "mi_before": null,
+      "mi_after": 33.201692090845505
+    }
+  ],
+  "baseline_commit": "b2335a764e2aebde234b19079ece5c99e52c1e0f",
+  "measurement_command": "entanglement --metrics cc,cogc,mi --format json repo <snapshot>/src",
+  "function_identity": "relative file path, function name, occurrence in source order"
+}

@@ -2,13 +2,33 @@ use std::ops::Range;
 
 use tree_sitter::Node;
 
+mod parameters;
+pub(super) use parameters::receiver_type_parameters;
+
+#[derive(Clone, Copy)]
+pub(super) enum LocalKind {
+    Parameter,
+    TypeParameter,
+    Declaration,
+    SwitchAlias,
+}
+
+pub(super) fn local_scopes(name: Node<'_>, kind: LocalKind) -> Vec<Range<usize>> {
+    let scope = match kind {
+        LocalKind::Parameter => parameter_scope(name),
+        LocalKind::TypeParameter => parameters::type_parameter_scope(name),
+        LocalKind::Declaration => declaration_scope(name),
+        LocalKind::SwitchAlias => return parameters::switch_alias_scopes(name),
+    };
+    scope.into_iter().collect()
+}
+
 const FUNCTIONS: &[&str] = &["function_declaration", "method_declaration", "func_literal"];
 
 const DECLARATIONS: &[&str] = &[
     "short_var_declaration",
     "range_clause",
     "receive_statement",
-    "type_switch_statement",
     "var_spec",
     "const_spec",
     "type_spec",
@@ -45,7 +65,8 @@ pub(super) fn parameter_scope(name: Node<'_>) -> Option<Range<usize>> {
                 || matches!(item.kind(), "function_type" | "method_elem")
         })
         .filter(|owner| FUNCTIONS.contains(&owner.kind()))
-        .map(|owner| owner.byte_range())
+        .and_then(|owner| owner.child_by_field_name("body"))
+        .map(|body| body.byte_range())
 }
 
 /// A local name is visible from the end of its declaration, so `x := x + 1`
@@ -54,7 +75,6 @@ pub(super) fn parameter_scope(name: Node<'_>) -> Option<Range<usize>> {
 pub(super) fn declaration_scope(name: Node<'_>) -> Option<Range<usize>> {
     let declaration = ancestors(name).find(|item| DECLARATIONS.contains(&item.kind()))?;
     let start = match declaration.kind() {
-        "type_switch_statement" => declaration.child_by_field_name("value")?.end_byte(),
         "type_spec" | "type_alias" => declaration.start_byte(),
         _ => declaration.end_byte(),
     };
@@ -62,6 +82,6 @@ pub(super) fn declaration_scope(name: Node<'_>) -> Option<Range<usize>> {
     Some(start..block.end_byte())
 }
 
-fn ancestors(node: Node<'_>) -> impl Iterator<Item = Node<'_>> {
+pub(super) fn ancestors(node: Node<'_>) -> impl Iterator<Item = Node<'_>> {
     std::iter::successors(Some(node), Node::parent)
 }

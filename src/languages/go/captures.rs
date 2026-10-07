@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use tree_sitter::{Node, QueryCapture};
 
+use super::scopes::LocalKind;
 use crate::languages::query::QueryAnalyzer;
 use crate::model::{DefinitionKind, ReferenceKind};
 
@@ -10,8 +11,8 @@ use crate::model::{DefinitionKind, ReferenceKind};
 pub(super) enum Role {
     Definition(DefinitionKind),
     Import,
-    Parameter,
-    Declaration,
+    Local(LocalKind),
+    ReceiverTypes,
     Ignored,
     Reference(ReferenceKind),
 }
@@ -50,8 +51,14 @@ impl Captures {
                 Role::Definition(DefinitionKind::Static),
             ),
             ("import", Role::Import),
-            ("local.parameter", Role::Parameter),
-            ("local.declaration", Role::Declaration),
+            ("local.parameter", Role::Local(LocalKind::Parameter)),
+            (
+                "local.type_parameter",
+                Role::Local(LocalKind::TypeParameter),
+            ),
+            ("local.declaration", Role::Local(LocalKind::Declaration)),
+            ("local.switch_alias", Role::Local(LocalKind::SwitchAlias)),
+            ("local.receiver_types", Role::ReceiverTypes),
             ("reference.ignored", Role::Ignored),
             ("reference.call", Role::Reference(ReferenceKind::Call)),
             (
