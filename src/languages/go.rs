@@ -1,5 +1,6 @@
 mod captures;
 mod facts;
+pub(crate) mod literals;
 mod scopes;
 mod syntax;
 

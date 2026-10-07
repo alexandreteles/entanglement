@@ -1,8 +1,4 @@
-//! Resolve Go names across the files of each package.
-//!
-//! A package is the set of files in one directory with the same package
-//! clause. Import paths resolve through the module path in the nearest
-//! `go.mod`. Method dispatch, field access, and dot imports stay unresolved.
+//! Resolve Go package members without inferring types or choosing build tags.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -10,67 +6,28 @@ use std::path::PathBuf;
 use rayon::prelude::*;
 
 use crate::languages::ResolutionFamily;
-use crate::model::{DefinitionKind, FileFacts, Reference, ReferenceAnalysis, Resolution, SymbolId};
+use crate::model::{FileFacts, Reference, ReferenceAnalysis, Resolution};
+use crate::snapshot::Snapshot;
 
 use super::files::indexing::normalize;
 
+mod contexts;
 mod imports;
+mod inventory;
+mod members;
+mod modules;
+mod universe;
 
-use imports::{ImportTarget, Module};
+use contexts::{Context, PackageKey};
+use imports::ImportTarget;
+use members::Package;
+use modules::ModuleState;
 
-/// The predeclared identifiers of the Go universe block.
-const UNIVERSE: &[&str] = &[
-    "any",
-    "bool",
-    "byte",
-    "comparable",
-    "complex64",
-    "complex128",
-    "error",
-    "float32",
-    "float64",
-    "int",
-    "int8",
-    "int16",
-    "int32",
-    "int64",
-    "rune",
-    "string",
-    "uint",
-    "uint8",
-    "uint16",
-    "uint32",
-    "uint64",
-    "uintptr",
-    "true",
-    "false",
-    "iota",
-    "nil",
-    "append",
-    "cap",
-    "clear",
-    "close",
-    "complex",
-    "copy",
-    "delete",
-    "imag",
-    "len",
-    "make",
-    "max",
-    "min",
-    "new",
-    "panic",
-    "print",
-    "println",
-    "real",
-    "recover",
-];
-
-/// Package members by name, each with its symbol and whether it is exported.
-type Members = BTreeMap<String, Vec<(SymbolId, bool)>>;
-
-pub(super) fn resolve(facts: &[FileFacts]) -> Vec<Option<Vec<ReferenceAnalysis>>> {
-    let index = Index::new(facts);
+pub(super) fn resolve(
+    facts: &[FileFacts],
+    snapshot: &Snapshot,
+) -> Vec<Option<Vec<ReferenceAnalysis>>> {
+    let index = Index::new(facts, snapshot);
     facts
         .par_iter()
         .map(|fact| {
@@ -90,136 +47,65 @@ pub(super) fn resolve(facts: &[FileFacts]) -> Vec<Option<Vec<ReferenceAnalysis>>
 }
 
 struct Index {
-    packages: BTreeMap<PathBuf, BTreeMap<String, Members>>,
-    modules: BTreeMap<PathBuf, Option<Module>>,
+    packages: BTreeMap<PackageKey, Package>,
+    modules: BTreeMap<PathBuf, ModuleState>,
 }
 
 impl Index {
-    fn new(facts: &[FileFacts]) -> Self {
-        let mut packages = BTreeMap::<PathBuf, BTreeMap<String, Members>>::new();
-        for fact in facts.iter().filter(|fact| is_go(fact)) {
-            let Some(package) = package_name(fact) else {
-                continue;
-            };
-            for directory in directories(fact) {
-                let members = packages
-                    .entry(directory)
-                    .or_default()
-                    .entry(package.to_owned())
-                    .or_default();
-                for (name, member) in members_of(fact) {
-                    members.entry(name).or_default().push(member);
-                }
-            }
-        }
+    fn new(facts: &[FileFacts], snapshot: &Snapshot) -> Self {
+        let packages = members::index(facts);
         let modules = packages
             .keys()
-            .map(|directory| (directory.clone(), imports::nearest_module(directory)))
+            .map(|key| {
+                (
+                    key.directory.clone(),
+                    modules::nearest(&key.directory, snapshot),
+                )
+            })
             .collect();
         Self { packages, modules }
     }
 
     fn resolve_reference(&self, fact: &FileFacts, reference: &Reference) -> Resolution {
-        let name = &reference.path[0];
-        if is_local(fact, name, reference.start_byte) {
+        let Some(name) = reference.path.first() else {
+            return Resolution::Unresolved;
+        };
+        if contexts::is_local(fact, reference, name) {
             return Resolution::Unresolved;
         }
-        let own = self.own_members(fact, name);
-        if !own.is_empty() {
-            return match reference.path.len() {
-                1 => resolution(own),
-                _ => Resolution::Unresolved,
+        members::agree(
+            contexts::for_reference(fact, reference.context_id)
+                .iter()
+                .map(|context| self.resolve_in_context(fact, reference, context, name)),
+        )
+    }
+
+    fn resolve_in_context(
+        &self,
+        fact: &FileFacts,
+        reference: &Reference,
+        context: &Context,
+        name: &str,
+    ) -> Resolution {
+        if let Some(own) = self.own_members(context, name) {
+            return if reference.path.len() == 1 {
+                own
+            } else {
+                Resolution::Unresolved
             };
         }
-        let mut bound = self.bound_imports(fact, name);
+        let mut bound = self.bound_imports(fact, reference.context_id, context, name);
         match (bound.next(), bound.next(), reference.path.as_slice()) {
             (Some(ImportTarget::Packages(packages)), None, [_, member]) => {
-                resolution(self.members(&packages, member, true))
+                self.imported_members(&packages, member)
             }
             (Some(ImportTarget::External), None, [_, _]) => Resolution::External,
-            (None, _, [_]) if UNIVERSE.contains(&name.as_str()) => Resolution::External,
+            (None, _, [_]) if universe::UNIVERSE.contains(&name) => Resolution::External,
             _ => Resolution::Unresolved,
         }
-    }
-
-    fn own_members(&self, fact: &FileFacts, name: &str) -> Vec<SymbolId> {
-        let Some(package) = package_name(fact) else {
-            return Vec::new();
-        };
-        let packages = directories(fact)
-            .map(|directory| (directory, package.to_owned()))
-            .collect::<Vec<_>>();
-        self.members(&packages, name, false)
-    }
-
-    fn members(
-        &self,
-        packages: &[(PathBuf, String)],
-        name: &str,
-        exported_only: bool,
-    ) -> Vec<SymbolId> {
-        packages
-            .iter()
-            .filter_map(|(directory, package)| {
-                self.packages.get(directory)?.get(package)?.get(name)
-            })
-            .flatten()
-            .filter(|(_, exported)| *exported || !exported_only)
-            .map(|(id, _)| id.clone())
-            .collect()
     }
 }
 
 fn is_go(fact: &FileFacts) -> bool {
     fact.resolution_family == ResolutionFamily::GoPackages
-}
-
-fn is_local(fact: &FileFacts, name: &str, position: usize) -> bool {
-    fact.locals.iter().any(|local| {
-        local.name == name && local.scope_start <= position && position < local.scope_end
-    })
-}
-
-fn package_name(fact: &FileFacts) -> Option<&str> {
-    fact.definitions
-        .iter()
-        .find(|definition| definition.kind == DefinitionKind::Module)
-        .map(|definition| definition.name.as_str())
-}
-
-fn members_of(fact: &FileFacts) -> impl Iterator<Item = (String, (SymbolId, bool))> + '_ {
-    fact.definitions
-        .iter()
-        .filter(|definition| {
-            !matches!(
-                definition.kind,
-                DefinitionKind::Method | DefinitionKind::Module
-            )
-        })
-        .map(|definition| {
-            let id = SymbolId {
-                file: fact.analysis.path.clone(),
-                module: definition.module.clone(),
-                name: definition.name.clone(),
-                kind: definition.kind.clone(),
-                start_byte: definition.start_byte,
-            };
-            (definition.name.clone(), (id, definition.is_public))
-        })
-}
-
-fn directories(fact: &FileFacts) -> impl Iterator<Item = PathBuf> + '_ {
-    fact.aliases
-        .iter()
-        .filter_map(|alias| alias.parent().map(normalize))
-}
-
-fn resolution(mut symbols: Vec<SymbolId>) -> Resolution {
-    symbols.sort();
-    symbols.dedup();
-    match symbols.len() {
-        0 => Resolution::Unresolved,
-        1 => Resolution::Exact(symbols.remove(0)),
-        _ => Resolution::Ambiguous(symbols),
-    }
 }

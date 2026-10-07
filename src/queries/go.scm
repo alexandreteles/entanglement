@@ -21,13 +21,17 @@
 (if_statement alternative: (block) @metric.cognitive.else)
 (if_statement alternative: (if_statement) @metric.cognitive.else_if)
 (for_statement) @metric.cognitive.loop
-(for_statement . (_) (block)) @metric.condition
-(expression_switch_statement) @metric.cognitive.multiway @metric.multiway @metric.condition
-(type_switch_statement) @metric.cognitive.multiway @metric.multiway @metric.condition
-(select_statement) @metric.cognitive.multiway @metric.multiway @metric.condition
-(expression_case) @metric.case
-(type_case) @metric.case
-(communication_case) @metric.case
+; The grammar separates a condition expression, a three-clause header, and range.
+; Comments are extras, not evidence of a loop condition.
+(for_statement (_expression)) @metric.condition
+(for_statement (for_clause condition: (_))) @metric.condition
+(for_statement (range_clause)) @metric.condition
+(expression_switch_statement) @metric.cognitive.multiway
+(type_switch_statement) @metric.cognitive.multiway
+(select_statement) @metric.cognitive.multiway
+(expression_case) @metric.condition
+(type_case) @metric.condition
+(communication_case) @metric.condition
 (binary_expression operator: "&&" @metric.cognitive.logical_and) @metric.cognitive.logical_expression @metric.logical_condition
 (binary_expression operator: "||" @metric.cognitive.logical_or) @metric.cognitive.logical_expression @metric.logical_condition
 (parenthesized_expression) @metric.cognitive.parentheses
@@ -50,19 +54,22 @@ _ @syntax.node
 
 (parameter_declaration name: (identifier) @local.parameter)
 (variadic_parameter_declaration name: (identifier) @local.parameter)
-(type_parameter_declaration name: (identifier) @local.parameter)
+(type_parameter_declaration name: (identifier) @local.type_parameter)
+(method_declaration receiver: (parameter_list) @local.receiver_types)
 (short_var_declaration left: (expression_list (identifier) @local.declaration))
 (range_clause left: (expression_list (identifier) @local.declaration) ":=")
 (receive_statement left: (expression_list (identifier) @local.declaration) ":=")
-(type_switch_statement alias: (expression_list (identifier) @local.declaration))
+(type_switch_statement alias: (expression_list (identifier) @local.switch_alias))
 
 ; A composite literal key names a struct field or evaluates a map key; only
 ; the literal's type can decide, so the key is not reported.
 (keyed_element . (literal_element (identifier) @reference.ignored))
 
-(call_expression function: (identifier) @reference.call)
-(call_expression
-  function: (selector_expression operand: (identifier) field: (field_identifier)) @reference.call)
+; The adapter unwraps parentheses but never assumes an indexed value is a function.
+(call_expression function: (_) @reference.call)
+; Go's CST may parse a one-argument generic call as a conversion.
+; Only resolution to a function will create a call-graph edge.
+(type_conversion_expression type: (_) @reference.call)
 (selector_expression operand: (identifier) field: (field_identifier)) @reference.qualified
 (qualified_type package: (package_identifier) name: (type_identifier)) @reference.qualified_type
 (type_identifier) @reference.type
