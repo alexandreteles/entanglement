@@ -8,23 +8,47 @@
     "cognitive_complexity": 1517
   },
   "after": {
-    "files": 104,
-    "nloc": 11465,
-    "functions": 536,
-    "cyclomatic_complexity": 1927,
-    "cognitive_complexity": 1576
+    "files": 108,
+    "nloc": 12272,
+    "functions": 588,
+    "cyclomatic_complexity": 2062,
+    "cognitive_complexity": 1638
   },
   "delta": {
-    "files": 8,
-    "nloc": 490,
-    "functions": 34,
-    "cyclomatic_complexity": 128,
-    "cognitive_complexity": 59
+    "files": 12,
+    "nloc": 1297,
+    "functions": 86,
+    "cyclomatic_complexity": 263,
+    "cognitive_complexity": 121
   },
-  "new_functions": 45,
-  "new_function_max_cc": 8,
-  "new_function_max_cogc": 7,
+  "new_functions": 98,
+  "new_function_max_cc": 12,
+  "new_function_max_cogc": 9,
   "existing_function_complexity_increases": [
+    {
+      "path": "src/analysis/facts.rs",
+      "function": "summary",
+      "cc_delta": 3,
+      "cogc_delta": 3
+    },
+    {
+      "path": "src/analysis/metrics.rs",
+      "function": "collect_language_inputs",
+      "cc_delta": 1,
+      "cogc_delta": 1
+    },
+    {
+      "path": "src/languages/web.rs",
+      "function": "build",
+      "cc_delta": 1,
+      "cogc_delta": 0
+    },
+    {
+      "path": "src/resolver/files/layout.rs",
+      "function": "resolve_slash",
+      "cc_delta": 1,
+      "cogc_delta": 1
+    },
     {
       "path": "src/resolver/packages/imports.rs",
       "function": "import_target",
@@ -33,6 +57,34 @@
     }
   ],
   "files": [
+    {
+      "path": "src/analysis/facts.rs",
+      "nloc_before": 346,
+      "nloc_after": 404,
+      "mi_before": 10.286528722547592,
+      "mi_after": 7.423580508217053
+    },
+    {
+      "path": "src/analysis/injections.rs",
+      "nloc_before": 369,
+      "nloc_after": 462,
+      "mi_before": 4.938036590820399,
+      "mi_after": 0.38829046383983623
+    },
+    {
+      "path": "src/analysis/metrics.rs",
+      "nloc_before": 229,
+      "nloc_after": 237,
+      "mi_before": 15.868222695058268,
+      "mi_after": 15.194933301277164
+    },
+    {
+      "path": "src/analysis/worker.rs",
+      "nloc_before": 142,
+      "nloc_after": 144,
+      "mi_before": 22.89639806280745,
+      "mi_after": 22.73443016154673
+    },
     {
       "path": "src/languages/go.rs",
       "nloc_before": 42,
@@ -85,16 +137,58 @@
     {
       "path": "src/languages/mod.rs",
       "nloc_before": 82,
-      "nloc_after": 82,
+      "nloc_after": 109,
       "mi_before": 33.000320325545104,
-      "mi_after": 32.979384369028736
+      "mi_after": 28.814160735024913
+    },
+    {
+      "path": "src/languages/query.rs",
+      "nloc_before": 157,
+      "nloc_after": 194,
+      "mi_before": 21.962702605675887,
+      "mi_after": 18.616251175999334
+    },
+    {
+      "path": "src/languages/query/injections.rs",
+      "nloc_before": 109,
+      "nloc_after": 107,
+      "mi_before": 27.064429596378606,
+      "mi_after": 27.539001609359175
+    },
+    {
+      "path": "src/languages/web.rs",
+      "nloc_before": 116,
+      "nloc_after": 128,
+      "mi_before": 27.154504739480448,
+      "mi_after": 25.844399038101738
+    },
+    {
+      "path": "src/languages/web/svelte.rs",
+      "nloc_before": 0,
+      "nloc_after": 278,
+      "mi_before": null,
+      "mi_after": 12.036113644256837
+    },
+    {
+      "path": "src/languages/web/svelte/bindings.rs",
+      "nloc_before": 0,
+      "nloc_after": 49,
+      "mi_before": null,
+      "mi_after": 38.17165976048844
+    },
+    {
+      "path": "src/languages/web/svelte/scopes.rs",
+      "nloc_before": 0,
+      "nloc_after": 93,
+      "mi_before": null,
+      "mi_after": 26.81370228708925
     },
     {
       "path": "src/main.rs",
       "nloc_before": 325,
-      "nloc_after": 329,
+      "nloc_after": 397,
       "mi_before": 5.325744148537084,
-      "mi_after": 5.135412849139191
+      "mi_after": 1.8245484011059272
     },
     {
       "path": "src/resolver.rs",
@@ -102,6 +196,20 @@
       "nloc_after": 123,
       "mi_before": 28.289408920349917,
       "mi_after": 26.722065661405054
+    },
+    {
+      "path": "src/resolver/files/layout.rs",
+      "nloc_before": 84,
+      "nloc_after": 88,
+      "mi_before": 30.87714592277046,
+      "mi_after": 30.160286185754796
+    },
+    {
+      "path": "src/resolver/files/layout/subpath.rs",
+      "nloc_before": 0,
+      "nloc_after": 80,
+      "mi_before": null,
+      "mi_after": 29.949842023506456
     },
     {
       "path": "src/resolver/packages.rs",
@@ -160,7 +268,9 @@
       "mi_after": 33.201692090845505
     }
   ],
-  "baseline_commit": "b2335a764e2aebde234b19079ece5c99e52c1e0f",
-  "measurement_command": "entanglement --metrics cc,cogc,mi --format json repo <snapshot>/src",
-  "function_identity": "relative file path, function name, occurrence in source order"
+  "comparison": {
+    "before_commit": "b2335a764e2aebde234b19079ece5c99e52c1e0f",
+    "before": "Original PR16",
+    "after": "Integrated PR16 and fix-go-pr16-review-20261006 on main a7201f4, with reviewed refactor; includes previously merged Svelte changes"
+  }
 }

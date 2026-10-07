@@ -225,6 +225,89 @@ struct PatchChange {
     edits: Vec<InputEdit>,
 }
 
+struct PatchPaths {
+    old_path: Option<PathBuf>,
+    new_path: Option<PathBuf>,
+    old_target: Option<PathBuf>,
+    new_target: Option<PathBuf>,
+}
+
+impl PatchPaths {
+    fn new(root: &Path, patch: &input::FilePatch<'_>) -> Result<Self> {
+        let old_path = patch.old_path.as_ref().map(|path| root.join(path));
+        let new_path = patch.new_path.as_ref().map(|path| root.join(path));
+        let old_target = old_path
+            .as_ref()
+            .map(|path| input::path_identity(path))
+            .transpose()?;
+        let new_target = new_path
+            .as_ref()
+            .map(|path| input::path_identity(path))
+            .transpose()?;
+        Ok(Self {
+            old_path,
+            new_path,
+            old_target,
+            new_target,
+        })
+    }
+
+    fn ensure_destination_available(&self, parsed: &[analysis::ParsedFile]) -> Result<()> {
+        let Some(new_path) = &self.new_path else {
+            return Ok(());
+        };
+        if self.old_path.as_ref() == Some(new_path) {
+            return Ok(());
+        }
+        let exists = match std::fs::symlink_metadata(new_path) {
+            Ok(_) => true,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+            Err(error) => return Err(error.into()),
+        };
+        if exists
+            || parsed
+                .iter()
+                .any(|file| Some(&file.facts.target) == self.new_target.as_ref())
+        {
+            return Err(format!(
+                "The patch would overwrite another file: {}",
+                new_path.display()
+            )
+            .into());
+        }
+        Ok(())
+    }
+
+    fn old_index(&self, parsed: &[analysis::ParsedFile]) -> Option<usize> {
+        self.old_target
+            .as_ref()
+            .and_then(|target| parsed.iter().position(|file| file.facts.target == *target))
+    }
+
+    fn source(
+        &self,
+        parsed: &[analysis::ParsedFile],
+        old_index: Option<usize>,
+    ) -> Result<Arc<[u8]>> {
+        match (old_index, &self.old_path) {
+            (Some(index), _) => Ok(Arc::clone(&parsed[index].facts.source)),
+            (None, Some(path)) => Ok(std::fs::read(path)?.into()),
+            (None, None) => Ok(Vec::new().into()),
+        }
+    }
+
+    fn analysis_path<'a>(
+        &'a self,
+        parsed: &'a [analysis::ParsedFile],
+        old_index: Option<usize>,
+        destination: &'a Path,
+    ) -> &'a Path {
+        old_index
+            .filter(|_| self.old_path == self.new_path)
+            .map_or(destination, |index| parsed[index].facts.path.as_path())
+    }
+}
+
 impl PatchChange {
     /// Compare the resolved reports and function contributions for this change.
     fn compare(
@@ -285,79 +368,72 @@ fn apply_file_patch(
     patch: &input::FilePatch,
     snapshot: &snapshot::Snapshot,
 ) -> Result<PatchChange> {
-    let old_path = patch.old_path.as_ref().map(|path| root.join(path));
-    let new_path = patch.new_path.as_ref().map(|path| root.join(path));
-    let old_target = old_path
-        .as_ref()
-        .map(|path| input::path_identity(path))
-        .transpose()?;
-    let new_target = new_path
-        .as_ref()
-        .map(|path| input::path_identity(path))
-        .transpose()?;
-    let destination_exists = if let Some(path) = &new_path {
-        match std::fs::symlink_metadata(path) {
-            Ok(_) => true,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
-            Err(error) => return Err(error.into()),
-        }
-    } else {
-        false
-    };
-    if let Some(new_path) = &new_path
-        && old_path.as_ref() != Some(new_path)
-        && (destination_exists
-            || parsed
-                .iter()
-                .any(|file| Some(&file.facts.target) == new_target.as_ref()))
-    {
-        return Err(format!(
-            "The patch would overwrite another file: {}",
-            new_path.display()
-        )
-        .into());
-    }
-    let old_index = old_target
-        .as_ref()
-        .and_then(|target| parsed.iter().position(|file| file.facts.target == *target));
-    let source: Arc<[u8]> = match (old_index, &old_path) {
-        (Some(index), _) => Arc::clone(&parsed[index].facts.source),
-        (None, Some(path)) => std::fs::read(path)?.into(),
-        (None, None) => Vec::new().into(),
-    };
-    let applied = snapshot.apply_patch(&source, patch, old_path.as_deref(), new_path.as_deref())?;
-    let new_file = match &new_path {
-        Some(path) => {
-            let analysis_path = old_index
-                .filter(|_| old_path.as_ref() == Some(path))
-                .map_or(path, |index| &parsed[index].facts.path);
-            match worker.select_file(analysis_path)? {
-                Some(choice) => Some(worker.analyze_selected_source(
-                    analysis_path,
-                    applied.source,
-                    old_index.map(|index| &parsed[index]),
-                    &applied.edits,
-                    choice,
-                )?),
-                None => None,
-            }
-        }
-        None if !applied.source.is_empty() => {
+    let paths = PatchPaths::new(root, patch)?;
+    paths.ensure_destination_available(parsed)?;
+    let old_index = paths.old_index(parsed);
+    let source = paths.source(parsed, old_index)?;
+    let applied = snapshot.apply_patch(
+        &source,
+        patch,
+        paths.old_path.as_deref(),
+        paths.new_path.as_deref(),
+    )?;
+    let new_file = analyze_after_patch(
+        worker,
+        parsed,
+        &paths,
+        old_index,
+        applied.source,
+        &applied.edits,
+    )?;
+    replace_parsed_file(parsed, old_index, new_file);
+    Ok(PatchChange {
+        old_path: paths.old_path,
+        new_path: paths.new_path,
+        old_target: paths.old_target,
+        new_target: paths.new_target,
+        edits: applied.edits,
+    })
+}
+
+fn analyze_after_patch(
+    worker: &mut analysis::Worker,
+    parsed: &[analysis::ParsedFile],
+    paths: &PatchPaths,
+    old_index: Option<usize>,
+    source: Vec<u8>,
+    edits: &[InputEdit],
+) -> Result<Option<analysis::ParsedFile>> {
+    let Some(path) = &paths.new_path else {
+        if !source.is_empty() {
             return Err("A deletion patch must remove the complete file".into());
         }
-        _ => None,
+        return Ok(None);
     };
+    let analysis_path = paths.analysis_path(parsed, old_index, path);
+    let Some(choice) = worker.select_file(analysis_path)? else {
+        return Ok(None);
+    };
+    worker
+        .analyze_selected_source(
+            analysis_path,
+            source,
+            old_index.map(|index| &parsed[index]),
+            edits,
+            choice,
+        )
+        .map(Some)
+}
+
+fn replace_parsed_file(
+    parsed: &mut Vec<analysis::ParsedFile>,
+    old_index: Option<usize>,
+    new_file: Option<analysis::ParsedFile>,
+) {
     if let Some(index) = old_index {
         parsed.remove(index);
     }
     if let Some(file) = new_file {
         parsed.push(file);
     }
-    Ok(PatchChange {
-        old_path,
-        new_path,
-        old_target,
-        new_target,
-        edits: applied.edits,
-    })
 }
