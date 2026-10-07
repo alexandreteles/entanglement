@@ -9,7 +9,7 @@ use tree_sitter_loader::{Grammar, PathsJSON, TreeSitterJSON};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let metadata = MetadataCommand::new()
         .cargo_path(env::var_os("CARGO").ok_or("CARGO is absent")?)
-        .other_options(vec!["--offline".into(), "--locked".into()])
+        .other_options(vec!["--locked".into()])
         .exec()?;
     let mut generated = String::from("pub const GRAMMAR_ROOTS: &[&str] = &[\n");
     let mut assets = String::from("pub const GRAMMAR_ASSETS: &[(&str, &str, &[u8])] = &[\n");
