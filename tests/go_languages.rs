@@ -22,6 +22,19 @@ fn report(output: &Output) -> Value {
 }
 
 fn write(path: &Path, source: &str) {
+    if path.extension().is_some_and(|extension| extension == "go") {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_go::LANGUAGE.into())
+            .unwrap();
+        let tree = parser.parse(source, None).unwrap();
+        assert!(
+            !tree.root_node().has_error(),
+            "invalid Go fixture {}: {}",
+            path.display(),
+            tree.root_node().to_sexp()
+        );
+    }
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, source).unwrap();
 }
@@ -330,3 +343,12 @@ fn go_candidate_reports_match_fresh_analysis() {
     let fresh = report(&run(&["repo"], &root, None));
     assert_eq!(file(&candidate, "/choose.go"), file(&fresh, "/choose.go"));
 }
+
+#[path = "go_review/candidate.rs"]
+mod review_candidate;
+#[path = "go_review/metrics.rs"]
+mod review_metrics;
+#[path = "go_review/packages.rs"]
+mod review_packages;
+#[path = "go_review/scopes.rs"]
+mod review_scopes;

@@ -48,16 +48,10 @@ impl CaptureFacts {
                     self.add_definition(node, name.unwrap_or(node), kind, source)
                 }
                 Some(Role::Import) => self.semantic.imports.push(import(node, source)),
-                Some(Role::Parameter) => {
-                    self.add_local(node, scopes::parameter_scope(node), source)
-                }
-                Some(Role::Declaration) => {
-                    self.add_local(node, scopes::declaration_scope(node), source)
-                }
+                Some(Role::Local(kind)) => self.add_local_scopes(node, kind, source),
+                Some(Role::ReceiverTypes) => self.add_receiver_types(node, source),
                 Some(Role::Ignored) => self.occupied.push(node.byte_range()),
-                Some(Role::Reference(kind)) => {
-                    self.references.push(self.reference(node, kind, source))
-                }
+                Some(Role::Reference(kind)) => self.add_reference(node, kind, source),
                 None => {}
             }
         }
@@ -83,6 +77,26 @@ impl CaptureFacts {
             }
         }
         self.semantic
+    }
+
+    fn add_local_scopes(&mut self, node: Node<'_>, kind: scopes::LocalKind, source: &[u8]) {
+        self.occupied.push(node.byte_range());
+        for scope in scopes::local_scopes(node, kind) {
+            self.add_local(node, Some(scope), source);
+        }
+    }
+
+    fn add_reference(&mut self, node: Node<'_>, kind: ReferenceKind, source: &[u8]) {
+        if let Some(target) = super::syntax::reference_target(node, &kind) {
+            self.references.push(self.reference(target, kind, source));
+        }
+    }
+
+    fn add_receiver_types(&mut self, receiver: Node<'_>, source: &[u8]) {
+        let scope = scopes::enclosing_function(receiver).map(|owner| owner.byte_range());
+        for name in scopes::receiver_type_parameters(receiver) {
+            self.add_local(name, scope.clone(), source);
+        }
     }
 
     fn add_definition(

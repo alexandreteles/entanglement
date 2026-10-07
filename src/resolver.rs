@@ -80,54 +80,67 @@ struct Index {
 /// ambiguity results to keep output stable. It leaves method calls and names
 /// that cannot be resolved without guessing as `Unresolved`.
 pub(crate) fn resolve(facts: &mut [FileFacts], selection: crate::metrics::selection::Selection) {
+    resolve_with_snapshot(facts, selection, &crate::snapshot::Snapshot::default());
+}
+
+pub(crate) fn resolve_with_snapshot(
+    facts: &mut [FileFacts],
+    selection: crate::metrics::selection::Selection,
+    snapshot: &crate::snapshot::Snapshot,
+) {
     let mut index = Index::new(facts);
     index.resolve_imports();
     let file_resolutions = files::resolve(facts);
-    let package_resolutions = packages::resolve(facts);
+    let package_resolutions = packages::resolve(facts, snapshot);
     facts
         .par_iter_mut()
         .enumerate()
         .for_each(|(file_index, fact)| {
-            if let Some(resolutions) = file_resolutions[file_index]
+            let resolved = file_resolutions[file_index]
                 .as_ref()
-                .or(package_resolutions[file_index].as_ref())
-            {
-                fact.analysis.resolution = resolutions.clone();
-                return;
-            }
-            if fact.resolution_family != crate::languages::ResolutionFamily::RustCrates {
-                fact.analysis.resolution.clear();
-                return;
-            }
-            let context = &index.contexts[file_index];
-            fact.analysis.resolution = fact
-                .references
-                .iter()
-                .map(|reference| ReferenceAnalysis {
-                    path: reference.path.clone(),
-                    start_byte: reference.start_byte,
-                    end_byte: reference.end_byte,
-                    resolution: index.to_resolution(
-                        context
-                            .iter()
-                            .map(|context| {
-                                match index.resolve_reference(file_index, context, reference, fact)
-                                {
-                                    Resolution::Exact(symbol) => Target::Symbol(symbol),
-                                    Resolution::Ambiguous(symbols) => Target::Ambiguous(symbols),
-                                    Resolution::External => Target::External,
-                                    Resolution::Unresolved => Target::Unresolved,
-                                }
-                            })
-                            .collect(),
-                    ),
-                })
-                .collect();
+                .or(package_resolutions[file_index].as_ref());
+            fact.analysis.resolution = resolve_fact(&index, file_index, fact, resolved);
         });
     drop(index);
     if selection.includes(crate::metrics::selection::Metric::Cogc) {
         crate::metrics::recursion::annotate(facts);
     }
+}
+
+fn resolve_fact(
+    index: &Index,
+    file_index: usize,
+    fact: &FileFacts,
+    resolved: Option<&Vec<ReferenceAnalysis>>,
+) -> Vec<ReferenceAnalysis> {
+    if let Some(resolved) = resolved {
+        return resolved.clone();
+    }
+    if fact.resolution_family != crate::languages::ResolutionFamily::RustCrates {
+        return Vec::new();
+    }
+    let context = &index.contexts[file_index];
+    fact.references
+        .iter()
+        .map(|reference| ReferenceAnalysis {
+            path: reference.path.clone(),
+            start_byte: reference.start_byte,
+            end_byte: reference.end_byte,
+            resolution: index.to_resolution(
+                context
+                    .iter()
+                    .map(|context| {
+                        match index.resolve_reference(file_index, context, reference, fact) {
+                            Resolution::Exact(symbol) => Target::Symbol(symbol),
+                            Resolution::Ambiguous(symbols) => Target::Ambiguous(symbols),
+                            Resolution::External => Target::External,
+                            Resolution::Unresolved => Target::Unresolved,
+                        }
+                    })
+                    .collect(),
+            ),
+        })
+        .collect()
 }
 
 fn joined_path(base: &[String], relative: &[String]) -> Vec<String> {

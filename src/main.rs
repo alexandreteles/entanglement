@@ -6,6 +6,7 @@ mod metrics;
 mod model;
 mod report_delta;
 mod resolver;
+mod snapshot;
 mod ui;
 
 use std::collections::BTreeSet;
@@ -108,15 +109,17 @@ fn analyze_patch(
         return Err("The selected file has no supported language".into());
     }
     let mut before: Vec<_> = parsed.iter().map(|file| file.facts.clone()).collect();
-    resolver::resolve(&mut before, selection);
+    let before_snapshot = snapshot::Snapshot::default();
+    resolver::resolve_with_snapshot(&mut before, selection, &before_snapshot);
+    let after_snapshot = before_snapshot.clone();
     let mut worker = analysis::Worker::new(selection)?;
     let changes: Vec<_> = patches
         .iter()
-        .map(|patch| apply_file_patch(&mut worker, &mut parsed, &root, patch))
+        .map(|patch| apply_file_patch(&mut worker, &mut parsed, &root, patch, &after_snapshot))
         .collect::<Result<_>>()?;
     let mut after: Vec<_> = parsed.into_iter().map(|file| file.facts).collect();
     after.sort_by(|a, b| a.path.cmp(&b.path));
-    resolver::resolve(&mut after, selection);
+    resolver::resolve_with_snapshot(&mut after, selection, &after_snapshot);
     let files = changes
         .into_iter()
         .map(|change| change.compare(&before, &after, selection))
@@ -280,6 +283,7 @@ fn apply_file_patch(
     parsed: &mut Vec<analysis::ParsedFile>,
     root: &Path,
     patch: &input::FilePatch,
+    snapshot: &snapshot::Snapshot,
 ) -> Result<PatchChange> {
     let old_path = patch.old_path.as_ref().map(|path| root.join(path));
     let new_path = patch.new_path.as_ref().map(|path| root.join(path));
@@ -321,7 +325,7 @@ fn apply_file_patch(
         (None, Some(path)) => std::fs::read(path)?.into(),
         (None, None) => Vec::new().into(),
     };
-    let applied = input::apply_patch(&source, patch)?;
+    let applied = snapshot.apply_patch(&source, patch, old_path.as_deref(), new_path.as_deref())?;
     let new_file = match &new_path {
         Some(path) => {
             let analysis_path = old_index
