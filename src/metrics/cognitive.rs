@@ -1,13 +1,15 @@
+mod indexing;
+mod logical;
+
 use std::collections::{HashMap, HashSet};
 
 use crate::model::ComplexityContribution;
 
 use super::{SyntaxEvent, SyntaxRole, cyclomatic::FunctionScope};
 
-/// Whether a syntax role is needed to calculate cognitive complexity.
+/// Return true when the metric needs a syntax role.
 ///
-/// Function and closure events are included because they affect nesting even
-/// when they do not contribute a point themselves.
+/// Function and closure events affect nesting, even when they add no points.
 pub fn is_event(role: SyntaxRole) -> bool {
     matches!(
         role,
@@ -28,11 +30,10 @@ pub fn is_event(role: SyntaxRole) -> bool {
     )
 }
 
-/// Preindexed syntax context for one language tree.
+/// Keep indexes for one syntax tree and analyze its functions.
 ///
-/// Build this once per tree, then call [`Context::analyze_functions`] to avoid
-/// rescanning every captured event and rebuilding ancestry indexes per
-/// function.
+/// Build one context per tree. Then call [`Context::analyze_functions`] to
+/// reuse its indexes across all function metrics.
 pub struct Context<'a> {
     events: &'a [SyntaxEvent],
     parents: &'a HashMap<usize, Option<usize>>,
@@ -45,81 +46,8 @@ pub struct Context<'a> {
     parentheses: HashSet<usize>,
 }
 
-impl<'a> Context<'a> {
-    /// Build the indexes used by all function metric calculations in a tree.
-    pub fn new(events: &'a [SyntaxEvent], parents: &'a HashMap<usize, Option<usize>>) -> Self {
-        let mut roles = HashMap::new();
-        let mut function_ranges_by_node = HashMap::new();
-        let mut if_nodes = HashSet::new();
-        let mut pre_nesting_controls = HashSet::new();
-        let mut condition_boundaries = HashSet::new();
-        let mut else_if_boundaries = HashSet::new();
-        let mut logical_expressions = HashSet::new();
-        let mut parentheses = HashSet::new();
-        for event in events {
-            if matches!(
-                event.role,
-                SyntaxRole::Function
-                    | SyntaxRole::CognitiveIf
-                    | SyntaxRole::CognitiveLoop
-                    | SyntaxRole::CognitiveLetElse
-                    | SyntaxRole::CognitiveMultiway
-                    | SyntaxRole::CognitiveClosure
-            ) {
-                roles.insert(event.node_id, event.role);
-            }
-            match event.role {
-                SyntaxRole::Function => {
-                    function_ranges_by_node.insert(event.node_id, event.range());
-                }
-                SyntaxRole::CognitiveIf => {
-                    if_nodes.insert(event.node_id);
-                    pre_nesting_controls.insert(event.node_id);
-                }
-                SyntaxRole::CognitiveConditionBoundary => {
-                    condition_boundaries.insert(event.node_id);
-                }
-                SyntaxRole::CognitiveLetElse => {
-                    pre_nesting_controls.insert(event.node_id);
-                }
-                SyntaxRole::CognitiveElseIf => {
-                    else_if_boundaries.insert(event.node_id);
-                }
-                SyntaxRole::CognitiveLogicalExpression => {
-                    logical_expressions.insert(event.node_id);
-                }
-                SyntaxRole::CognitiveParentheses => {
-                    parentheses.insert(event.node_id);
-                }
-                _ => {}
-            }
-        }
-        let mut else_if_parent = HashMap::new();
-        for boundary in &else_if_boundaries {
-            if let Some(parent_if) = nearest_ancestor(*boundary, parents, &if_nodes) {
-                else_if_parent.insert(*boundary, parent_if);
-            }
-        }
-        let mut condition_parent = HashMap::new();
-        for boundary in &condition_boundaries {
-            if let Some(control) = nearest_ancestor(*boundary, parents, &pre_nesting_controls) {
-                condition_parent.insert(*boundary, control);
-            }
-        }
-        Self {
-            events,
-            parents,
-            roles,
-            function_ranges_by_node,
-            else_if_nodes: else_if_boundaries,
-            else_if_parent,
-            condition_parent,
-            logical_expressions,
-            parentheses,
-        }
-    }
-
-    /// Calculate metrics for all functions, returning results in input order.
+impl Context<'_> {
+    /// Calculate metrics for all functions, in input order.
     pub fn analyze_functions(
         &self,
         functions: &[FunctionScope],
@@ -199,88 +127,6 @@ impl<'a> Context<'a> {
             .sum();
         (complexity, contributions)
     }
-
-    fn logical_contributions(&self, owned_events: &[&SyntaxEvent]) -> Vec<ComplexityContribution> {
-        let operators = owned_events
-            .iter()
-            .copied()
-            .filter(|event| {
-                matches!(
-                    event.role,
-                    SyntaxRole::CognitiveLogicalAnd | SyntaxRole::CognitiveLogicalOr
-                )
-            })
-            .filter_map(|event| {
-                let expression = event.parent_id?;
-                self.logical_expressions
-                    .contains(&expression)
-                    .then_some((event, expression))
-            });
-        let mut groups = HashMap::<usize, Vec<&SyntaxEvent>>::new();
-        for (operator, expression) in operators {
-            let root = logical_root(
-                expression,
-                &self.logical_expressions,
-                &self.parentheses,
-                self.parents,
-            );
-            groups.entry(root).or_default().push(operator);
-        }
-        let mut result = Vec::new();
-        for group in groups.values_mut() {
-            group.sort_by_key(|event| event.start_byte);
-            let mut previous = None;
-            for event in group.iter().copied() {
-                if previous != Some(event.role) {
-                    result.push(contribution(event, "logical_operator", 1));
-                }
-                previous = Some(event.role);
-            }
-        }
-        result
-    }
-
-    fn nesting(&self, event: &SyntaxEvent, function: &FunctionScope) -> usize {
-        let mut suppressed_ifs = Vec::new();
-        if let Some(control) = self.condition_parent.get(&event.node_id) {
-            suppressed_ifs.push(*control);
-        }
-        let mut current = self.parents.get(&event.node_id).copied().flatten();
-        while let Some(node) = current {
-            if let Some(parent_if) = self.else_if_parent.get(&node) {
-                suppressed_ifs.push(*parent_if);
-            }
-            if let Some(control) = self.condition_parent.get(&node) {
-                suppressed_ifs.push(*control);
-            }
-            current = self.parents.get(&node).copied().flatten();
-        }
-
-        current = self.parents.get(&event.node_id).copied().flatten();
-        let mut result = 0;
-        while let Some(node) = current {
-            match self.roles.get(&node) {
-                Some(SyntaxRole::CognitiveIf | SyntaxRole::CognitiveLetElse)
-                    if !suppressed_ifs.contains(&node) =>
-                {
-                    result += 1
-                }
-                Some(
-                    SyntaxRole::CognitiveLoop
-                    | SyntaxRole::CognitiveMultiway
-                    | SyntaxRole::CognitiveClosure,
-                ) => result += 1,
-                Some(SyntaxRole::Function)
-                    if self.function_ranges_by_node.get(&node) != Some(&function.range) =>
-                {
-                    result += 1
-                }
-                _ => {}
-            }
-            current = self.parents.get(&node).copied().flatten();
-        }
-        result
-    }
 }
 
 fn is_scored_event(role: SyntaxRole) -> bool {
@@ -295,40 +141,6 @@ fn is_scored_event(role: SyntaxRole) -> bool {
             | SyntaxRole::CognitiveLogicalOr
             | SyntaxRole::CognitiveLabeledJump
     )
-}
-
-fn logical_root(
-    expression: usize,
-    logical_expressions: &HashSet<usize>,
-    parentheses: &HashSet<usize>,
-    parents: &HashMap<usize, Option<usize>>,
-) -> usize {
-    let mut current = expression;
-    loop {
-        let Some(parent) = parents.get(&current).copied().flatten() else {
-            return current;
-        };
-        if logical_expressions.contains(&parent) || parentheses.contains(&parent) {
-            current = parent;
-        } else {
-            return current;
-        }
-    }
-}
-
-fn nearest_ancestor(
-    node_id: usize,
-    parents: &HashMap<usize, Option<usize>>,
-    targets: &HashSet<usize>,
-) -> Option<usize> {
-    let mut current = parents.get(&node_id).copied().flatten();
-    while let Some(node) = current {
-        if targets.contains(&node) {
-            return Some(node);
-        }
-        current = parents.get(&node).copied().flatten();
-    }
-    None
 }
 
 fn contribution(event: &SyntaxEvent, kind: &str, value: usize) -> ComplexityContribution {
