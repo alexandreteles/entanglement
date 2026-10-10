@@ -22,6 +22,7 @@ tree-sitter-html = "0.23.2"
 tree-sitter-javascript = "0.25.0"
 tree-sitter-typescript = "0.23.2"
 tree-sitter-python = "0.25.0"
+tree-sitter-astro = { git = "https://github.com/alexandreteles/tree-sitter-astro.git", rev = "5469140290d85cdbd85431aef7ffa76fb0026799" }
 # Tree-sitter 0.27 and the GCC scanner fix are unreleased upstream: themixednuts/tree-sitter-htmlx#4 and #2.
 tree-sitter-htmlx-svelte = { git = "https://github.com/Aunali321/tree-sitter-htmlx", rev = "70ea39cc6c39907a2f683a63602997bd0bf58843" }
 tree-sitter-go = "0.25.0"

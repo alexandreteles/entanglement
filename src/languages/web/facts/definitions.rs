@@ -135,11 +135,12 @@ fn is_module_variable(node: Node<'_>) -> bool {
     let Some(parent) = declaration.parent() else {
         return false;
     };
-    parent.kind() == "program"
-        || (parent.kind() == "export_statement"
-            && parent
-                .parent()
-                .is_some_and(|outer| outer.kind() == "program"))
+    is_module_container(parent)
+        || (parent.kind() == "export_statement" && parent.parent().is_some_and(is_module_container))
+}
+
+fn is_module_container(node: Node<'_>) -> bool {
+    matches!(node.kind(), "program" | "frontmatter")
 }
 
 fn variable_kind(node: Node<'_>, source: &[u8]) -> DefinitionKind {

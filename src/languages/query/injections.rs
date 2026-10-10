@@ -52,6 +52,7 @@ impl QueryFacts {
                 share_bindings: properties.share_bindings,
                 publish_exports: properties.publish_exports,
                 registered_only: properties.registered_only,
+                serialized_bindings: Vec::new(),
             });
         }
     }
