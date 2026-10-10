@@ -1,3 +1,4 @@
+mod astro;
 mod css;
 mod exports;
 mod facts;
@@ -20,7 +21,7 @@ use super::{
 use crate::Result;
 
 const WEB_EXTENSIONS: &[&str] = &[
-    "ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs", "d.ts", "svelte",
+    "ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs", "d.ts", "svelte", "astro",
 ];
 const WEB_REMAPS: &[(&str, &[&str])] = &[
     ("js", &["ts", "tsx"]),
@@ -78,6 +79,13 @@ pub(super) const LANGUAGE_SPECS: &[LanguageSpec] = &[
         build,
     },
     LanguageSpec {
+        scope: "source.astro",
+        resolution_family: ResolutionFamily::FileModules,
+        project_manifests: &["package.json", "tsconfig.json", "jsconfig.json"],
+        file_module_rules: Some(&WEB_MODULE_RULES),
+        build,
+    },
+    LanguageSpec {
         scope: "source.css",
         resolution_family: ResolutionFamily::None,
         project_manifests: &[],
@@ -92,6 +100,7 @@ fn build(scope: &str, language: &Language) -> Result<Box<dyn LanguageHandler>> {
         "source.ts" | "source.tsx" => typescript::build(language),
         "source.html" => html::build(language),
         "source.svelte" => svelte::build(language),
+        "source.astro" => astro::build(language),
         "source.css" => css::build(language),
         _ => Err(std::io::Error::other(format!("No web analyzer for scope {scope}")).into()),
     }

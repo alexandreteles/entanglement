@@ -38,6 +38,8 @@ pub(crate) struct InjectionRequest {
     pub publish_exports: bool,
     /// Ignore optional language labels unless a registered analyzer matches.
     pub registered_only: bool,
+    /// Explicit host bindings serialized into this guest context.
+    pub serialized_bindings: Vec<LocalBinding>,
 }
 
 impl InjectionRequest {
@@ -62,6 +64,8 @@ impl InjectionRequest {
             self.registered_only &= other.registered_only;
         }
         self.priority = self.priority.max(other.priority);
+        self.serialized_bindings
+            .extend(other.serialized_bindings.clone());
         self.guest_ranges = query::ranges::intersect_sets(&self.guest_ranges, &other.guest_ranges);
     }
 }

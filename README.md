@@ -68,8 +68,8 @@ Supported manifests are `Cargo.toml`, `package.json`, `tsconfig.json`,
 
 ## Languages
 
-Entanglement supports Rust, Python, Go, TypeScript, TSX, JavaScript, Svelte, HTML,
-and CSS.
+Entanglement supports Rust, Python, Go, TypeScript, TSX, JavaScript, Astro,
+Svelte, HTML, and CSS.
 Language descriptors select the grammar and analyzer.
 
 Python supports `.py`, `.pyi`, and files without an extension that have a
@@ -98,6 +98,28 @@ also charged to the component. Template bindings from each/await/snippet
 constructs shadow outer names in their lexical ranges. Component tags resolve
 through normal file-module imports, and every `.svelte` file exposes a
 synthetic default component export.
+
+Astro supports `.astro` files. Frontmatter and template expressions use native
+TypeScript syntax in one component scope. Component tags resolve through normal
+file imports. Each file exports one default component. Named exports in
+frontmatter stay available to imports. Client script blocks use a separate
+scope, and their exports are not published as component exports.
+
+Astro NLOC counts each physical source line with a host or supported embedded
+language token once. It includes markup, prose, and text before frontmatter. It
+excludes comments and bodies for unsupported or pending embedded languages.
+Host Halstead metrics count native TypeScript and template tags and attributes.
+They exclude prose, CDATA, raw script and style bodies, and text before
+frontmatter. Supported script and style languages add their own tokens. They do
+not count a raw body twice.
+
+The `define:vars` directive passes static names from a direct object literal to
+a client script. It accepts identifier keys and unescaped quoted keys. Dynamic
+keys, escaped quoted keys, and spreads do not create client bindings. Astro selects
+embedded languages by priority: generic JavaScript and CSS use 0, processed
+scripts use 1, explicit or computed labels use 2, recognized JavaScript, module,
+or JSON labels use 3, and `is:raw` uses 4. An unsupported higher-priority label
+or preprocessor stays pending. It does not fall back to JavaScript or CSS.
 
 ### Embedded languages
 
