@@ -37,7 +37,7 @@ pub(crate) struct DeclarationFacts {
     pub start_byte: usize,
     /// Enclosing type/object names from the outermost owner inward.
     pub owner: Vec<String>,
-    /// The access level proven by syntax or Kotlin's default visibility.
+    /// The access level proven by syntax or the language's default visibility.
     pub visibility: SemanticVisibility,
     /// Class, callable, property, or type-alias metadata.
     pub kind: DeclarationKind,
@@ -51,6 +51,9 @@ pub(crate) struct DeclarationFacts {
     pub signature: Option<CallableSignature>,
     /// Language modifiers that affect cross-source-set identity and lookup.
     pub modifiers: DeclarationModifiers,
+    /// This callable or property is a member of an interface, where dispatch
+    /// is implicitly virtual unless source syntax proves an explicit `super`.
+    pub is_interface_member: bool,
     /// Marker annotations declared on a type, including `@DslMarker` types.
     pub dsl_markers: Vec<String>,
     /// Exact executable ranges attached to a property or accessor declaration.
@@ -200,6 +203,8 @@ pub(crate) struct CallArgumentFact {
     pub name: Option<String>,
     pub type_name: Option<String>,
     pub is_lambda: bool,
+    /// The lambda appears after the call's parenthesized argument list.
+    pub is_trailing_lambda: bool,
     /// A source lambda header is present, including an empty `->` header.
     pub lambda_has_explicit_parameters: bool,
     /// Explicitly annotated lambda parameter types, if present.
