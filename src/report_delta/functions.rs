@@ -5,15 +5,19 @@ use tree_sitter::InputEdit;
 use crate::metrics::selection::{Metric, Selection};
 use crate::model;
 
+mod matching;
+
 use super::{
-    contribution_changes, edited_position, empty_maintainability_delta, halstead_delta,
-    maintainability_delta, metric_delta,
+    contribution_changes, empty_maintainability_delta, halstead_delta, maintainability_delta,
+    metric_delta,
 };
 
 /// Compare function scores and contributions before and after source edits.
 pub(crate) fn function_deltas(
     before: Option<&model::FileAnalysis>,
     after: Option<&model::FileAnalysis>,
+    before_source: Option<&[u8]>,
+    after_source: Option<&[u8]>,
     edits: &[InputEdit],
     selection: Selection,
 ) -> Vec<model::FunctionDelta> {
@@ -21,29 +25,14 @@ pub(crate) fn function_deltas(
     let new_functions = after.map_or(&[][..], |file| file.functions.as_slice());
     let mut available: Vec<_> = new_functions.iter().map(Some).collect();
     let mut pairs = Vec::new();
-    for old in old_functions {
-        let mapped = edited_position(old.start_byte, edits);
-        let matches: Vec<_> = available
-            .iter()
-            .enumerate()
-            .filter_map(|(index, new)| {
-                new.filter(|new| new.name == old.name)
-                    .map(|new| (index, new))
-            })
-            .collect();
-        let index = matches
-            .iter()
-            .find(|(_, new)| mapped == Some(new.start_byte))
-            .map(|(index, _)| *index)
-            .or_else(|| {
-                (matches.len() == 1
-                    && old_functions
-                        .iter()
-                        .filter(|function| function.name == old.name)
-                        .count()
-                        == 1)
-                    .then(|| matches[0].0)
-            });
+    let matched = matching::pair_functions(
+        old_functions,
+        new_functions,
+        before_source,
+        after_source,
+        edits,
+    );
+    for (old, index) in old_functions.iter().zip(matched) {
         pairs.push((Some(old), index.and_then(|index| available[index].take())));
     }
     pairs.extend(available.into_iter().flatten().map(|new| (None, Some(new))));

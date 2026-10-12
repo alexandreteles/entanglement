@@ -17,18 +17,18 @@ impl PatchChange {
         after: &[model::FileFacts],
         selection: Selection,
     ) -> model::FilePatchAnalysis {
-        let old = self
+        let old_facts = self
             .paths
             .old_target
             .as_ref()
-            .and_then(|target| before.iter().find(|file| file.target == *target))
-            .map(|file| file.analysis.clone());
-        let new = self
+            .and_then(|target| before.iter().find(|file| file.target == *target));
+        let new_facts = self
             .paths
             .new_target
             .as_ref()
-            .and_then(|target| after.iter().find(|file| file.target == *target))
-            .map(|file| file.analysis.clone());
+            .and_then(|target| after.iter().find(|file| file.target == *target));
+        let old = old_facts.map(|file| file.analysis.clone());
+        let new = new_facts.map(|file| file.analysis.clone());
         model::FilePatchAnalysis {
             path: self
                 .paths
@@ -52,6 +52,8 @@ impl PatchChange {
             functions: crate::report_delta::function_deltas(
                 old.as_ref(),
                 new.as_ref(),
+                old_facts.map(|file| file.source.as_ref()),
+                new_facts.map(|file| file.source.as_ref()),
                 &self.edits,
                 selection,
             ),
