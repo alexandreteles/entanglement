@@ -109,10 +109,17 @@ pub(crate) struct DeclarationModifiers {
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct CallableSignature {
+    pub type_parameters: Vec<CallableTypeParameter>,
     pub parameters: Vec<CallableParameter>,
     pub return_type: Option<String>,
     /// Receiver type for an extension function or extension property.
     pub receiver_type: Option<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct CallableTypeParameter {
+    pub name: String,
+    pub bounds: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -148,6 +155,8 @@ pub(crate) struct ReceiverScope {
     pub end_byte: usize,
     /// The receiver type contributed by this function or lambda scope.
     pub receiver_type: String,
+    /// Source label that can explicitly select this receiver.
+    pub label: Option<String>,
     /// The receiver is implicit for a lambda with receiver or extension body.
     pub implicit: bool,
     /// `@DslMarker` annotation names carried by the receiver's declared type.
@@ -158,6 +167,8 @@ pub(crate) struct ReceiverScope {
 pub(crate) struct CallFacts {
     pub start_byte: usize,
     pub end_byte: usize,
+    /// Exact callee token range for this syntactic invocation, when known.
+    pub target: Option<SourceRange>,
     /// Syntax evidence requiring an operator or infix declaration.
     pub convention: Option<CallConvention>,
     /// Proven receiver type for a qualified or implicit-receiver call.
@@ -189,8 +200,14 @@ pub(crate) struct CallArgumentFact {
     pub name: Option<String>,
     pub type_name: Option<String>,
     pub is_lambda: bool,
+    /// A source lambda header is present, including an empty `->` header.
+    pub lambda_has_explicit_parameters: bool,
     /// Explicitly annotated lambda parameter types, if present.
     pub lambda_parameter_types: Vec<Option<String>>,
+    /// Lambda parameter names in source order, for signature-based inference.
+    pub lambda_parameter_names: Vec<String>,
+    /// An explicitly labeled lambda, independent of the callee's name.
+    pub lambda_label: Option<String>,
     /// Explicit receiver annotation for a receiver lambda, if present.
     pub lambda_receiver_type: Option<String>,
 }

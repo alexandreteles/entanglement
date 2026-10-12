@@ -112,6 +112,7 @@ fn component_reference(node: Node<'_>, source: &[u8], root: &Range<usize>) -> Re
         scope_end: scope.end,
         call_owner: Some(call_owner(node, root)),
         execution_owner: Some(call_owner(node, root)),
+        access: None,
         context_id: 0,
     }
 }
