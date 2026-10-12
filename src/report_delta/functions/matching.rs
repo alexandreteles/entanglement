@@ -5,6 +5,10 @@ use tree_sitter::InputEdit;
 use crate::model::FunctionAnalysis;
 use crate::report_delta::edited_position;
 
+mod header;
+
+use header::header_end;
+
 pub(super) fn pair_functions(
     old: &[FunctionAnalysis],
     new: &[FunctionAnalysis],
@@ -140,52 +144,6 @@ fn owners<'a>(
             }
         })
         .collect()
-}
-
-fn header_end(source: &[u8]) -> usize {
-    let mut depth = 0usize;
-    let mut index = 0;
-    while index < source.len() {
-        match source[index] {
-            b'(' | b'[' => depth += 1,
-            b')' | b']' => depth = depth.saturating_sub(1),
-            b'{' | b'=' if depth == 0 => return index,
-            b'"' | b'`' => {
-                let quote = source[index];
-                index += 1;
-                while index < source.len() && source[index] != quote {
-                    if source[index] == b'\\' {
-                        index += 1;
-                    }
-                    index += 1;
-                }
-            }
-            b'/' if source.get(index + 1) == Some(&b'/') => {
-                while index < source.len() && source[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'/' if source.get(index + 1) == Some(&b'*') => {
-                index += 2;
-                let mut comments = 1;
-                while index < source.len() && comments > 0 {
-                    if source.get(index..index + 2) == Some(b"/*") {
-                        comments += 1;
-                        index += 2;
-                    } else if source.get(index..index + 2) == Some(b"*/") {
-                        comments -= 1;
-                        index += 2;
-                    } else {
-                        index += 1;
-                    }
-                }
-                continue;
-            }
-            _ => {}
-        }
-        index += 1;
-    }
-    source.len()
 }
 
 fn anchor<'a>(source: &'a [u8], function: &FunctionAnalysis) -> Option<&'a [u8]> {
