@@ -118,6 +118,7 @@ impl References<'_, '_> {
             scope_end: scope.end,
             call_owner,
             execution_owner: call_owner,
+            access: None,
             context_id: 0,
         });
     }

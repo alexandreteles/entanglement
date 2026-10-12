@@ -440,7 +440,17 @@ pub(crate) struct Reference {
     /// Start byte of the enclosing executable source unit for any reference.
     /// This records ownership only; it does not imply an invocation.
     pub execution_owner: Option<usize>,
+    /// Whether the source reference reads, writes, or both reads and writes
+    /// the referenced binding. `None` means the adapter cannot prove access.
+    pub access: Option<ReferenceAccess>,
     pub context_id: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum ReferenceAccess {
+    Read,
+    Write,
+    ReadWrite,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -450,4 +460,6 @@ pub(crate) enum ReferenceKind {
     Method,
     Type,
     Value,
+    /// A source reference to a callable, without invoking or reading its body.
+    CallableReference,
 }

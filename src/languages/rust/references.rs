@@ -103,6 +103,7 @@ impl<'a> CaptureFacts<'a> {
                     scope_end,
                     call_owner,
                     execution_owner: call_owner,
+                    access: None,
                     context_id: 0,
                 }
             })
