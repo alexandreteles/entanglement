@@ -93,6 +93,20 @@ fn replacing_a_callback_body_uses_its_unique_call_site() {
 }
 
 #[test]
+fn changing_one_repeated_call_site_preserves_its_proven_sibling() {
+    let before = "function outer() { call(() => a()); call(() => b()); }\n";
+    let after =
+        "// shift\nfunction outer() { call(() => { if (ready) a(); }); call(() => b()); }\n";
+    let report = candidate(before, after, "all");
+    assert_eq!(deltas(&report).len(), 3);
+    assert!(
+        deltas(&report)
+            .iter()
+            .all(|delta| !delta["before_range"].is_null() && !delta["after_range"].is_null())
+    );
+}
+
+#[test]
 fn identical_callbacks_in_different_owners_do_not_pair_across_owners() {
     let before = "function first() { call(() => a()); }\nfunction second() { call(() => a()); }\n";
     let after = "function first() {}\nfunction second() { call(() => a()); }\n";
