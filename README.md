@@ -61,21 +61,24 @@ that contains `.git` or a supported project manifest. It uses that directory
 to resolve references. If none exists, it uses the root directory from the
 diff path.
 
-Supported manifests are `Cargo.toml`, `package.json`, `tsconfig.json`,
+Supported manifests include `Cargo.toml`, `package.json`, `tsconfig.json`,
 `jsconfig.json`, `pyproject.toml`, `setup.py`, `setup.cfg`, and `go.mod`.
 
 ## Languages
 
-- Rust
-- Python
-- Go
-- TypeScript
-- TSX
-- JavaScript
-- Astro
-- Svelte
-- HTML
-- CSS
+| Language | Source files |
+| --- | --- |
+| Rust | `.rs` |
+| Python | `.py`, `.pyi` |
+| Go | `.go` |
+| Kotlin | `.kt`, `.kts` |
+| TypeScript | `.ts`, `.mts`, `.cts` |
+| TSX | `.tsx` |
+| JavaScript | `.js`, `.jsx`, `.mjs`, `.cjs` |
+| Astro | `.astro` |
+| Svelte | `.svelte` |
+| HTML | `.html` |
+| CSS | `.css` |
 
 ## Select metrics
 
