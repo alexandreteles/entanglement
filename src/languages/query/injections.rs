@@ -1,8 +1,9 @@
 use tree_sitter::QueryCapture;
 
+use crate::graph::SyntaxGraph;
 use crate::metrics::SyntaxRole;
 
-use super::events::{event, node_text};
+use super::events::event;
 use super::ranges;
 use super::{InjectionRequest, QueryAnalyzer, QueryFacts};
 
@@ -13,6 +14,7 @@ impl QueryFacts {
         pattern_index: usize,
         captures: &[QueryCapture<'_>],
         source: &[u8],
+        syntax: &SyntaxGraph<'_>,
     ) {
         let Some(content_id) = analyzer.injection_content else {
             return;
@@ -29,7 +31,8 @@ impl QueryFacts {
         let host_ranges = host_ranges(analyzer, captures);
         for content in captures.iter().filter(|item| item.index == content_id) {
             let node = content.node;
-            self.events.push(event(SyntaxRole::InjectionLanguage, node));
+            self.events
+                .push(event(SyntaxRole::InjectionLanguage, node, syntax));
             let content_range = node.range();
             let guest_ranges = if properties.include_children {
                 ranges::subtract(content_range, &host_ranges)
@@ -81,7 +84,9 @@ fn injection_language(
             captures
                 .iter()
                 .find(|capture| capture.index == id)
-                .map(|capture| node_text(capture.node, source))
+                .map(|capture| {
+                    String::from_utf8_lossy(&source[capture.node.byte_range()]).into_owned()
+                })
         })
     })
 }

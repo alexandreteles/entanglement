@@ -66,6 +66,19 @@ impl Worker {
             file.language == choice.id
                 && (!edits.is_empty() || file.facts.source.as_ref() == source)
         });
+        // A normalization decision can change bytes outside the user's edits.
+        // Such trees must be parsed afresh on both adding and removing a prefix.
+        let reusable = if let Some(previous) = reusable {
+            let old = self
+                .registry
+                .parser_source(&choice.id, &previous.facts.source)?;
+            let new = self.registry.parser_source(&choice.id, &source)?;
+            (matches!(old, std::borrow::Cow::Borrowed(_))
+                && matches!(new, std::borrow::Cow::Borrowed(_)))
+            .then_some(previous)
+        } else {
+            None
+        };
         let mut old_trees = BTreeMap::new();
         if let Some(previous) = reusable {
             injections::collect_old_trees(&previous.injections, edits, &mut old_trees);
@@ -115,11 +128,27 @@ impl Worker {
         included_ranges: &[TsRange],
         old_tree: Option<&Tree>,
     ) -> Result<Tree> {
+        let parser_source = if included_ranges.is_empty() {
+            self.registry.parser_source(&choice.id, source)?
+        } else {
+            let mut prepared = None;
+            for range in included_ranges {
+                let original = &source[range.start_byte..range.end_byte];
+                if let std::borrow::Cow::Owned(normalized) =
+                    self.registry.parser_source(&choice.id, original)?
+                {
+                    let bytes = prepared.get_or_insert_with(|| source.to_vec());
+                    bytes[range.start_byte..range.end_byte].copy_from_slice(&normalized);
+                }
+            }
+            prepared.map_or(std::borrow::Cow::Borrowed(source), std::borrow::Cow::Owned)
+        };
+        let old_tree = old_tree.filter(|_| self.registry.incremental_safe(&choice.id));
         let parser = self.parsers.entry(choice.id.clone()).or_default();
         parser.set_language(&choice.language)?;
         parser.set_included_ranges(included_ranges)?;
         parser
-            .parse(source, old_tree)
+            .parse(parser_source.as_ref(), old_tree)
             .ok_or_else(|| format!("Tree-sitter canceled parsing {}", choice.name).into())
     }
 }

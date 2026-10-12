@@ -5,15 +5,11 @@ pub(in crate::languages::rust) fn child_field(
     field: &str,
     graph: &NodeGraph<'_>,
 ) -> Option<usize> {
-    graph
-        .nodes
-        .get(&node_id)?
-        .child_by_field_name(field)
-        .map(|node| node.id())
+    graph.child_by_field(node_id, field)
 }
 
 pub(super) fn path_segments(node_id: usize, graph: &NodeGraph<'_>) -> Vec<String> {
-    let Some(node) = graph.nodes.get(&node_id).copied() else {
+    let Some(node) = graph.node(node_id) else {
         return Vec::new();
     };
     if let Some(segments) = field_path_segments(node_id, graph) {
@@ -44,7 +40,7 @@ fn field_path_segments(node_id: usize, graph: &NodeGraph<'_>) -> Option<Vec<Stri
 }
 
 pub(super) fn is_use_node(id: usize, graph: &NodeGraph<'_>) -> bool {
-    graph.nodes.get(&id).is_some_and(|node| {
+    graph.node(id).is_some_and(|node| {
         matches!(
             node.kind(),
             "scoped_use_list"
@@ -61,7 +57,7 @@ pub(super) fn is_use_node(id: usize, graph: &NodeGraph<'_>) -> bool {
 }
 
 pub(super) fn is_path_node(id: usize, graph: &NodeGraph<'_>) -> bool {
-    graph.nodes.get(&id).is_some_and(|node| {
+    graph.node(id).is_some_and(|node| {
         matches!(
             node.kind(),
             "scoped_identifier"

@@ -72,6 +72,7 @@ impl InjectionRequest {
 
 #[derive(Default)]
 pub(crate) struct CapturedTree {
+    pub semantic: crate::graph::SemanticFacts,
     pub events: Vec<SyntaxEvent>,
     pub parents: HashMap<usize, Option<usize>>,
     pub functions: Vec<FunctionScope>,
@@ -85,6 +86,18 @@ pub(crate) struct CapturedTree {
 }
 
 pub(crate) trait LanguageHandler: Send + Sync {
+    /// Adapters whose normalization can change beyond edited source ranges
+    /// request fresh trees, including for embedded programs.
+    fn incremental_safe(&self) -> bool {
+        true
+    }
+
+    /// Normalize grammar gaps without changing source byte positions. Captures
+    /// and reports always use the original bytes.
+    fn parser_source<'a>(&self, source: &'a [u8]) -> std::borrow::Cow<'a, [u8]> {
+        std::borrow::Cow::Borrowed(source)
+    }
+
     /// Capture syntax facts, optionally collecting Halstead terminal tokens.
     fn capture(&self, tree: &Tree, source: &[u8], include_tokens: bool) -> Result<CapturedTree>;
 }

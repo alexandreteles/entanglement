@@ -20,6 +20,32 @@ pub(in crate::analysis) fn summary(
         inherited_scope,
     } = context;
     let prefix = &inherited_module.0;
+    let mut semantic = captured.semantic;
+    semantic.context_id = semantic_context;
+    semantic.resolution_family = Some(choice.resolution_family);
+    semantic.file_module_rules = choice.file_module_rules;
+    semantic.declarations.retain(|item| {
+        !excluded
+            .iter()
+            .any(|range| range.contains(&item.start_byte))
+    });
+    semantic
+        .bindings
+        .retain(|item| !inside_any(item.name_start_byte..item.name_end_byte, &excluded));
+    semantic
+        .receivers
+        .retain(|item| !inside_any(item.start_byte..item.end_byte, &excluded));
+    semantic
+        .calls
+        .retain(|item| !inside_any(item.start_byte..item.end_byte, &excluded));
+    for binding in &mut semantic.bindings {
+        inherit_scope(
+            &mut binding.scope_start,
+            &mut binding.scope_end,
+            owner_range,
+            inherited_scope,
+        );
+    }
     let mut definitions = captured.definitions;
     definitions.retain(|item| !inside_any(item.start_byte..item.end_byte, &excluded));
     for definition in &mut definitions {
@@ -97,6 +123,7 @@ pub(in crate::analysis) fn summary(
     let mut tokens = captured.tokens;
     tokens.retain(|token| !inside_any(token.start_byte..token.end_byte, &excluded));
     TreeSummary {
+        semantic,
         metric_id,
         resolution_family: choice.resolution_family,
         file_module_rules: choice.file_module_rules,

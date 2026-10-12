@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::model::{DefinitionKind, FileFacts, Resolution, SymbolId};
+use crate::graph::ProgramGraph;
+use crate::model::{DefinitionKind, Resolution, SymbolId};
 
 use super::{Context, Index, PackageKey, contexts, is_go};
 
@@ -17,44 +18,46 @@ pub(super) struct Package {
     members: BTreeMap<String, Vec<Member>>,
 }
 
-pub(super) fn index(facts: &[FileFacts]) -> BTreeMap<PackageKey, Package> {
+pub(super) fn index(graph: &ProgramGraph<'_>) -> BTreeMap<PackageKey, Package> {
     let mut packages = BTreeMap::<PackageKey, Package>::new();
-    for fact in facts.iter().filter(|fact| is_go(fact)) {
-        let ids = fact
-            .definitions
-            .iter()
-            .map(|item| item.context_id)
+    for file_index in 0..graph.file_count() {
+        let fact = graph.file(file_index);
+        if !is_go(fact) {
+            continue;
+        }
+        let ids = graph
+            .symbols_for_file(file_index)
+            .map(|item| item.scope.context_id)
             .collect::<BTreeSet<_>>();
         for id in ids {
-            for context in contexts::for_reference(fact, id) {
+            for context in contexts::for_reference(fact, graph, file_index, id) {
                 let package = packages.entry(context.key.clone()).or_default();
                 package.production |= !context.test;
-                add_members(package, fact, id, &context);
+                add_members(package, graph, file_index, id, &context);
             }
         }
     }
     packages
 }
 
-fn add_members(package: &mut Package, fact: &FileFacts, id: usize, context: &Context) {
-    for definition in fact.definitions.iter().filter(|item| {
-        item.context_id == id
+fn add_members(
+    package: &mut Package,
+    graph: &ProgramGraph<'_>,
+    file_index: usize,
+    context_id: usize,
+    context: &Context,
+) {
+    for symbol in graph.symbols_for_file(file_index).filter(|item| {
+        item.scope.context_id == context_id
             && !matches!(item.kind, DefinitionKind::Method | DefinitionKind::Module)
     }) {
-        let symbol = SymbolId {
-            file: fact.analysis.path.clone(),
-            module: definition.module.clone(),
-            name: definition.name.clone(),
-            kind: definition.kind.clone(),
-            start_byte: definition.start_byte,
-        };
         package
             .members
-            .entry(definition.name.clone())
+            .entry(symbol.name.clone())
             .or_default()
             .push(Member {
-                symbol,
-                public: definition.is_public,
+                symbol: symbol.semantic_id.clone(),
+                public: symbol.is_public,
                 test: context.test,
                 conditional: context.conditional,
             });

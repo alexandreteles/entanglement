@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use rayon::prelude::*;
 
+use crate::graph::ProgramGraph;
 use crate::languages::ResolutionFamily;
 use crate::model::{FileFacts, Reference, ReferenceAnalysis, Resolution};
 use crate::snapshot::Snapshot;
@@ -26,11 +27,13 @@ use modules::ModuleState;
 pub(super) fn resolve(
     facts: &[FileFacts],
     snapshot: &Snapshot,
+    graph: &ProgramGraph<'_>,
 ) -> Vec<Option<Vec<ReferenceAnalysis>>> {
-    let index = Index::new(facts, snapshot);
+    let index = Index::new(snapshot, graph);
     facts
         .par_iter()
-        .map(|fact| {
+        .enumerate()
+        .map(|(file_index, fact)| {
             is_go(fact).then(|| {
                 fact.references
                     .iter()
@@ -38,7 +41,8 @@ pub(super) fn resolve(
                         path: reference.path.clone(),
                         start_byte: reference.start_byte,
                         end_byte: reference.end_byte,
-                        resolution: index.resolve_reference(fact, reference),
+                        resolution: index.resolve_reference(file_index, fact, reference, graph),
+                        dispatch: None,
                     })
                     .collect()
             })
@@ -52,8 +56,8 @@ struct Index {
 }
 
 impl Index {
-    fn new(facts: &[FileFacts], snapshot: &Snapshot) -> Self {
-        let packages = members::index(facts);
+    fn new(snapshot: &Snapshot, graph: &ProgramGraph<'_>) -> Self {
+        let packages = members::index(graph);
         let modules = packages
             .keys()
             .map(|key| {
@@ -66,15 +70,21 @@ impl Index {
         Self { packages, modules }
     }
 
-    fn resolve_reference(&self, fact: &FileFacts, reference: &Reference) -> Resolution {
+    fn resolve_reference(
+        &self,
+        file_index: usize,
+        fact: &FileFacts,
+        reference: &Reference,
+        graph: &ProgramGraph<'_>,
+    ) -> Resolution {
         let Some(name) = reference.path.first() else {
             return Resolution::Unresolved;
         };
-        if contexts::is_local(fact, reference, name) {
+        if contexts::is_local(graph, file_index, reference, name) {
             return Resolution::Unresolved;
         }
         members::agree(
-            contexts::for_reference(fact, reference.context_id)
+            contexts::for_reference(fact, graph, file_index, reference.context_id)
                 .iter()
                 .map(|context| self.resolve_in_context(fact, reference, context, name)),
         )

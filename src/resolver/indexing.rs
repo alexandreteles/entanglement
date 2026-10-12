@@ -1,13 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::graph::{ProgramGraph, ProgramSymbolId};
 use crate::languages::ResolutionFamily;
-use crate::model::{Definition, DefinitionKind, FileFacts, Import, ModulePath, SymbolId};
+use crate::model::{DefinitionKind, Import, ModulePath, SymbolId};
 
 use super::{ImportEntry, Index, ModuleKey, Symbol, joined_path};
 
 impl Index {
-    pub(super) fn new(facts: &[FileFacts]) -> Self {
-        let contexts = super::module_graph::file_contexts(facts);
+    pub(super) fn new(graph: &ProgramGraph<'_>) -> Self {
+        let contexts = super::module_graph::file_contexts(graph);
         let mut index = Self {
             contexts,
             symbols: BTreeMap::new(),
@@ -15,13 +16,14 @@ impl Index {
             imports: Vec::new(),
             import_targets: Vec::new(),
         };
-        index.add_symbols(facts);
-        index.add_imports(facts);
+        index.add_symbols(graph);
+        index.add_imports(graph);
         index
     }
 
-    fn add_symbols(&mut self, facts: &[FileFacts]) {
-        for (file_index, fact) in facts.iter().enumerate() {
+    fn add_symbols(&mut self, graph: &ProgramGraph<'_>) {
+        for file_index in 0..graph.file_count() {
+            let fact = graph.file(file_index);
             if fact.resolution_family != ResolutionFamily::RustCrates {
                 continue;
             }
@@ -38,7 +40,9 @@ impl Index {
                     });
                 }
 
-                for definition in &fact.definitions {
+                for (definition_index, definition) in
+                    graph.definitions(file_index).iter().enumerate()
+                {
                     let module = joined_path(&file_module, &definition.module.0);
                     let module_key = ModuleKey {
                         crate_root: context.crate_root.clone(),
@@ -53,12 +57,16 @@ impl Index {
                     if !is_resolvable_kind(&definition.kind) {
                         continue;
                     }
+                    let id = graph
+                        .symbol_id(ProgramSymbolId {
+                            file_index,
+                            definition_index,
+                        })
+                        .cloned()
+                        .expect("program graph indexes every definition");
                     let id = SymbolId {
-                        file: fact.analysis.path.clone(),
                         module: ModulePath(module),
-                        name: definition.name.clone(),
-                        kind: definition.kind.clone(),
-                        start_byte: definition.start_byte,
+                        ..id
                     };
                     self.symbols
                         .entry(module_key)
@@ -70,7 +78,7 @@ impl Index {
                             file: file_index,
                             scope_start: definition.scope_start,
                             scope_end: definition.scope_end,
-                            is_local: is_local_definition(fact, definition),
+                            is_local: graph.is_local_definition(file_index, definition),
                             is_public: definition.is_public,
                         });
                 }
@@ -84,14 +92,15 @@ impl Index {
         }
     }
 
-    fn add_imports(&mut self, facts: &[FileFacts]) {
-        for (file_index, fact) in facts.iter().enumerate() {
+    fn add_imports(&mut self, graph: &ProgramGraph<'_>) {
+        for file_index in 0..graph.file_count() {
+            let fact = graph.file(file_index);
             if fact.resolution_family != ResolutionFamily::RustCrates {
                 continue;
             }
             for context in &self.contexts[file_index] {
                 let file_module = joined_path(&context.module, &fact.module.0);
-                for import in &fact.imports {
+                for import in graph.imports(file_index) {
                     let Some((name, path)) = import_name_and_path(import) else {
                         continue;
                     };
@@ -105,8 +114,9 @@ impl Index {
                         path,
                         scope_start: import.scope_start,
                         scope_end: import.scope_end,
-                        is_local: is_local_scope(
-                            fact,
+                        is_local: graph.is_local_scope(
+                            file_index,
+                            import.context_id,
                             import.scope_start,
                             import.scope_end,
                             import.start_byte,
@@ -146,25 +156,6 @@ fn import_name_and_path(import: &Import) -> Option<(String, Vec<String>)> {
     }
     let name = import.alias.clone().or_else(|| path.last().cloned())?;
     Some((name, path))
-}
-
-fn is_local_definition(fact: &FileFacts, definition: &Definition) -> bool {
-    is_local_scope(
-        fact,
-        definition.scope_start,
-        definition.scope_end,
-        definition.start_byte,
-    )
-}
-
-fn is_local_scope(fact: &FileFacts, scope_start: usize, scope_end: usize, position: usize) -> bool {
-    fact.analysis.functions.iter().any(|function| {
-        function.start_byte <= scope_start
-            && scope_end <= function.end_byte
-            && (function.start_byte < scope_start
-                || scope_end < function.end_byte
-                || (function.start_byte < position && position < function.end_byte))
-    })
 }
 
 fn is_resolvable_kind(kind: &DefinitionKind) -> bool {

@@ -1,24 +1,25 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
 
+use crate::graph::ProgramGraph;
 use crate::languages::ResolutionFamily;
-use crate::model::{DefinitionKind, FileFacts};
+use crate::model::DefinitionKind;
 
 use super::{CrateKey, FileContext, joined_path};
 
 type ModuleRoute = (usize, FileContext, PathBuf, BTreeSet<PathBuf>);
 
-pub(super) fn file_contexts(facts: &[FileFacts]) -> Vec<Vec<FileContext>> {
+pub(super) fn file_contexts(graph: &ProgramGraph<'_>) -> Vec<Vec<FileContext>> {
     let mut by_path = BTreeMap::<PathBuf, usize>::new();
-    for (index, fact) in facts.iter().enumerate() {
-        if fact.resolution_family != ResolutionFamily::RustCrates {
-            continue;
-        }
-        for path in &fact.aliases {
-            by_path.insert(path.clone(), index);
+    for (path, indexes) in graph.aliases() {
+        for index in indexes {
+            if graph.file(*index).resolution_family == ResolutionFamily::RustCrates {
+                by_path.insert(path.clone(), *index);
+            }
         }
     }
-    let mut roots = facts
+    let mut roots = graph
+        .files()
         .iter()
         .enumerate()
         .flat_map(|(index, fact)| {
@@ -34,7 +35,7 @@ pub(super) fn file_contexts(facts: &[FileFacts]) -> Vec<Vec<FileContext>> {
         .collect::<Vec<_>>();
     roots.sort_by(|left, right| left.0.cmp(&right.0));
 
-    let mut assignments = vec![BTreeSet::new(); facts.len()];
+    let mut assignments = vec![BTreeSet::new(); graph.file_count()];
     let mut pending = VecDeque::new();
     for (root_path, index) in roots {
         pending.push_back((
@@ -44,12 +45,12 @@ pub(super) fn file_contexts(facts: &[FileFacts]) -> Vec<Vec<FileContext>> {
                 module: Vec::new(),
             },
             root_path,
-            BTreeSet::from([facts[index].target.clone()]),
+            BTreeSet::from([graph.file(index).target.clone()]),
         ));
     }
     let mut visited = BTreeSet::new();
     walk_module_graph(
-        facts,
+        graph,
         &by_path,
         &mut pending,
         &mut visited,
@@ -57,12 +58,13 @@ pub(super) fn file_contexts(facts: &[FileFacts]) -> Vec<Vec<FileContext>> {
     );
 
     let mut incoming = BTreeSet::new();
-    for fact in facts {
+    for file_index in 0..graph.file_count() {
+        let fact = graph.file(file_index);
         if fact.resolution_family != ResolutionFamily::RustCrates {
             continue;
         }
         for path in &fact.aliases {
-            for declaration in fact.definitions.iter().filter(|definition| {
+            for declaration in graph.definitions(file_index).iter().filter(|definition| {
                 definition.kind == DefinitionKind::Module && definition.external_module
             }) {
                 let relative_module = joined_path(&fact.module.0, &declaration.module.0);
@@ -78,36 +80,35 @@ pub(super) fn file_contexts(facts: &[FileFacts]) -> Vec<Vec<FileContext>> {
         }
     }
 
-    for index in 0..facts.len() {
-        if facts[index].resolution_family != ResolutionFamily::RustCrates {
+    for index in 0..graph.file_count() {
+        if graph.file(index).resolution_family != ResolutionFamily::RustCrates {
             continue;
         }
         if assignments[index].is_empty() && !incoming.contains(&index) {
-            for path in &facts[index].aliases {
+            for path in &graph.file(index).aliases {
                 pending.push_back((
                     index,
                     FileContext {
-                        crate_root: CrateKey::Detached(facts[index].target.clone()),
+                        crate_root: CrateKey::Detached(graph.file(index).target.clone()),
                         module: Vec::new(),
                     },
                     path.clone(),
-                    BTreeSet::from([facts[index].target.clone()]),
+                    BTreeSet::from([graph.file(index).target.clone()]),
                 ));
             }
         }
     }
     walk_module_graph(
-        facts,
+        graph,
         &by_path,
         &mut pending,
         &mut visited,
         &mut assignments,
     );
 
-    facts
-        .iter()
-        .enumerate()
-        .map(|(index, fact)| {
+    (0..graph.file_count())
+        .map(|index| {
+            let fact = graph.file(index);
             if fact.resolution_family != ResolutionFamily::RustCrates {
                 return Vec::new();
             }
@@ -130,7 +131,7 @@ pub(super) fn file_contexts(facts: &[FileFacts]) -> Vec<Vec<FileContext>> {
 }
 
 fn walk_module_graph(
-    facts: &[FileFacts],
+    graph: &ProgramGraph<'_>,
     by_path: &BTreeMap<PathBuf, usize>,
     pending: &mut VecDeque<ModuleRoute>,
     visited: &mut BTreeSet<ModuleRoute>,
@@ -141,13 +142,13 @@ fn walk_module_graph(
             continue;
         }
         assignments[file].insert(context.clone());
-        let file_module = joined_path(&context.module, &facts[file].module.0);
-        for declaration in facts[file].definitions.iter().filter(|definition| {
+        let file_module = joined_path(&context.module, &graph.file(file).module.0);
+        for declaration in graph.definitions(file).iter().filter(|definition| {
             definition.kind == DefinitionKind::Module && definition.external_module
         }) {
             let module = joined_path(&file_module, &declaration.module.0);
             let child_module = joined_path(&module, std::slice::from_ref(&declaration.name));
-            let relative_module = joined_path(&facts[file].module.0, &declaration.module.0);
+            let relative_module = joined_path(&graph.file(file).module.0, &declaration.module.0);
             let candidates = module_files(&path, &relative_module, &declaration.name)
                 .into_iter()
                 .filter_map(|path| by_path.get(&path).map(|file| (path, *file)))
@@ -158,7 +159,7 @@ fn walk_module_graph(
                 .collect::<BTreeSet<_>>();
             if targets.len() == 1 {
                 for (child_path, child_file) in candidates {
-                    let target = &facts[child_file].target;
+                    let target = &graph.file(child_file).target;
                     if ancestry.contains(target) {
                         continue;
                     }

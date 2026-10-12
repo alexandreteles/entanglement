@@ -7,7 +7,7 @@ use super::super::indexing::{Index, normalize};
 use super::{is_unresolved_alias, resolve_requests};
 
 pub(in crate::resolver::files) fn resolve(
-    index: &Index<'_>,
+    index: &Index<'_, '_>,
     file: usize,
     source: &str,
     rules: &FileModuleRules,
@@ -38,7 +38,7 @@ pub(super) fn module_path(module: &str) -> Option<PathBuf> {
 }
 
 fn resolve_relative(
-    index: &Index<'_>,
+    index: &Index<'_, '_>,
     file: usize,
     levels: usize,
     suffix: &str,
@@ -53,7 +53,11 @@ fn resolve_relative(
     resolve_requests(index, requests, rules)
 }
 
-fn package_directory(index: &Index<'_>, file: &Path, rules: &FileModuleRules) -> Option<PathBuf> {
+fn package_directory(
+    index: &Index<'_, '_>,
+    file: &Path,
+    rules: &FileModuleRules,
+) -> Option<PathBuf> {
     let parent = file.parent()?;
     if file
         .file_stem()
@@ -68,7 +72,7 @@ fn package_directory(index: &Index<'_>, file: &Path, rules: &FileModuleRules) ->
 }
 
 fn ascend_package(
-    index: &Index<'_>,
+    index: &Index<'_, '_>,
     mut package: PathBuf,
     levels: usize,
     rules: &FileModuleRules,
@@ -82,7 +86,7 @@ fn ascend_package(
     Some(package)
 }
 
-fn is_package(index: &Index<'_>, path: &Path, rules: &FileModuleRules) -> bool {
+fn is_package(index: &Index<'_, '_>, path: &Path, rules: &FileModuleRules) -> bool {
     rules.index_stems.iter().any(|stem| {
         rules.extensions.iter().any(|extension| {
             let mut init = path.join(stem).into_os_string();
@@ -94,7 +98,7 @@ fn is_package(index: &Index<'_>, path: &Path, rules: &FileModuleRules) -> bool {
 }
 
 fn resolve_absolute(
-    index: &Index<'_>,
+    index: &Index<'_, '_>,
     file: usize,
     source: &str,
     roots: &[&str],
@@ -136,7 +140,7 @@ fn project_root(path: &Path, markers: &[&str]) -> Option<PathBuf> {
 }
 
 fn local_top_module(
-    index: &Index<'_>,
+    index: &Index<'_, '_>,
     requests: &[PathBuf],
     module: &Path,
     rules: &FileModuleRules,

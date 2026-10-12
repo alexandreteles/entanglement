@@ -7,7 +7,7 @@ use super::bindings::{BindingTarget, binding_target};
 use super::layout::resolve_submodule;
 use super::{Index, Target, to_resolution};
 
-impl Index<'_> {
+impl Index<'_, '_> {
     pub(super) fn resolve_file(
         &self,
         file: usize,
@@ -21,6 +21,7 @@ impl Index<'_> {
                     start_byte: reference.start_byte,
                     end_byte: reference.end_byte,
                     resolution: self.resolve_reference(file, fact, reference),
+                    dispatch: None,
                 })
                 .collect()
         })
@@ -36,7 +37,14 @@ impl Index<'_> {
             return Resolution::Unresolved;
         }
         let name = &reference.path[0];
-        match binding_target(fact, name, reference.start_byte, reference.context_id) {
+        match binding_target(
+            fact,
+            self.graph,
+            file,
+            name,
+            reference.start_byte,
+            reference.context_id,
+        ) {
             BindingTarget::Local(targets) if reference.path.len() == 1 => to_resolution(targets),
             BindingTarget::Import(import) => self.resolve_import_reference(file, import, reference),
             BindingTarget::Local(_) | BindingTarget::Unresolved => Resolution::Unresolved,

@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 use rayon::prelude::*;
 
+use crate::graph::{CallEdge, ProgramGraph};
 use crate::model::{FileFacts, ReferenceAnalysis, Resolution, SymbolId};
 
 mod files;
@@ -15,6 +16,7 @@ mod indexing;
 mod module_graph;
 mod packages;
 mod resolution;
+mod strategies;
 
 /// Keep a shared-file fallback separate from every logical crate root.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -88,23 +90,38 @@ pub(crate) fn resolve_with_snapshot(
     selection: crate::metrics::selection::Selection,
     snapshot: &crate::snapshot::Snapshot,
 ) {
-    let mut index = Index::new(facts);
-    index.resolve_imports();
-    let file_resolutions = files::resolve(facts);
-    let package_resolutions = packages::resolve(facts, snapshot);
+    let mut graph = ProgramGraph::new(facts);
+    let resolutions = strategies::resolve(facts, snapshot, &graph);
+    let calls: Vec<CallEdge> = graph.confirmed_relations(&resolutions);
+    drop(graph);
     facts
         .par_iter_mut()
+        .zip(resolutions)
+        .for_each(|(fact, resolved)| fact.analysis.resolution = resolved);
+    if selection.includes(crate::metrics::selection::Metric::Cogc) {
+        crate::metrics::recursion::annotate(facts, &calls);
+    }
+}
+
+fn resolve_references(
+    facts: &[FileFacts],
+    snapshot: &crate::snapshot::Snapshot,
+    graph: &ProgramGraph<'_>,
+) -> Vec<Vec<ReferenceAnalysis>> {
+    let mut index = Index::new(graph);
+    index.resolve_imports();
+    let file_resolutions = files::resolve(facts, graph);
+    let package_resolutions = packages::resolve(facts, snapshot, graph);
+    facts
+        .iter()
         .enumerate()
-        .for_each(|(file_index, fact)| {
+        .map(|(file_index, fact)| {
             let resolved = file_resolutions[file_index]
                 .as_ref()
                 .or(package_resolutions[file_index].as_ref());
-            fact.analysis.resolution = resolve_fact(&index, file_index, fact, resolved);
-        });
-    drop(index);
-    if selection.includes(crate::metrics::selection::Metric::Cogc) {
-        crate::metrics::recursion::annotate(facts);
-    }
+            resolve_fact(&index, file_index, fact, resolved)
+        })
+        .collect::<Vec<_>>()
 }
 
 fn resolve_fact(
@@ -139,6 +156,7 @@ fn resolve_fact(
                     })
                     .collect(),
             ),
+            dispatch: None,
         })
         .collect()
 }

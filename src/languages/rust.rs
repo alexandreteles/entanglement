@@ -13,6 +13,7 @@ use tree_sitter::{Language, Tree};
 use super::query::QueryAnalyzer;
 use super::{CapturedTree, InjectionRequest, LanguageHandler, LanguageSpec, ResolutionFamily};
 use crate::Result;
+use crate::graph::SyntaxGraph;
 use crate::metrics::{SyntaxEvent, cyclomatic::FunctionScope};
 use crate::model::{Definition, DefinitionKind, ReferenceKind};
 
@@ -38,7 +39,6 @@ pub(super) struct Analyzer {
 struct Captures {
     local_scopes: HashMap<u32, LocalScopeKind>,
     reference_kinds: HashMap<u32, ReferenceKind>,
-    syntax_node: u32,
     import: u32,
     reference_path: u32,
     local_pattern: u32,
@@ -48,18 +48,7 @@ struct Captures {
     reference_implementation: u32,
 }
 
-#[derive(Default)]
-struct NodeGraph<'a> {
-    nodes: HashMap<usize, tree_sitter::Node<'a>>,
-    source: &'a [u8],
-}
-
-impl NodeGraph<'_> {
-    fn text(&self, id: usize) -> Option<String> {
-        let node = *self.nodes.get(&id)?;
-        (node.child_count() == 0).then(|| node_text(node, self.source))
-    }
-}
+pub(super) type NodeGraph<'a> = SyntaxGraph<'a>;
 
 #[derive(Clone)]
 struct RawDefinition {
@@ -132,19 +121,15 @@ struct CaptureFacts<'a> {
 
 impl LanguageHandler for Analyzer {
     fn capture(&self, tree: &Tree, source: &[u8], include_tokens: bool) -> Result<CapturedTree> {
-        let mut facts = CaptureFacts {
-            graph: NodeGraph {
-                nodes: HashMap::new(),
-                source,
-            },
-            ..Default::default()
-        };
-        let common = self
-            .query
-            .capture_with(tree, source, false, |_, captures, source| {
-                facts.record_semantics(&self.captures, captures, source);
-                facts.record_tags(&self.captures, captures, source);
-            });
+        let syntax = SyntaxGraph::from_tree(tree.root_node(), source);
+        let mut facts = CaptureFacts::default();
+        let common =
+            self.query
+                .capture_with_graph(tree, source, false, &syntax, |_, captures, source| {
+                    facts.record_semantics(&self.captures, captures, source);
+                    facts.record_tags(&self.captures, captures, source);
+                });
+        facts.graph = syntax;
         facts.events = common.events;
         facts.parents = common.parents;
         facts.functions = common.functions;
@@ -211,11 +196,12 @@ impl<'a> CaptureFacts<'a> {
         });
 
         let tokens = if include_tokens {
-            super::rust_tokens::capture(tree.root_node(), self.graph.source)
+            super::rust_tokens::capture(tree.root_node(), self.graph.source())
         } else {
             Vec::new()
         };
         Ok(CapturedTree {
+            semantic: Default::default(),
             events: self.events,
             parents: self.parents,
             functions: self.functions,
@@ -237,7 +223,7 @@ impl<'a> CaptureFacts<'a> {
         self.definitions
             .iter()
             .map(|item| {
-                self.graph.nodes.get(&item.node_id)?;
+                self.graph.node(item.node_id)?;
                 let module = relative_module(item.range.start, modules);
                 let (scope_start, scope_end) = lexical_scope(item.node_id, true, &self.graph, root);
                 Some(Definition {
