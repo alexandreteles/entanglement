@@ -88,6 +88,7 @@ pub(super) fn resolve(
                     end_byte: reference.end_byte,
                     resolution: Resolution::Unresolved,
                     dispatch: None,
+                    execution_targets: Vec::new(),
                 })
                 .collect::<Vec<_>>()
         })

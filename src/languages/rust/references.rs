@@ -91,6 +91,8 @@ impl<'a> CaptureFacts<'a> {
                 let module = relative_module(reference.range.start, modules);
                 let (scope_start, scope_end) =
                     lexical_scope(reference.node_id, false, &self.graph, root);
+                let call_owner =
+                    self.call_owner(reference.node_id, &reference.range, reference.kind);
                 Reference {
                     path: reference.path,
                     module,
@@ -99,11 +101,8 @@ impl<'a> CaptureFacts<'a> {
                     end_byte: reference.range.end,
                     scope_start,
                     scope_end,
-                    call_owner: self.call_owner(
-                        reference.node_id,
-                        &reference.range,
-                        reference.kind,
-                    ),
+                    call_owner,
+                    execution_owner: call_owner,
                     context_id: 0,
                 }
             })

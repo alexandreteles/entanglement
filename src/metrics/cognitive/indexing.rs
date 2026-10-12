@@ -109,9 +109,11 @@ impl<'a> Context<'a> {
         let mut current = self.parents.get(&event.node_id).copied().flatten();
         while let Some(node) = current {
             match self.roles.get(&node) {
-                Some(SyntaxRole::CognitiveIf | SyntaxRole::CognitiveLetElse | SyntaxRole::CognitiveCatch)
-                    if !suppressed.contains(&node) =>
-                {
+                Some(
+                    SyntaxRole::CognitiveIf
+                    | SyntaxRole::CognitiveLetElse
+                    | SyntaxRole::CognitiveCatch,
+                ) if !suppressed.contains(&node) => {
                     result += 1;
                 }
                 Some(

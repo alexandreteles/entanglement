@@ -22,6 +22,7 @@ impl Index<'_, '_> {
                     end_byte: reference.end_byte,
                     resolution: self.resolve_reference(file, fact, reference),
                     dispatch: None,
+                    execution_targets: Vec::new(),
                 })
                 .collect()
         })

@@ -1,8 +1,9 @@
 //! Add cognitive-complexity points for functions in recursive call cycles.
 //!
-//! Only direct call sites with an exact function resolution become graph
-//! edges. Ambiguous references, function values, methods, and names in
-//! deferred closures are left on the normal reference-reporting path.
+//! The shared program graph supplies only statically proven execution edges.
+//! Symbol references retain their source identities while invocation evidence
+//! can reach callable values, accessors, and constructors. Uncertain dispatch
+//! and non-invoked values do not create cycles.
 
 use std::collections::{BTreeMap, HashSet};
 

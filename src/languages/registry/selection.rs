@@ -10,7 +10,9 @@ use crate::languages::{CapturedTree, LanguageChoice};
 
 impl Registry {
     pub(crate) fn incremental_safe(&self, id: &str) -> bool {
-        self.handlers.get(id).is_some_and(|handler| handler.incremental_safe())
+        self.handlers
+            .get(id)
+            .is_some_and(|handler| handler.incremental_safe())
     }
 
     pub(crate) fn parser_source<'a>(

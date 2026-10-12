@@ -160,6 +160,7 @@ impl CaptureFacts {
             call_owner: function
                 .filter(|_| kind == ReferenceKind::Call)
                 .map(|function| function.start_byte()),
+            execution_owner: function.map(|function| function.start_byte()),
             context_id: 0,
         }
     }

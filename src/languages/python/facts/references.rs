@@ -107,6 +107,7 @@ impl References<'_, '_> {
         call: Option<Node<'_>>,
     ) {
         let scope = scopes::containing_scope(node, self.root);
+        let call_owner = call.and_then(|node| scopes::call_owner(node, &span));
         self.result.push(Reference {
             path,
             module: ModulePath::default(),
@@ -115,7 +116,8 @@ impl References<'_, '_> {
             end_byte: span.end,
             scope_start: scope.start,
             scope_end: scope.end,
-            call_owner: call.and_then(|node| scopes::call_owner(node, &span)),
+            call_owner,
+            execution_owner: call_owner,
             context_id: 0,
         });
     }

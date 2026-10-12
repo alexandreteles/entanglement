@@ -114,6 +114,7 @@ impl CaptureFacts {
                 scope_start: reference.scope.start,
                 scope_end: reference.scope.end,
                 call_owner: reference.call_owner,
+                execution_owner: reference.call_owner,
                 context_id: 0,
             });
         }

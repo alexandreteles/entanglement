@@ -43,6 +43,7 @@ pub(super) fn resolve(
                         end_byte: reference.end_byte,
                         resolution: index.resolve_reference(file_index, fact, reference, graph),
                         dispatch: None,
+                        execution_targets: Vec::new(),
                     })
                     .collect()
             })
