@@ -1,8 +1,8 @@
 mod analysis;
 mod cli;
 mod commands;
-mod input;
 mod graph;
+mod input;
 mod languages;
 mod metrics;
 mod model;

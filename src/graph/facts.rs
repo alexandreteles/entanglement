@@ -4,6 +4,8 @@
 //! Adapters can record syntax they can prove, while the common resolver and
 //! call graph decide whether those facts are sufficient for an exact edge.
 
+use crate::model::SourceRange;
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct SemanticFacts {
     /// The semantic layer that owns these facts, including injected programs.
@@ -27,14 +29,6 @@ pub(crate) struct SemanticFacts {
 pub(crate) struct SemanticContext {
     /// Language-level package name, independent of the source directory.
     pub package: Vec<String>,
-    /// Build-system module identity, when static configuration proves it.
-    pub module: Option<String>,
-    /// Compilation source set, such as `commonMain` or `androidTest`.
-    pub source_set: Option<String>,
-    /// Platform identity such as `jvm`, `android`, or `ios`.
-    pub platform: Option<String>,
-    /// Build variant where the source set is variant-specific.
-    pub variant: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -59,6 +53,22 @@ pub(crate) struct DeclarationFacts {
     pub modifiers: DeclarationModifiers,
     /// Marker annotations declared on a type, including `@DslMarker` types.
     pub dsl_markers: Vec<String>,
+    /// Exact executable ranges attached to a property or accessor declaration.
+    pub execution: Option<DeclarationExecutionFacts>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct DeclarationExecutionFacts {
+    /// A directly initialized callable value, such as `val task = { ... }`.
+    pub callable_value: Option<SourceRange>,
+    /// Getter body range, when syntax provides a concrete executable body.
+    pub getter: Option<SourceRange>,
+    /// Setter body range, when syntax provides a concrete executable body.
+    pub setter: Option<SourceRange>,
+    /// Constructor bodies owned by a class or constructor declaration.
+    pub constructors: Vec<SourceRange>,
+    /// Property initializer and `init` block scopes run during construction.
+    pub initializers: Vec<SourceRange>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -89,15 +99,12 @@ pub(crate) enum DeclarationKind {
 pub(crate) struct DeclarationModifiers {
     pub is_expect: bool,
     pub is_actual: bool,
-    pub is_external: bool,
-    pub is_inline: bool,
-    pub is_suspend: bool,
-    pub is_operator: bool,
-    pub is_infix: bool,
     pub is_abstract: bool,
     pub is_open: bool,
     pub is_final: bool,
     pub is_override: bool,
+    pub is_operator: bool,
+    pub is_infix: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -106,7 +113,6 @@ pub(crate) struct CallableSignature {
     pub return_type: Option<String>,
     /// Receiver type for an extension function or extension property.
     pub receiver_type: Option<String>,
-    pub is_suspend: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -130,6 +136,8 @@ pub(crate) struct BindingType {
     pub type_name: Option<String>,
     /// A simple value alias, retained only when the initializer is a bare path.
     pub alias_target: Option<String>,
+    /// The initializer is an explicit callable reference such as `::handler`.
+    pub callable_reference: bool,
     /// `val`/parameter bindings are immutable; `var` bindings are not.
     pub immutable: bool,
 }
@@ -150,11 +158,17 @@ pub(crate) struct ReceiverScope {
 pub(crate) struct CallFacts {
     pub start_byte: usize,
     pub end_byte: usize,
+    /// Syntax evidence requiring an operator or infix declaration.
+    pub convention: Option<CallConvention>,
     /// Proven receiver type for a qualified or implicit-receiver call.
     pub receiver_type: Option<String>,
     pub arguments: Vec<CallArgumentFact>,
-    /// Explicit generic arguments in source order.
-    pub type_arguments: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CallConvention {
+    Operator,
+    Infix,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

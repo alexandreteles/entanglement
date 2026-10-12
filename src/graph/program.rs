@@ -4,11 +4,11 @@ use std::path::PathBuf;
 
 use crate::languages::ResolutionFamily;
 use crate::model::{
-    Definition, DefinitionKind, FileFacts, Import, ReferenceAnalysis, ReferenceKind, Resolution,
-    SymbolId,
+    Definition, DefinitionKind, ExecutionTarget, FileFacts, Import, Reference, ReferenceAnalysis,
+    ReferenceKind, Resolution, SourceRange, SymbolId,
 };
 
-use super::{CallDispatch, CallFacts, DeclarationFacts, SemanticFacts};
+use super::{CallDispatch, CallFacts, DeclarationExecutionFacts, DeclarationFacts, SemanticFacts};
 
 /// A stable, graph-local identity for one normalized declaration.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -80,7 +80,10 @@ pub(crate) struct ProgramBinding {
     pub scope: ProgramScopeId,
     pub type_name: Option<String>,
     pub alias_target: Option<String>,
+    pub callable_reference: bool,
     pub immutable: bool,
+    semantic_evidence: bool,
+    conflicting_evidence: bool,
 }
 
 /// An indexed view of all normalized program facts across analyzed files.
@@ -201,22 +204,28 @@ impl<'a> ProgramGraph<'a> {
                 );
             }
             for local in &fact.locals {
-                graph.add_binding(ProgramBinding {
-                    file_index,
-                    context_id: local.context_id,
-                    name: local.name.clone(),
-                    start_byte: local.start_byte,
-                    end_byte: local.end_byte,
-                    scope: ProgramScopeId {
+                graph.add_binding(
+                    ProgramBinding {
                         file_index,
                         context_id: local.context_id,
-                        start_byte: local.scope_start,
-                        end_byte: local.scope_end,
+                        name: local.name.clone(),
+                        start_byte: local.start_byte,
+                        end_byte: local.end_byte,
+                        scope: ProgramScopeId {
+                            file_index,
+                            context_id: local.context_id,
+                            start_byte: local.scope_start,
+                            end_byte: local.scope_end,
+                        },
+                        type_name: None,
+                        alias_target: None,
+                        callable_reference: false,
+                        immutable: false,
+                        semantic_evidence: false,
+                        conflicting_evidence: false,
                     },
-                    type_name: None,
-                    alias_target: None,
-                    immutable: false,
-                });
+                    false,
+                );
                 graph.add_scope(
                     ProgramScopeId {
                         file_index,
@@ -229,22 +238,28 @@ impl<'a> ProgramGraph<'a> {
             }
             for semantic in &fact.semantic {
                 for binding in &semantic.bindings {
-                    graph.add_binding(ProgramBinding {
-                        file_index,
-                        context_id: semantic.context_id,
-                        name: binding.name.clone(),
-                        start_byte: binding.name_start_byte,
-                        end_byte: binding.name_end_byte,
-                        scope: ProgramScopeId {
+                    graph.add_binding(
+                        ProgramBinding {
                             file_index,
                             context_id: semantic.context_id,
-                            start_byte: binding.scope_start,
-                            end_byte: binding.scope_end,
+                            name: binding.name.clone(),
+                            start_byte: binding.name_start_byte,
+                            end_byte: binding.name_end_byte,
+                            scope: ProgramScopeId {
+                                file_index,
+                                context_id: semantic.context_id,
+                                start_byte: binding.scope_start,
+                                end_byte: binding.scope_end,
+                            },
+                            type_name: binding.type_name.clone(),
+                            alias_target: binding.alias_target.clone(),
+                            callable_reference: binding.callable_reference,
+                            immutable: binding.immutable,
+                            semantic_evidence: false,
+                            conflicting_evidence: false,
                         },
-                        type_name: binding.type_name.clone(),
-                        alias_target: binding.alias_target.clone(),
-                        immutable: binding.immutable,
-                    });
+                        true,
+                    );
                     graph.add_scope(
                         ProgramScopeId {
                             file_index,
@@ -310,7 +325,32 @@ impl<'a> ProgramGraph<'a> {
         }
     }
 
-    fn add_binding(&mut self, binding: ProgramBinding) {
+    fn add_binding(&mut self, mut binding: ProgramBinding, semantic_evidence: bool) {
+        let existing = self.bindings_by_file_name[binding.file_index]
+            .get(&binding.name)
+            .into_iter()
+            .flatten()
+            .copied()
+            .find(|index| binding_identity(&self.bindings[*index]) == binding_identity(&binding));
+        if let Some(index) = existing {
+            let existing = &mut self.bindings[index];
+            if semantic_evidence && !existing.semantic_evidence {
+                binding.semantic_evidence = true;
+                *existing = binding;
+            } else if semantic_evidence && existing.semantic_evidence {
+                existing.conflicting_evidence |=
+                    conflicting_option(&existing.type_name, &binding.type_name)
+                        || conflicting_option(&existing.alias_target, &binding.alias_target)
+                        || existing.callable_reference != binding.callable_reference
+                        || existing.immutable != binding.immutable;
+                existing.type_name = existing.type_name.clone().or(binding.type_name);
+                existing.alias_target = existing.alias_target.clone().or(binding.alias_target);
+                existing.callable_reference |= binding.callable_reference;
+                existing.immutable &= binding.immutable;
+            }
+            return;
+        }
+        binding.semantic_evidence = semantic_evidence;
         let index = self.bindings.len();
         self.bindings_by_file_name[binding.file_index]
             .entry(binding.name.clone())
@@ -431,6 +471,165 @@ impl<'a> ProgramGraph<'a> {
                     && binding.scope.start_byte <= position
                     && position < binding.scope.end_byte
             })
+    }
+
+    /// Return the unique nearest binding for a name at a source position.
+    /// A narrower lexical scope wins; declarations in that same scope use
+    /// the latest declaration before the position. Equal-ranked alternatives
+    /// are ambiguous and do not provide evidence.
+    fn binding_at(
+        &self,
+        file_index: usize,
+        name: &str,
+        context_id: usize,
+        position: usize,
+    ) -> Option<&ProgramBinding> {
+        let bindings = self
+            .bindings_named(file_index, name, context_id, position)
+            .collect::<Vec<_>>();
+        let narrowest = bindings
+            .iter()
+            .map(|binding| {
+                binding
+                    .scope
+                    .end_byte
+                    .saturating_sub(binding.scope.start_byte)
+            })
+            .min()?;
+        let nearest = bindings
+            .into_iter()
+            .filter(|binding| {
+                binding
+                    .scope
+                    .end_byte
+                    .saturating_sub(binding.scope.start_byte)
+                    == narrowest
+            })
+            .collect::<Vec<_>>();
+        let scope = nearest.first()?.scope;
+        if nearest.iter().any(|binding| {
+            binding.scope.start_byte != scope.start_byte || binding.scope.end_byte != scope.end_byte
+        }) {
+            return None;
+        }
+        let latest = nearest.iter().map(|binding| binding.start_byte).max()?;
+        let mut winners = nearest
+            .into_iter()
+            .filter(|binding| binding.start_byte == latest);
+        let winner = winners.next()?;
+        (winners.next().is_none() && !winner.conflicting_evidence).then_some(winner)
+    }
+
+    /// Resolve a binding's declared type, following only bounded immutable
+    /// aliases that are visible at each alias declaration in the same
+    /// semantic context.
+    pub(crate) fn binding_type(
+        &self,
+        file_index: usize,
+        name: &str,
+        context_id: usize,
+        position: usize,
+    ) -> Option<String> {
+        let mut binding = self.binding_at(file_index, name, context_id, position)?;
+        let mut seen = HashSet::new();
+        loop {
+            if let Some(type_name) = &binding.type_name {
+                return Some(type_name.clone());
+            }
+            if !binding.immutable || !seen.insert(binding_identity(binding)) {
+                return None;
+            }
+            let target = binding.alias_target.as_deref()?;
+            if !is_simple_binding_name(target) {
+                return None;
+            }
+            binding = self.binding_at(file_index, target, context_id, binding.end_byte)?;
+            if seen.len() > self.bindings.len() {
+                return None;
+            }
+        }
+    }
+
+    /// Follow a simple immutable alias chain and return its terminal source
+    /// path. The terminal name is left for the owning resolver to check
+    /// against its imports, package, and visibility rules.
+    pub(crate) fn binding_alias(
+        &self,
+        file_index: usize,
+        name: &str,
+        context_id: usize,
+        position: usize,
+    ) -> Option<String> {
+        let mut binding = self.binding_at(file_index, name, context_id, position)?;
+        let mut seen = HashSet::new();
+        loop {
+            if !binding.immutable || !seen.insert(binding_identity(binding)) {
+                return None;
+            }
+            let target = binding.alias_target.as_deref()?;
+            if !is_simple_binding_name(target) {
+                let first = target.split('.').next()?;
+                if self.has_local_binding(file_index, first, context_id, binding.end_byte) {
+                    return None;
+                }
+                return Some(target.to_owned());
+            }
+            let Some(next) = self.binding_at(file_index, target, context_id, binding.end_byte)
+            else {
+                return (!self.has_local_binding(file_index, target, context_id, binding.end_byte))
+                    .then(|| target.to_owned());
+            };
+            if !next.immutable {
+                return None;
+            }
+            next.alias_target.as_ref()?;
+            binding = next;
+            if seen.len() > self.bindings.len() {
+                return None;
+            }
+        }
+    }
+
+    /// Return the terminal path only when an immutable alias chain begins at
+    /// an explicit callable-reference value such as `::handler`.
+    pub(crate) fn binding_callable_alias(
+        &self,
+        file_index: usize,
+        name: &str,
+        context_id: usize,
+        position: usize,
+    ) -> Option<String> {
+        let mut binding = self.binding_at(file_index, name, context_id, position)?;
+        let mut seen = HashSet::new();
+        let mut contains_callable_reference = false;
+        loop {
+            if !binding.immutable || !seen.insert(binding_identity(binding)) {
+                return None;
+            }
+            contains_callable_reference |= binding.callable_reference;
+            let target = binding.alias_target.as_deref()?;
+            if !is_simple_binding_name(target) {
+                let first = target.split('.').next()?;
+                if self.has_local_binding(file_index, first, context_id, binding.end_byte) {
+                    return None;
+                }
+                return contains_callable_reference.then(|| target.to_owned());
+            }
+            let Some(next) = self.binding_at(file_index, target, context_id, binding.end_byte)
+            else {
+                if self.has_local_binding(file_index, target, context_id, binding.end_byte) {
+                    return None;
+                }
+                return contains_callable_reference.then(|| target.to_owned());
+            };
+            if !next.immutable || next.alias_target.is_none() {
+                return None;
+            }
+            binding = next;
+            if seen.len() > self.bindings.len() {
+                return None;
+            }
+        }
     }
 
     pub(crate) fn has_local_binding(
@@ -579,6 +778,26 @@ impl<'a> ProgramGraph<'a> {
                 let Some(symbol) = self.unique_symbol_for_target(target) else {
                     continue;
                 };
+                if analysis.dispatch == Some(CallDispatch::Direct) {
+                    for execution in &analysis.execution_targets {
+                        if self.valid_execution_target(symbol, execution)
+                            && self.is_reported_execution_caller(
+                                file_index,
+                                reference,
+                                execution.caller_start_byte,
+                            )
+                        {
+                            calls.push(CallEdge {
+                                caller_file: file_index,
+                                caller_start_byte: execution.caller_start_byte,
+                                callee_file: execution.file_index,
+                                callee_start_byte: execution.range.start_byte,
+                                call_start_byte: reference.start_byte,
+                                call_end_byte: reference.end_byte,
+                            });
+                        }
+                    }
+                }
                 let is_call = matches!(
                     reference.kind,
                     ReferenceKind::Call
@@ -603,13 +822,6 @@ impl<'a> ProgramGraph<'a> {
                 let callee_file = symbol.file_index;
                 let callee_start_byte = symbol_info.semantic_id.start_byte;
                 let callee_context = symbol_info.scope.context_id;
-                let caller_is_callable = self.symbols_for_file(file_index).any(|candidate| {
-                    matches!(
-                        candidate.kind,
-                        DefinitionKind::Function | DefinitionKind::Method
-                    ) && candidate.semantic_id.start_byte == caller_start_byte
-                        && candidate.scope.context_id == reference.context_id
-                });
                 let dispatch_is_confirmed = match &symbol_info.kind {
                     DefinitionKind::Function => {
                         matches!(analysis.dispatch, None | Some(CallDispatch::Direct))
@@ -621,9 +833,7 @@ impl<'a> ProgramGraph<'a> {
                     && dispatch_is_confirmed
                     && self.function_starts[callee_file]
                         .contains(&(callee_context, callee_start_byte))
-                    && self.function_starts[file_index]
-                        .contains(&(reference.context_id, caller_start_byte))
-                    && caller_is_callable;
+                    && self.is_reported_caller(file_index, reference, caller_start_byte);
                 self.relations.push(ProgramRelation {
                     source_file: file_index,
                     source_start_byte: reference.start_byte,
@@ -653,6 +863,7 @@ impl<'a> ProgramGraph<'a> {
                 call_end_byte: relation.source_end_byte,
             })
         }));
+        calls.extend(self.implicit_initialization_edges());
         calls.sort_by_key(|edge| {
             (
                 edge.caller_file,
@@ -665,6 +876,195 @@ impl<'a> ProgramGraph<'a> {
         });
         calls.dedup();
         calls
+    }
+
+    fn is_reported_callable(
+        &self,
+        file_index: usize,
+        context_id: usize,
+        start_byte: usize,
+    ) -> bool {
+        self.facts[file_index]
+            .analysis
+            .functions
+            .iter()
+            .filter(|function| function.start_byte == start_byte)
+            .any(|function| {
+                let declared_function = self.function_starts[file_index]
+                    .contains(&(context_id, start_byte))
+                    && self
+                        .symbols_for_file(file_index)
+                        .filter(|symbol| {
+                            symbol.scope.context_id == context_id
+                                && symbol.semantic_id.start_byte == start_byte
+                                && matches!(
+                                    symbol.kind,
+                                    DefinitionKind::Function | DefinitionKind::Method
+                                )
+                        })
+                        .filter_map(|symbol| self.definition(symbol.id))
+                        .any(|definition| definition.end_byte == function.end_byte);
+                let declared_execution = self.facts[file_index]
+                    .semantic
+                    .iter()
+                    .filter(|semantic| semantic.context_id == context_id)
+                    .flat_map(|semantic| semantic.declarations.iter())
+                    .filter_map(|declaration| declaration.execution.as_ref())
+                    .flat_map(execution_ranges)
+                    .any(|range| {
+                        range.start_byte == function.start_byte
+                            && range.end_byte == function.end_byte
+                    });
+                declared_function || declared_execution
+            })
+    }
+
+    fn is_reported_caller(
+        &self,
+        file_index: usize,
+        reference: &Reference,
+        caller_start_byte: usize,
+    ) -> bool {
+        reference.call_owner == Some(caller_start_byte)
+            && self.is_reported_scope_owner(file_index, reference, caller_start_byte)
+    }
+
+    fn is_reported_execution_caller(
+        &self,
+        file_index: usize,
+        reference: &Reference,
+        caller_start_byte: usize,
+    ) -> bool {
+        reference.execution_owner.or(reference.call_owner) == Some(caller_start_byte)
+            && self.is_reported_scope_owner(file_index, reference, caller_start_byte)
+    }
+
+    fn is_reported_scope_owner(
+        &self,
+        file_index: usize,
+        reference: &Reference,
+        caller_start_byte: usize,
+    ) -> bool {
+        if reference.scope_start > reference.start_byte || reference.end_byte > reference.scope_end
+        {
+            return false;
+        }
+        let nearest = self.facts[file_index]
+            .analysis
+            .functions
+            .iter()
+            .filter(|function| {
+                function.start_byte <= reference.start_byte
+                    && reference.end_byte <= function.end_byte
+                    && self.is_reported_callable(
+                        file_index,
+                        reference.context_id,
+                        function.start_byte,
+                    )
+            })
+            .min_by_key(|function| function.end_byte.saturating_sub(function.start_byte));
+        nearest.is_some_and(|function| function.start_byte == caller_start_byte)
+    }
+
+    fn valid_execution_target(
+        &self,
+        resolved_symbol: ProgramSymbolId,
+        target: &ExecutionTarget,
+    ) -> bool {
+        let Some(symbol) = self.symbol(resolved_symbol) else {
+            return false;
+        };
+        if target.file_index != symbol.id.file_index || target.context_id != symbol.scope.context_id
+        {
+            return false;
+        }
+        let Some(definition) = self.definition(resolved_symbol) else {
+            return false;
+        };
+        let Some(declaration) = self.declaration(
+            symbol.id.file_index,
+            symbol.scope.context_id,
+            definition.start_byte,
+            None,
+        ) else {
+            return false;
+        };
+        let Some(execution) = declaration.execution.as_ref() else {
+            return false;
+        };
+        let range_is_declared = execution_ranges(execution).any(|range| range == target.range);
+        range_is_declared
+            && self.facts[target.file_index]
+                .analysis
+                .functions
+                .iter()
+                .any(|function| {
+                    function.start_byte == target.range.start_byte
+                        && function.end_byte == target.range.end_byte
+                })
+    }
+
+    fn implicit_initialization_edges(&self) -> Vec<CallEdge> {
+        let mut edges = Vec::new();
+        for (file_index, fact) in self.facts.iter().enumerate() {
+            for semantic in &fact.semantic {
+                for declaration in &semantic.declarations {
+                    if !matches!(
+                        declaration.kind,
+                        super::DeclarationKind::Class
+                            | super::DeclarationKind::Object
+                            | super::DeclarationKind::CompanionObject
+                    ) {
+                        continue;
+                    }
+                    let Some(execution) = declaration.execution.as_ref() else {
+                        continue;
+                    };
+                    for constructor in &execution.constructors {
+                        if !self.is_reported_execution_range(
+                            file_index,
+                            semantic.context_id,
+                            *constructor,
+                        ) {
+                            continue;
+                        }
+                        for initializer in &execution.initializers {
+                            if self.is_reported_execution_range(
+                                file_index,
+                                semantic.context_id,
+                                *initializer,
+                            ) {
+                                edges.push(CallEdge {
+                                    caller_file: file_index,
+                                    caller_start_byte: constructor.start_byte,
+                                    callee_file: file_index,
+                                    callee_start_byte: initializer.start_byte,
+                                    call_start_byte: constructor.start_byte,
+                                    call_end_byte: constructor.end_byte,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        edges
+    }
+
+    fn is_reported_execution_range(
+        &self,
+        file_index: usize,
+        context_id: usize,
+        range: crate::model::SourceRange,
+    ) -> bool {
+        self.is_reported_callable(file_index, context_id, range.start_byte)
+            && self.facts[file_index]
+                .analysis
+                .functions
+                .iter()
+                .any(|function| {
+                    function.start_byte == range.start_byte && function.end_byte == range.end_byte
+                })
     }
 
     fn unique_symbol_for_target(&self, target: &SymbolId) -> Option<ProgramSymbolId> {
@@ -694,6 +1094,36 @@ impl<'a> ProgramGraph<'a> {
         let symbol = matches.next()?;
         matches.next().is_none().then_some(symbol)
     }
+}
+
+fn binding_identity(binding: &ProgramBinding) -> (usize, usize, &str, usize, usize, usize, usize) {
+    (
+        binding.file_index,
+        binding.context_id,
+        &binding.name,
+        binding.start_byte,
+        binding.end_byte,
+        binding.scope.start_byte,
+        binding.scope.end_byte,
+    )
+}
+
+fn conflicting_option<T: PartialEq>(left: &Option<T>, right: &Option<T>) -> bool {
+    matches!((left, right), (Some(left), Some(right)) if left != right)
+}
+
+fn execution_ranges(
+    execution: &DeclarationExecutionFacts,
+) -> impl Iterator<Item = SourceRange> + '_ {
+    [execution.callable_value, execution.getter, execution.setter]
+        .into_iter()
+        .flatten()
+        .chain(execution.constructors.iter().copied())
+        .chain(execution.initializers.iter().copied())
+}
+
+fn is_simple_binding_name(name: &str) -> bool {
+    !name.is_empty() && !name.contains('.')
 }
 
 fn semantic_symbol_id(fact: &FileFacts, definition: &Definition) -> SymbolId {

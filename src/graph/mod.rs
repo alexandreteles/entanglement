@@ -9,9 +9,9 @@ mod program;
 mod syntax;
 
 pub(crate) use facts::{
-    BindingType, CallArgumentFact, CallDispatch, CallFacts, CallableParameter, CallableSignature,
-    DeclarationFacts, DeclarationKind, DeclarationModifiers, ReceiverScope, SemanticContext,
-    SemanticFacts, SemanticVisibility,
+    BindingType, CallArgumentFact, CallConvention, CallDispatch, CallFacts, CallableParameter,
+    CallableSignature, DeclarationExecutionFacts, DeclarationFacts, DeclarationKind,
+    DeclarationModifiers, ReceiverScope, SemanticContext, SemanticFacts, SemanticVisibility,
 };
 pub(crate) use program::{CallEdge, ProgramGraph, ProgramSymbolId};
 pub(crate) use syntax::SyntaxGraph;

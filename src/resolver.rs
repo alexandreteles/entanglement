@@ -1,7 +1,7 @@
-//! Resolve Rust names across the analyzed files.
+//! Resolve source references through shared graphs and language strategies.
 //!
-//! The resolver uses Tree-sitter facts from each file. It does not infer types
-//! or resolve method dispatch. It leaves uncertain names unresolved.
+//! Language adapters provide syntax evidence, and strategies combine it with
+//! static project relationships. Uncertain targets stay ambiguous or unresolved.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -79,8 +79,8 @@ struct Index {
 /// Resolve references in all facts and store their results in each analysis.
 ///
 /// Call this after all files have been parsed. The function sorts symbols and
-/// ambiguity results to keep output stable. It leaves method calls and names
-/// that cannot be resolved without guessing as `Unresolved`.
+/// ambiguity results to keep output stable. Only statically proven execution
+/// targets become call-graph edges.
 pub(crate) fn resolve(facts: &mut [FileFacts], selection: crate::metrics::selection::Selection) {
     resolve_with_snapshot(facts, selection, &crate::snapshot::Snapshot::default());
 }
@@ -157,6 +157,7 @@ fn resolve_fact(
                     .collect(),
             ),
             dispatch: None,
+            execution_targets: Vec::new(),
         })
         .collect()
 }

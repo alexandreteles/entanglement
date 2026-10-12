@@ -109,6 +109,24 @@ pub struct ReferenceAnalysis {
     /// Whether a resolved call has a statically selected runtime target.
     #[serde(skip)]
     pub(crate) dispatch: Option<crate::graph::CallDispatch>,
+    /// Executable scopes reached through an invocation-bearing value reference.
+    ///
+    /// This stays out of reports: it is graph evidence that supplements the
+    /// resolved symbol without changing the source-level resolution result.
+    #[serde(skip)]
+    pub(crate) execution_targets: Vec<ExecutionTarget>,
+}
+
+/// A proven executable target associated with one reference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ExecutionTarget {
+    /// Start byte of the callable containing the invocation.
+    pub caller_start_byte: usize,
+    /// File and semantic context that own the target body.
+    pub file_index: usize,
+    pub context_id: usize,
+    /// Exact executable body range reported by the metrics analyzer.
+    pub range: SourceRange,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -419,6 +437,9 @@ pub(crate) struct Reference {
     /// Start byte of the enclosing function when this reference is a call
     /// target outside a deferred closure or async block.
     pub call_owner: Option<usize>,
+    /// Start byte of the enclosing executable source unit for any reference.
+    /// This records ownership only; it does not imply an invocation.
+    pub execution_owner: Option<usize>,
     pub context_id: usize,
 }
 

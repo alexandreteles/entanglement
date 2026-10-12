@@ -80,11 +80,11 @@ pub(super) fn file_contexts(graph: &ProgramGraph<'_>) -> Vec<Vec<FileContext>> {
         }
     }
 
-    for index in 0..graph.file_count() {
+    for (index, assignment) in assignments.iter().enumerate() {
         if graph.file(index).resolution_family != ResolutionFamily::RustCrates {
             continue;
         }
-        if assignments[index].is_empty() && !incoming.contains(&index) {
+        if assignment.is_empty() && !incoming.contains(&index) {
             for path in &graph.file(index).aliases {
                 pending.push_back((
                     index,
