@@ -41,6 +41,7 @@ class Registry {
   @observe
   method(item: Item) { if (item.active && item.label) return item.label; return ""; }
 }
+
 export function Panel(items: Item[]) {
   const onClick = (item: Item) => item.active && activate(item.label);
   return <Show when={items.length > 0} fallback={<p>jsxTextOnlyName</p>}>
@@ -81,10 +82,38 @@ function activate(label: string) { return label; }
     assert_eq!(function(file, "values")["cyclomatic_complexity"], 2);
     assert_eq!(function(file, "method")["cyclomatic_complexity"], 3);
     assert_eq!(function(file, "onClick")["cyclomatic_complexity"], 2);
+    assert_eq!(function(file, "onClick")["cognitive_complexity"], 1);
     let references = file["resolution"].as_array().unwrap();
     assert!(!references.iter().any(|item| {
         ["commentOnlyName", "jsxTextOnlyName", "jsxCommentOnlyName"]
             .iter()
             .any(|name| item["path"].to_string().contains(name))
     }));
+}
+
+#[test]
+fn tagged_javascript_templates_can_use_the_registered_python_analyzer() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("embedded.js");
+    write(
+        &path,
+        r#"const guest = python`def from_template(flag):
+    if flag:
+        return 1
+`;
+function host(flag) { return flag ? 1 : 0; }
+"#,
+    );
+    let result = report(&run("file", &path, None, Some("cc,cogc")));
+    let file = &result["files"][0];
+    assert_eq!(file["language"], "javascript");
+    assert!(
+        file["injections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| { item["language"] == "python" && item["analyzed"] == true })
+    );
+    assert_eq!(function(file, "from_template")["cyclomatic_complexity"], 2);
+    assert_eq!(function(file, "host")["cyclomatic_complexity"], 2);
 }

@@ -88,6 +88,8 @@ fn cognitive_contribution_count(function: &Value, kind: &str) -> usize {
         .count()
 }
 
+#[path = "kotlin_languages/candidate.rs"]
+mod candidate;
 #[path = "kotlin_languages/commands.rs"]
 mod commands;
 #[path = "kotlin_languages/native.rs"]

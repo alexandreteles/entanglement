@@ -73,3 +73,207 @@ def type_loop(flag):
         assert_eq!(target["cyclomatic_complexity"], 2);
     }
 }
+
+#[test]
+fn python_can_inject_kotlin_through_its_registered_language_name() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("embedded.py");
+    write(
+        &path,
+        r#"
+def host():
+    return kotlin("""fun embedded(flag: Boolean) {
+    if (flag) println("from Kotlin")
+}""")
+"#,
+    );
+
+    let result = report(&run("file", &path, None, Some("cc,cogc,halstead")));
+    let file = &result["files"][0];
+    assert_eq!(file["language"], "python");
+    assert_eq!(injection_count(file, "kotlin", true), 1);
+    assert_eq!(function(file, "embedded")["cyclomatic_complexity"], 2);
+    assert_eq!(function(file, "host")["cyclomatic_complexity"], 1);
+}
+
+#[test]
+fn kotlin_guest_declarations_are_isolated_by_host_file_and_injection_context() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("project");
+    let api = concat!(
+        "def api():\n",
+        "    return kotlin(\"\"\"fun isolated() = 1\"\"\")\n",
+    );
+    let use_source = concat!(
+        "def first_context():\n",
+        "    return kotlin(\"\"\"fun localContextOnly() = 1\"\"\")\n",
+        "def second_context():\n",
+        "    return kotlin(\"\"\"fun useGuest() { isolated(); localContextOnly() }\"\"\")\n",
+    );
+    write(&root.join("Api.py"), api);
+    write(&root.join("Use.py"), use_source);
+
+    let report = report(&run("repo", &root, None, Some("cogc")));
+    let use_file = file(&report, "/Use.py");
+    let resolution_at = |needle: &str, occurrence: usize| {
+        let start = use_source
+            .match_indices(needle)
+            .nth(occurrence)
+            .unwrap_or_else(|| panic!("missing {occurrence} occurrence of {needle:?}"))
+            .0;
+        use_file["resolution"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["start_byte"] == start)
+            .unwrap_or_else(|| panic!("missing reference at byte {start} for {needle:?}"))
+    };
+
+    assert_ne!(
+        resolution_at("isolated()", 0)["resolution"]["status"],
+        "exact",
+        "Kotlin guest declarations from another Python host file stay isolated"
+    );
+    assert_ne!(
+        resolution_at("localContextOnly()", 1)["resolution"]["status"],
+        "exact",
+        "separate Kotlin injections in one host file are separate source contexts"
+    );
+}
+
+#[test]
+fn adjacent_kotlin_injections_keep_context_prefixes_mapped_through_candidate_edits() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("project");
+    let path = root.join("embedded.py");
+    let before = concat!(
+        "def host():\r\n",
+        "    first = kotlin(\"\"\"fun first(flag: Boolean) = if (flag) 1 else 0\r\n",
+        "\"\"\")\r\n",
+        "    second = kotlin(\"\"\"fun second(flag: Boolean) = if (flag) 1 else 0\r\n",
+        "fun ordinaryContext(value: Boolean) {\r\n",
+        "    // context(String) is only a comment\r\n",
+        "    val fake = \"context(value: String) { braces }\"\r\n",
+        "    context(value) { if (it) println(fake) }\r\n",
+        "}\r\n",
+        "\"\"\")\r\n",
+    );
+    let after = concat!(
+        "def host():\r\n",
+        "    first = kotlin(\"\"\"fun first(flag: Boolean) = if (flag) 1 else 0\r\n",
+        "\"\"\")\r\n",
+        "    second = kotlin(\"\"\"context(String)\r\n",
+        "fun second(flag: Boolean) = if (flag) length else 0\r\n",
+        "fun ordinaryContext(value: Boolean) {\r\n",
+        "    // context(String) is only a comment\r\n",
+        "    val fake = \"context(value: String) { braces }\"\r\n",
+        "    context(value) { if (it) println(fake) }\r\n",
+        "}\r\n",
+        "\"\"\")\r\n",
+    );
+    write(&path, before);
+    let before_report = report(&run("file", &path, None, Some("all")));
+    let before_file = &before_report["files"][0];
+    assert_eq!(injection_count(before_file, "kotlin", true), 2);
+    assert_eq!(function(before_file, "second")["cyclomatic_complexity"], 2);
+    let before_context = function(before_file, "ordinaryContext");
+    assert_eq!(before_context["cyclomatic_complexity"], 1);
+    assert!(
+        before_file["functions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| {
+                item["name"]
+                    .as_str()
+                    .is_some_and(|name| name.starts_with("anonymous@"))
+                    && item["cyclomatic_complexity"] == 2
+            })
+    );
+
+    let diff = temp.path().join("embedded.diff");
+    let patch = diffy::create_patch(before, after)
+        .to_string()
+        .replacen("--- original", "--- a/embedded.py", 1)
+        .replacen("+++ modified", "+++ b/embedded.py", 1);
+    write(&diff, patch);
+    let candidate = report(&run("candidate", &path, Some(&diff), Some("all")));
+    assert_eq!(std::fs::read(&path).unwrap(), before.as_bytes());
+    let candidate_file = file(&candidate, "embedded.py");
+    assert_eq!(injection_count(candidate_file, "kotlin", true), 2);
+    let second = function(candidate_file, "second");
+    assert_eq!(second["cyclomatic_complexity"], 2);
+    let added_header_start = after.find("context(String)").unwrap() + "context(".len();
+    assert!(
+        candidate_file["functions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| {
+                item["name"] == "second"
+                    && item["halstead"]["operands"]
+                        .as_array()
+                        .is_some_and(|operands| {
+                            operands.iter().any(|token| {
+                                token["text"] == "String"
+                                    && token["start_byte"].as_u64()
+                                        == Some(added_header_start as u64)
+                            })
+                        })
+            })
+    );
+    assert_eq!(
+        function(candidate_file, "ordinaryContext")["cyclomatic_complexity"],
+        1
+    );
+    assert!(
+        candidate_file["functions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| {
+                item["name"]
+                    .as_str()
+                    .is_some_and(|name| name.starts_with("anonymous@"))
+                    && item["cyclomatic_complexity"] == 2
+            })
+    );
+    let deltas = candidate["patch"]["files"][0]["functions"]
+        .as_array()
+        .expect("candidate deltas");
+    let second_delta = deltas
+        .iter()
+        .find(|item| item["name"] == "second")
+        .expect("second keeps a before and after scope");
+    assert!(second_delta["before_range"].is_object() && second_delta["after_range"].is_object());
+    let callback_deltas: Vec<_> = deltas
+        .iter()
+        .filter(|item| {
+            item["name"]
+                .as_str()
+                .is_some_and(|name| name.starts_with("anonymous@"))
+        })
+        .collect();
+    assert_eq!(callback_deltas.len(), 1);
+    assert!(callback_deltas[0]["before_range"].is_object());
+    assert!(callback_deltas[0]["after_range"].is_object());
+    assert_eq!(callback_deltas[0]["cyclomatic_complexity"]["delta"], 0);
+
+    write(&path, after);
+    let fresh_after = report(&run("repo", &root, None, Some("all")));
+    assert_eq!(candidate["files"], fresh_after["files"]);
+    let reverse_diff = temp.path().join("embedded-reverse.diff");
+    let reverse_patch = diffy::create_patch(after, before)
+        .to_string()
+        .replacen("--- original", "--- a/embedded.py", 1)
+        .replacen("+++ modified", "+++ b/embedded.py", 1);
+    write(&reverse_diff, reverse_patch);
+    let removed = report(&run("candidate", &path, Some(&reverse_diff), Some("all")));
+    assert_eq!(
+        function(file(&removed, "embedded.py"), "second")["cyclomatic_complexity"],
+        2
+    );
+    write(&path, before);
+    let fresh_before = report(&run("repo", &root, None, Some("all")));
+    assert_eq!(removed["files"], fresh_before["files"]);
+}
