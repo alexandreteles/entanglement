@@ -1,0 +1,20 @@
+{
+  "grammars": [
+    {
+      "name": "kotlin",
+      "camelcase": "Kotlin",
+      "scope": "source.kotlin",
+      "path": ".",
+      "file-types": ["kt", "kts"],
+      "injection-regex": "^(kotlin|kt)$"
+    }
+  ],
+  "metadata": {
+    "version": "0.4.0",
+    "license": "MIT",
+    "description": "Kotlin grammar for tree-sitter",
+    "links": {
+      "repository": "https://github.com/fwcd/tree-sitter-kotlin"
+    }
+  }
+}
