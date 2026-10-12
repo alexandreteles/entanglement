@@ -21,6 +21,7 @@ pub fn is_event(role: SyntaxRole) -> bool {
             | SyntaxRole::CognitiveLoop
             | SyntaxRole::CognitiveLetElse
             | SyntaxRole::CognitiveMultiway
+            | SyntaxRole::CognitiveCatch
             | SyntaxRole::CognitiveLogicalExpression
             | SyntaxRole::CognitiveLogicalAnd
             | SyntaxRole::CognitiveLogicalOr
@@ -114,6 +115,7 @@ impl Context<'_> {
                 SyntaxRole::CognitiveLoop => ("loop", 1 + self.nesting(event, function)),
                 SyntaxRole::CognitiveLetElse => ("let_else", 1 + self.nesting(event, function)),
                 SyntaxRole::CognitiveMultiway => ("match", 1 + self.nesting(event, function)),
+                SyntaxRole::CognitiveCatch => ("catch", 1 + self.nesting(event, function)),
                 SyntaxRole::CognitiveLabeledJump => ("labeled_jump", 1),
                 _ => continue,
             };
@@ -137,6 +139,7 @@ fn is_scored_event(role: SyntaxRole) -> bool {
             | SyntaxRole::CognitiveLoop
             | SyntaxRole::CognitiveLetElse
             | SyntaxRole::CognitiveMultiway
+            | SyntaxRole::CognitiveCatch
             | SyntaxRole::CognitiveLogicalAnd
             | SyntaxRole::CognitiveLogicalOr
             | SyntaxRole::CognitiveLabeledJump
