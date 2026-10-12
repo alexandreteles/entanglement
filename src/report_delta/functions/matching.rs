@@ -35,14 +35,14 @@ pub(super) fn pair_functions(
     if let (Some(old_source), Some(new_source)) = (old_source, new_source) {
         // Reorders and whole-line edits can erase edit anchors. Match unchanged
         // source only when its enclosing scope and spelling identify one item.
-        pair_unique(old, new, &mut pairs, &mut used, |left, right| {
+        pair_unique(old, new, &mut pairs, &mut used, true, |left, right| {
             compatible_names(left, right)
                 && owners(old, left, old_source) == owners(new, right, new_source)
                 && spelling(old_source, left).is_some()
                 && spelling(old_source, left) == spelling(new_source, right)
         });
         // A modified anonymous body can retain a unique call-site/binding anchor.
-        pair_unique(old, new, &mut pairs, &mut used, |left, right| {
+        pair_unique(old, new, &mut pairs, &mut used, false, |left, right| {
             anonymous(left)
                 && anonymous(right)
                 && owners(old, left, old_source) == owners(new, right, new_source)
@@ -52,7 +52,7 @@ pub(super) fn pair_functions(
     }
     // Keep the established unique-name fallback for named declarations. Anonymous
     // line numbers cannot establish identity when a replaced scope disappears.
-    pair_unique(old, new, &mut pairs, &mut used, |left, right| {
+    pair_unique(old, new, &mut pairs, &mut used, true, |left, right| {
         !anonymous(left)
             && left.name == right.name
             && old.iter().filter(|item| item.name == left.name).count() == 1
@@ -66,10 +66,11 @@ fn pair_unique(
     new: &[FunctionAnalysis],
     pairs: &mut [Option<usize>],
     used: &mut [bool],
+    full_set: bool,
     equivalent: impl Fn(&FunctionAnalysis, &FunctionAnalysis) -> bool,
 ) {
-    // Compute uniqueness against the full sets so earlier pairings cannot make
-    // genuinely duplicate source scopes appear uniquely identifiable.
+    // Exact spelling must identify a unique original scope. Call-site matching
+    // may use the remaining set after stronger source matches reserve siblings.
     for (index, function) in old
         .iter()
         .enumerate()
@@ -79,14 +80,19 @@ fn pair_unique(
         let candidates = new
             .iter()
             .enumerate()
-            .filter(|(_, other)| equivalent(function, other))
+            .filter(|(candidate, other)| {
+                (full_set || !used[*candidate]) && equivalent(function, other)
+            })
             .map(|(index, _)| index)
             .collect::<Vec<_>>();
         if let [candidate] = candidates.as_slice()
             && !used[*candidate]
             && old
                 .iter()
-                .filter(|other| equivalent(other, &new[*candidate]))
+                .enumerate()
+                .filter(|(index, other)| {
+                    (full_set || pairs[*index].is_none()) && equivalent(other, &new[*candidate])
+                })
                 .count()
                 == 1
         {
