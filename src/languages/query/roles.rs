@@ -30,6 +30,7 @@ const STANDARD_ROLES: &[(&str, SyntaxRole)] = &[
     ("metric.cognitive.loop", SyntaxRole::CognitiveLoop),
     ("metric.cognitive.let_else", SyntaxRole::CognitiveLetElse),
     ("metric.cognitive.multiway", SyntaxRole::CognitiveMultiway),
+    ("metric.cognitive.catch", SyntaxRole::CognitiveCatch),
     (
         "metric.cognitive.logical_expression",
         SyntaxRole::CognitiveLogicalExpression,

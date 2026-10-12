@@ -33,6 +33,8 @@ pub enum SyntaxRole {
     CognitiveLetElse,
     /// A `match` expression for cognitive complexity.
     CognitiveMultiway,
+    /// A catch clause for cognitive complexity.
+    CognitiveCatch,
     /// A binary expression joining logical operators.
     CognitiveLogicalExpression,
     /// A logical AND operator.
