@@ -13,6 +13,7 @@ use crate::model::{FileFacts, ReferenceAnalysis, Resolution, SymbolId};
 
 mod files;
 mod indexing;
+mod kotlin;
 mod module_graph;
 mod packages;
 mod resolution;
@@ -111,6 +112,7 @@ fn resolve_references(
     let mut index = Index::new(graph);
     index.resolve_imports();
     let file_resolutions = files::resolve(facts, graph);
+    let kotlin_resolutions = kotlin::resolve(facts, snapshot, graph);
     let package_resolutions = packages::resolve(facts, snapshot, graph);
     facts
         .iter()
@@ -118,6 +120,7 @@ fn resolve_references(
         .map(|(file_index, fact)| {
             let resolved = file_resolutions[file_index]
                 .as_ref()
+                .or(kotlin_resolutions[file_index].as_ref())
                 .or(package_resolutions[file_index].as_ref());
             resolve_fact(&index, file_index, fact, resolved)
         })
