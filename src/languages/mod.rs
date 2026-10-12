@@ -1,5 +1,6 @@
 mod assets;
 pub(crate) mod go;
+pub(crate) mod kotlin;
 mod python;
 pub(crate) mod query;
 mod registry;
@@ -108,6 +109,7 @@ pub(crate) enum ResolutionFamily {
     RustCrates,
     FileModules,
     GoPackages,
+    KotlinModules,
     None,
 }
 
