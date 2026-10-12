@@ -54,7 +54,6 @@ impl Analyzer {
         let captures = Captures {
             local_scopes,
             reference_kinds,
-            syntax_node: id("syntax.node"),
             import: id("import"),
             reference_path: id("reference.path"),
             local_pattern: id("local.pattern"),
@@ -76,9 +75,6 @@ impl<'a> CaptureFacts<'a> {
     ) {
         for capture in captures {
             let node = capture.node;
-            if capture.index == query.syntax_node {
-                self.graph.nodes.insert(node.id(), node);
-            }
             if capture.index == query.reference_path {
                 self.paths.push(RawPath {
                     node_id: node.id(),
@@ -198,7 +194,7 @@ fn is_method(node: tree_sitter::Node<'_>) -> bool {
 }
 
 pub(super) fn has_visibility(node_id: usize, graph: &NodeGraph<'_>) -> bool {
-    let Some(node) = graph.nodes.get(&node_id) else {
+    let Some(node) = graph.node(node_id) else {
         return false;
     };
     let mut cursor = node.walk();

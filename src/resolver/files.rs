@@ -2,6 +2,7 @@
 
 use rayon::prelude::*;
 
+use crate::graph::ProgramGraph;
 use crate::model::{FileFacts, ReferenceAnalysis, Resolution};
 
 mod bindings;
@@ -14,8 +15,11 @@ mod symbols;
 use indexing::Index;
 
 /// Build results for file-module languages without exposing another syntax parser.
-pub(super) fn resolve(facts: &[FileFacts]) -> Vec<Option<Vec<ReferenceAnalysis>>> {
-    let index = Index::new(facts);
+pub(super) fn resolve(
+    facts: &[FileFacts],
+    graph: &ProgramGraph<'_>,
+) -> Vec<Option<Vec<ReferenceAnalysis>>> {
+    let index = Index::new(facts, graph);
     facts
         .par_iter()
         .enumerate()

@@ -22,6 +22,7 @@ use super::injections::{self, ParsedInjection};
 use super::metrics;
 
 pub(super) struct TreeSummary {
+    pub(super) semantic: crate::graph::SemanticFacts,
     metric_id: String,
     resolution_family: ResolutionFamily,
     file_module_rules: Option<&'static FileModuleRules>,
@@ -139,17 +140,30 @@ pub(super) fn build_facts(
     let mut exports = Vec::new();
     let mut references = Vec::new();
     let mut locals = Vec::new();
-    for item in summaries
-        .into_iter()
-        .filter(|item| item.resolution_family == resolution_family)
-    {
+    let mut semantic = Vec::<crate::graph::SemanticFacts>::new();
+    for item in summaries {
         definitions.extend(item.definitions);
         imports.extend(item.imports);
         exports.extend(item.exports);
         references.extend(item.references);
         locals.extend(item.locals);
+        if let Some(layer) = semantic.iter_mut().find(|layer| {
+            layer.context_id == item.semantic.context_id
+                && layer.resolution_family == item.semantic.resolution_family
+        }) {
+            layer.declarations.extend(item.semantic.declarations);
+            layer.bindings.extend(item.semantic.bindings);
+            layer.receivers.extend(item.semantic.receivers);
+            layer.calls.extend(item.semantic.calls);
+            if layer.context.is_none() {
+                layer.context = item.semantic.context;
+            }
+        } else {
+            semantic.push(item.semantic);
+        }
     }
     FileFacts {
+        semantic,
         target: path.to_path_buf(),
         aliases: vec![path.to_path_buf()],
         path: path.to_path_buf(),

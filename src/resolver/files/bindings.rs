@@ -1,3 +1,4 @@
+use crate::graph::ProgramGraph;
 use crate::model::{FileFacts, Import};
 
 use super::Target;
@@ -18,11 +19,13 @@ pub(super) enum BindingTarget<'a> {
 
 pub(super) fn binding_target<'a>(
     fact: &'a FileFacts,
+    graph: &ProgramGraph<'_>,
+    file_index: usize,
     name: &str,
     position: usize,
     context_id: usize,
 ) -> BindingTarget<'a> {
-    let local = local_symbols(fact, name, position, context_id);
+    let local = local_symbols(graph, file_index, name, position, context_id);
     let local_rank = local.as_ref().map(|(rank, _)| *rank);
     let shadow_rank = local_binding_rank(fact, name, position, context_id);
     let import = imported_binding(fact, name, position, context_id);

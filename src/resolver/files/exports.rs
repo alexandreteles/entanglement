@@ -6,7 +6,7 @@ use super::bindings::{BindingTarget, binding_target, local_binding_rank};
 use super::symbols::anonymous_export_symbols;
 use super::{Index, Target, unique_targets};
 
-impl Index<'_> {
+impl Index<'_, '_> {
     pub(super) fn resolve_export(
         &self,
         file: usize,
@@ -78,10 +78,12 @@ impl Index<'_> {
         visiting: &mut BTreeSet<(usize, String)>,
     ) -> Vec<Target> {
         let Some(name) = export.local_name.as_deref() else {
-            return anonymous_export_symbols(&self.facts[file], export);
+            return anonymous_export_symbols(self.graph, file, export);
         };
         match binding_target(
             &self.facts[file],
+            self.graph,
+            file,
             name,
             export.start_byte,
             export.context_id,

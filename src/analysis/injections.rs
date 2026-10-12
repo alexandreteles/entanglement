@@ -187,7 +187,17 @@ impl Worker {
             request.range.clone(),
             &context.module,
             context.scope,
-            request.inherit_context.then_some(layer.context_id),
+            (request.inherit_context
+                && child_choice.resolution_family == layer.choice.resolution_family
+                && match (
+                    child_choice.file_module_rules,
+                    layer.choice.file_module_rules,
+                ) {
+                    (Some(child), Some(host)) => std::ptr::eq(child, host),
+                    (None, None) => true,
+                    _ => false,
+                })
+            .then_some(layer.context_id),
             child_metric_id,
             &mut *state.active,
             &mut *state.next_node_id,

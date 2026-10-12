@@ -10,7 +10,7 @@ use super::Target;
 use super::indexing::{Index, module_candidates, normalize};
 
 pub(super) fn resolve_slash(
-    index: &Index<'_>,
+    index: &Index<'_, '_>,
     file: usize,
     source: &str,
     rules: &FileModuleRules,
@@ -32,7 +32,7 @@ pub(super) fn resolve_slash(
 }
 
 pub(super) fn resolve_requests(
-    index: &Index<'_>,
+    index: &Index<'_, '_>,
     requests: impl IntoIterator<Item = PathBuf>,
     rules: &FileModuleRules,
 ) -> Vec<Target> {
@@ -55,7 +55,11 @@ pub(super) fn resolve_requests(
     }
 }
 
-pub(super) fn resolve_submodule(index: &Index<'_>, package_file: usize, name: &str) -> Vec<Target> {
+pub(super) fn resolve_submodule(
+    index: &Index<'_, '_>,
+    package_file: usize,
+    name: &str,
+) -> Vec<Target> {
     let fact = &index.facts[package_file];
     let Some(rules) = fact.file_module_rules else {
         return Vec::new();

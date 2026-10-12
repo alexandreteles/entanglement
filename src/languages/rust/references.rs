@@ -15,7 +15,7 @@ impl<'a> CaptureFacts<'a> {
     fn use_ranges(&self) -> Vec<Range<usize>> {
         self.import_roots
             .iter()
-            .filter_map(|id| self.graph.nodes.get(id).map(tree_sitter::Node::byte_range))
+            .filter_map(|id| self.graph.range(*id))
             .collect()
     }
 
@@ -26,9 +26,8 @@ impl<'a> CaptureFacts<'a> {
                 local.pattern.map_or_else(
                     || {
                         self.graph
-                            .nodes
-                            .get(&local.owner)
-                            .map(|node| vec![node.byte_range()])
+                            .range(local.owner)
+                            .map(|range| vec![range])
                             .unwrap_or_default()
                     },
                     |pattern| {
@@ -116,12 +115,12 @@ impl<'a> CaptureFacts<'a> {
             .paths
             .iter()
             .filter_map(|path| {
-                let node = self.graph.nodes.get(&path.node_id)?;
+                let range = self.graph.range(path.node_id)?;
                 let segments = path_segments(path.node_id, &self.graph);
                 (!segments.is_empty()).then_some(RawReference {
                     node_id: path.node_id,
                     path: segments,
-                    range: node.byte_range(),
+                    range,
                     kind: path.kind,
                 })
             })

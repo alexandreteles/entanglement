@@ -8,8 +8,7 @@ pub(super) fn local_bindings(local: &RawLocal, graph: &NodeGraph<'_>) -> Vec<Loc
     let names = local.pattern.map_or_else(
         || {
             graph
-                .nodes
-                .get(&local.owner)
+                .node(local.owner)
                 .map(|node| vec![("self".to_owned(), node.byte_range())])
                 .unwrap_or_default()
         },
@@ -19,12 +18,12 @@ pub(super) fn local_bindings(local: &RawLocal, graph: &NodeGraph<'_>) -> Vec<Loc
         LocalScopeKind::Function => nearest_kind(local.owner, "function_item", graph)
             .and_then(|id| child_field(id, "body", graph)),
         LocalScopeKind::Block => {
-            let Some(declaration) = graph.nodes.get(&local.owner) else {
+            let Some(declaration) = graph.node(local.owner) else {
                 return Vec::new();
             };
             let end = nearest_kind(local.owner, "block", graph)
-                .and_then(|id| graph.nodes.get(&id))
-                .map_or(declaration.end_byte(), tree_sitter::Node::end_byte);
+                .and_then(|id| graph.node(id))
+                .map_or(declaration.end_byte(), |node| node.end_byte());
             return names
                 .into_iter()
                 .map(|(name, range)| LocalBinding {
@@ -42,7 +41,7 @@ pub(super) fn local_bindings(local: &RawLocal, graph: &NodeGraph<'_>) -> Vec<Loc
         LocalScopeKind::Match => Some(local.owner),
         LocalScopeKind::Closure => child_field(local.owner, "body", graph),
     };
-    let Some(scope) = scope.and_then(|id| graph.nodes.get(&id)) else {
+    let Some(scope) = scope.and_then(|id| graph.node(id)) else {
         return Vec::new();
     };
     names
@@ -62,18 +61,17 @@ pub(super) fn binding_names(root: usize, graph: &NodeGraph<'_>) -> Vec<(String, 
     let mut names = Vec::new();
     let mut pending = vec![root];
     while let Some(id) = pending.pop() {
-        let Some(node) = graph.nodes.get(&id) else {
+        let Some(node) = graph.node(id) else {
             continue;
         };
         if (matches!(node.kind(), "identifier" | "self")
-            || node.kind() == "shorthand_field_identifier" && is_field(*node, "name"))
+            || node.kind() == "shorthand_field_identifier" && is_field(node, "name"))
             && let Some(name) = graph.text(id)
         {
             names.push((name, node.byte_range()));
         }
-        let mut cursor = node.walk();
-        pending.extend(node.children(&mut cursor).filter_map(|child| {
-            (!is_field(child, "type") && !is_field(child, "condition")).then_some(child.id())
+        pending.extend(graph.children(id).iter().copied().filter(|child| {
+            !graph.is_field(*child, "type") && !graph.is_field(*child, "condition")
         }));
     }
     names
@@ -85,23 +83,18 @@ fn is_field(node: tree_sitter::Node<'_>, field: &str) -> bool {
         .is_some_and(|first| first.id() == node.id())
 }
 
-fn nearest_kind(mut id: usize, kind: &str, graph: &NodeGraph<'_>) -> Option<usize> {
-    loop {
-        if graph.nodes.get(&id).is_some_and(|node| node.kind() == kind) {
-            return Some(id);
-        }
-        id = graph.nodes.get(&id)?.parent()?.id();
-    }
+fn nearest_kind(id: usize, kind: &str, graph: &NodeGraph<'_>) -> Option<usize> {
+    graph.owner(id, |_, node| node.kind() == kind)
 }
 
-fn condition_scope(mut id: usize, graph: &NodeGraph<'_>) -> Option<usize> {
-    loop {
-        let node = graph.nodes.get(&id)?;
-        match node.kind() {
-            "if_expression" => return child_field(id, "consequence", graph),
-            "while_expression" => return child_field(id, "body", graph),
-            _ => id = node.parent()?.id(),
-        }
+fn condition_scope(id: usize, graph: &NodeGraph<'_>) -> Option<usize> {
+    let condition = graph.nearest(id, |_, node| {
+        matches!(node.kind(), "if_expression" | "while_expression")
+    })?;
+    match graph.kind(condition)? {
+        "if_expression" => child_field(condition, "consequence", graph),
+        "while_expression" => child_field(condition, "body", graph),
+        _ => None,
     }
 }
 
@@ -125,22 +118,15 @@ pub(super) fn lexical_scope(
     graph: &NodeGraph<'_>,
     root: &Range<usize>,
 ) -> (usize, usize) {
-    let mut current = graph.nodes.get(&node_id).and_then(|node| {
-        if skip_self {
-            node.parent().map(|parent| parent.id())
-        } else {
-            Some(node_id)
-        }
-    });
-    while let Some(id) = current {
-        if let Some(node) = graph.nodes.get(&id) {
-            if matches!(node.kind(), "block" | "declaration_list" | "source_file") {
-                return (node.start_byte(), node.end_byte());
-            }
-            current = node.parent().map(|parent| parent.id());
-        } else {
-            break;
-        }
-    }
-    (root.start, root.end)
+    let start = if skip_self {
+        graph.parent(node_id).unwrap_or(node_id)
+    } else {
+        node_id
+    };
+    graph
+        .nearest(start, |_, node| {
+            matches!(node.kind(), "block" | "declaration_list" | "source_file")
+        })
+        .and_then(|id| graph.range(id))
+        .map_or((root.start, root.end), |range| (range.start, range.end))
 }

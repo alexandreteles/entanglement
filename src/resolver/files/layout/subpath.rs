@@ -30,7 +30,7 @@ enum ImportTarget {
 }
 
 pub(in crate::resolver::files) fn resolve(
-    index: &Index<'_>,
+    index: &Index<'_, '_>,
     file: usize,
     source: &str,
     rules: &FileModuleRules,

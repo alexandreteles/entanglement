@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
+use crate::graph::ProgramGraph;
 use crate::model::{DefinitionKind, FileFacts, Reference};
 
 use super::normalize;
@@ -19,11 +20,15 @@ pub(super) struct Context {
     pub conditional: bool,
 }
 
-pub(super) fn for_reference(fact: &FileFacts, context_id: usize) -> Vec<Context> {
-    let names = fact
-        .definitions
-        .iter()
-        .filter(|item| item.kind == DefinitionKind::Module && item.context_id == context_id)
+pub(super) fn for_reference(
+    fact: &FileFacts,
+    graph: &ProgramGraph<'_>,
+    file_index: usize,
+    context_id: usize,
+) -> Vec<Context> {
+    let names = graph
+        .symbols_for_file(file_index)
+        .filter(|item| item.kind == DefinitionKind::Module && item.scope.context_id == context_id)
         .map(|item| item.name.as_str())
         .collect::<BTreeSet<_>>();
     if names.len() != 1 {
@@ -54,11 +59,11 @@ pub(super) fn is_test(path: &Path) -> bool {
         .is_some_and(|name| name.ends_with("_test.go"))
 }
 
-pub(super) fn is_local(fact: &FileFacts, reference: &Reference, name: &str) -> bool {
-    fact.locals.iter().any(|local| {
-        local.context_id == reference.context_id
-            && local.name == name
-            && local.scope_start <= reference.start_byte
-            && reference.start_byte < local.scope_end
-    })
+pub(super) fn is_local(
+    graph: &ProgramGraph<'_>,
+    file_index: usize,
+    reference: &Reference,
+    name: &str,
+) -> bool {
+    graph.has_local_binding(file_index, name, reference.context_id, reference.start_byte)
 }

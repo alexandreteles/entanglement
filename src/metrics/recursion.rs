@@ -4,21 +4,20 @@
 //! edges. Ambiguous references, function values, methods, and names in
 //! deferred closures are left on the normal reference-reporting path.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 
 use petgraph::algo::kosaraju_scc;
 use petgraph::graph::{DiGraph, NodeIndex};
 
-use crate::model::{ComplexityContribution, DefinitionKind, FileFacts, Resolution};
+use crate::graph::CallEdge;
+use crate::model::{ComplexityContribution, FileFacts};
 
 /// Add one cognitive-complexity point to each function in a resolved cycle.
-pub(crate) fn annotate(facts: &mut [FileFacts]) {
+pub(crate) fn annotate(facts: &mut [FileFacts], calls: &[CallEdge]) {
     let mut graph = DiGraph::<(usize, usize), ()>::new();
     let mut function_nodes = BTreeMap::<(usize, usize), NodeIndex>::new();
-    let mut files_by_path = HashMap::<String, usize>::new();
 
     for (file_index, fact) in facts.iter().enumerate() {
-        files_by_path.insert(fact.analysis.path.clone(), file_index);
         for (function_index, function) in fact.analysis.functions.iter().enumerate() {
             let key = (file_index, function.start_byte);
             function_nodes
@@ -27,25 +26,11 @@ pub(crate) fn annotate(facts: &mut [FileFacts]) {
         }
     }
 
-    for (file_index, fact) in facts.iter().enumerate() {
-        for (reference, analysis) in fact.references.iter().zip(&fact.analysis.resolution) {
-            let Some(call_owner) = reference.call_owner else {
-                continue;
-            };
-            let Resolution::Exact(target) = &analysis.resolution else {
-                continue;
-            };
-            if target.kind != DefinitionKind::Function {
-                continue;
-            }
-            let Some(&target_file) = files_by_path.get(&target.file) else {
-                continue;
-            };
-            let caller = function_nodes.get(&(file_index, call_owner));
-            let callee = function_nodes.get(&(target_file, target.start_byte));
-            if let (Some(&caller), Some(&callee)) = (caller, callee) {
-                graph.add_edge(caller, callee, ());
-            }
+    for edge in calls {
+        let caller = function_nodes.get(&(edge.caller_file, edge.caller_start_byte));
+        let callee = function_nodes.get(&(edge.callee_file, edge.callee_start_byte));
+        if let (Some(&caller), Some(&callee)) = (caller, callee) {
+            graph.add_edge(caller, callee, ());
         }
     }
 

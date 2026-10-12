@@ -59,7 +59,7 @@ fn flatten_use_node(
     graph: &NodeGraph<'_>,
     imports: &mut Vec<RawImport>,
 ) {
-    let Some(node) = graph.nodes.get(&node_id).copied() else {
+    let Some(node) = graph.node(node_id) else {
         return;
     };
     match node.kind() {

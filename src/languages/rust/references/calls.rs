@@ -19,7 +19,7 @@ impl CaptureFacts<'_> {
         ) {
             return None;
         }
-        let reference = self.graph.nodes.get(&node_id).copied()?;
+        let reference = self.graph.node(node_id)?;
         let call = direct_call(reference, reference_range)?;
         enclosing_function(call)
     }

@@ -1,29 +1,34 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 
+use crate::graph::ProgramGraph;
 use crate::languages::{FileModuleLayout, FileModuleRules, ResolutionFamily};
 use crate::model::FileFacts;
 
 use super::Target;
 use super::layout;
 
-pub(super) struct Index<'a> {
+pub(super) struct Index<'a, 'g> {
     pub(super) facts: &'a [FileFacts],
+    pub(super) graph: &'g ProgramGraph<'a>,
     pub(super) by_path: BTreeMap<PathBuf, BTreeSet<usize>>,
 }
 
-impl<'a> Index<'a> {
-    pub(super) fn new(facts: &'a [FileFacts]) -> Self {
+impl<'a, 'g> Index<'a, 'g> {
+    pub(super) fn new(facts: &'a [FileFacts], graph: &'g ProgramGraph<'a>) -> Self {
         let mut by_path = BTreeMap::<PathBuf, BTreeSet<usize>>::new();
-        for (index, fact) in facts.iter().enumerate() {
-            if fact.resolution_family != ResolutionFamily::FileModules {
-                continue;
-            }
-            for path in &fact.aliases {
-                by_path.entry(normalize(path)).or_default().insert(index);
+        for (path, indexes) in graph.aliases() {
+            for index in indexes {
+                if facts[*index].resolution_family == ResolutionFamily::FileModules {
+                    by_path.entry(normalize(path)).or_default().insert(*index);
+                }
             }
         }
-        Self { facts, by_path }
+        Self {
+            facts,
+            graph,
+            by_path,
+        }
     }
 
     pub(super) fn resolve_module(&self, file: usize, source: &str) -> Vec<Target> {
