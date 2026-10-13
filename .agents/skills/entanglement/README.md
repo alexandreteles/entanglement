@@ -83,11 +83,6 @@ The agent measures the repository before and after code changes.
 Its report shows changes in code size, cyclomatic complexity, cognitive complexity, and the maintainability index (MI).
 The agent must give the reason for each increase in code size or complexity.
 
-Each new or changed file that Entanglement measures must have an MI of at least **10**.
-The MI limit uses the value before rounding.
-If MI is below 10, the agent must change or split the file.
-The target is a green file (MI of **20 or more**).
-The report includes existing red files outside the task.
-The agent must also use the project's usual build and test commands.
+Review new or worsened function complexity, total production NLOC growth, and cohesive module boundaries. Functions above CogC 15 deserve explicit review. File MI remains a diagnostic: scores below 10 are red and below 20 are yellow, but splitting unchanged logic into more files is not a maintenance improvement. The comparator reports red edited files for investigation; it does not decide whether a cohesive module should be split.
 
-See [SKILL.md](SKILL.md) for the full instructions.
+The agent also uses the project's normal build and test commands. See [SKILL.md](SKILL.md) for the complete workflow.

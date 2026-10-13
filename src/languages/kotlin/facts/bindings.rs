@@ -301,14 +301,3 @@ pub(super) fn property_initializer<'tree>(
             )
         })
 }
-
-pub(super) fn collect_receivers(
-    _root: Node<'_>,
-    _source: &[u8],
-    _nodes: &[Node<'_>],
-    _dsl_markers: &HashSet<String>,
-    _semantic: &mut SemanticFacts,
-) {
-    // Receiver scopes are emitted with their declaration so their byte ranges
-    // and class ownership stay aligned with the same syntax node.
-}

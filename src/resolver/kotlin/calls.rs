@@ -5,23 +5,17 @@ impl Index<'_> {
         &'b self,
         file: usize,
         context_id: usize,
-        call: &crate::graph::CallFacts,
+        call: &CallFacts,
     ) -> Option<&'b Reference> {
-        let target = call.target.as_ref()?;
-        self.graph.file(file).references.iter().find(|reference| {
-            reference.context_id == context_id
-                && reference.start_byte == target.start_byte
-                && reference.end_byte == target.end_byte
-                && matches!(reference.kind, ReferenceKind::Call | ReferenceKind::Method)
-        })
+        call_target_reference(&self.graph.file(file).references, context_id, call)
     }
 
     pub(super) fn infer_argument_return_types(
         &self,
         file: usize,
         reference: &Reference,
-        arguments: &[crate::graph::CallArgumentFact],
-    ) -> Vec<crate::graph::CallArgumentFact> {
+        arguments: &[CallArgumentFact],
+    ) -> Vec<CallArgumentFact> {
         let mut inferred = arguments.to_vec();
         let source = self
             .snapshot
@@ -51,7 +45,7 @@ impl Index<'_> {
         &self,
         file: usize,
         reference: &Reference,
-        argument: &crate::graph::CallArgumentFact,
+        argument: &CallArgumentFact,
         source: Option<&[u8]>,
     ) -> Option<String> {
         let expression = source?.get(argument.start_byte..argument.end_byte)?;
@@ -79,8 +73,8 @@ impl Index<'_> {
         &self,
         file: usize,
         reference: &Reference,
-        argument: &crate::graph::CallArgumentFact,
-        calls: &[crate::graph::CallFacts],
+        argument: &CallArgumentFact,
+        calls: &[CallFacts],
         references: &[Reference],
     ) -> Option<String> {
         let call = exact_argument_call(calls, argument)?;
@@ -93,31 +87,33 @@ impl Index<'_> {
     }
 
     pub(super) fn call_candidates(&self, file: usize, reference: &Reference) -> Vec<usize> {
+        self.accessible(file, reference, self.reference_candidates(file, reference))
+    }
+
+    pub(super) fn reference_candidates(&self, file: usize, reference: &Reference) -> Vec<usize> {
         let Some(name) = reference.path.last() else {
             return Vec::new();
         };
         let package = self.semantic_package(file, reference.context_id);
-        let candidates = if reference.path.len() == 1 {
-            self.simple_candidates(file, reference, name, package)
-        } else {
-            self.qualified_candidates(file, reference, &reference.path, package)
+        let candidates = match reference.path.as_slice() {
+            [_] => self.simple_candidates(file, reference, name, package),
+            _ => self.qualified_candidates(file, reference, &reference.path, package),
         };
         let candidates = self.filter_callable_overloads(file, reference, candidates);
-        let candidates = self.select_expect_actual(file, candidates);
-        self.accessible(file, reference, candidates)
+        self.select_expect_actual(file, candidates)
     }
 
     pub(super) fn inferred_call_result_type(
         &self,
         file: usize,
         reference: &Reference,
-        call: &crate::graph::CallFacts,
+        call: &CallFacts,
         candidate: &Candidate,
     ) -> Option<String> {
         if is_type_declaration(candidate) {
             return Some(candidate_type_name(candidate));
         }
-        let signature = candidate.declaration.as_ref()?.signature.as_ref()?;
+        let signature = candidate.signature()?;
         let inferred_arguments = self.infer_argument_return_types(file, reference, &call.arguments);
         let substitutions = generic_type_substitutions(signature, &inferred_arguments);
         let return_type = substitute_type_name(signature.return_type.as_deref()?, &substitutions);
@@ -133,16 +129,94 @@ impl Index<'_> {
         context_id: usize,
         type_name: &str,
     ) -> Option<String> {
-        let semantic = self
-            .graph
-            .semantic(file, context_id, Some(ResolutionFamily::KotlinModules));
-        let package = semantic
-            .and_then(|semantic| semantic.context.as_ref())
-            .map_or(&[][..], |semantic| semantic.package.as_slice());
+        let package = self.semantic_package(file, context_id);
         let canonical =
             self.canonical_type_names(file, context_id, package, type_name, &mut BTreeSet::new());
         (canonical.len() == 1)
             .then(|| canonical.into_iter().next())
             .flatten()
+    }
+    pub(super) fn filter_callable_overloads(
+        &self,
+        file: usize,
+        reference: &Reference,
+        mut candidates: Vec<usize>,
+    ) -> Vec<usize> {
+        candidates.sort_unstable();
+        candidates.dedup();
+        if !matches!(reference.kind, ReferenceKind::Call | ReferenceKind::Method) {
+            return candidates;
+        }
+        let Some(call) = self.containing_call_facts(file, reference) else {
+            return candidates;
+        };
+        let arguments = self.infer_argument_return_types(file, reference, &call.arguments);
+        candidates
+            .iter()
+            .copied()
+            .filter(|index| {
+                let candidate = &self.candidates[*index];
+                if !matches_convention(candidate, call.convention) {
+                    return false;
+                }
+                if reference.kind == ReferenceKind::Call && is_type_declaration(candidate) {
+                    return self.type_constructor_matches(candidate, &arguments);
+                }
+                let Some(signature) = self.candidates[*index].signature() else {
+                    return true;
+                };
+                arguments_match(signature, &arguments)
+            })
+            .collect::<Vec<_>>()
+    }
+
+    pub(super) fn select_expect_actual(&self, file: usize, candidates: Vec<usize>) -> Vec<usize> {
+        if candidates.len() < 2 {
+            return candidates;
+        }
+        let caller = &self.sources[file];
+        let has_platform = caller
+            .source_set
+            .as_deref()
+            .is_some_and(|set| !set.starts_with("common"));
+        if !has_platform {
+            return candidates
+                .into_iter()
+                .filter(|candidate| {
+                    let declaration = self.candidates[*candidate].declaration.as_ref();
+                    declaration.is_none_or(|declaration| !declaration.modifiers.is_actual)
+                })
+                .collect();
+        }
+        let actual = candidates
+            .iter()
+            .copied()
+            .filter(|index| {
+                self.candidates[*index]
+                    .declaration
+                    .as_ref()
+                    .is_some_and(|item| item.modifiers.is_actual)
+            })
+            .collect::<Vec<_>>();
+        if actual.is_empty() {
+            return candidates;
+        }
+        candidates
+            .into_iter()
+            .filter(|index| {
+                let Some(declaration) = self.candidates[*index].declaration.as_ref() else {
+                    return true;
+                };
+                if !declaration.modifiers.is_expect {
+                    return true;
+                }
+                !actual.iter().any(|actual_index| {
+                    same_logical_declaration(
+                        &self.candidates[*index],
+                        &self.candidates[*actual_index],
+                    )
+                })
+            })
+            .collect()
     }
 }

@@ -28,9 +28,10 @@ impl Index<'_> {
                     Some(
                         ReferenceAccess::Read | ReferenceAccess::Write | ReferenceAccess::ReadWrite
                     )
-                ) && candidate.declaration.as_ref().is_some_and(
-                    |declaration| declaration.kind == crate::graph::DeclarationKind::Property,
-                );
+                ) && candidate
+                    .declaration
+                    .as_ref()
+                    .is_some_and(|declaration| declaration.kind == DeclarationKind::Property);
                 let mut dispatch =
                     if matches!(reference.kind, ReferenceKind::Call | ReferenceKind::Method)
                         || accessor_access
@@ -96,7 +97,7 @@ impl Index<'_> {
         if !matches!(
             reference.kind,
             ReferenceKind::Value | ReferenceKind::Qualified
-        ) || declaration.kind != crate::graph::DeclarationKind::Property
+        ) || declaration.kind != DeclarationKind::Property
         {
             return Vec::new();
         }
@@ -115,7 +116,7 @@ impl Index<'_> {
         let Some(execution) = declaration.execution.as_ref() else {
             return Vec::new();
         };
-        if declaration.kind == crate::graph::DeclarationKind::Property {
+        if declaration.kind == DeclarationKind::Property {
             return execution
                 .callable_value
                 .map(|range| vec![range])
@@ -136,7 +137,7 @@ impl Index<'_> {
     pub(super) fn accessor_execution_ranges(
         &self,
         access: Option<ReferenceAccess>,
-        execution: &crate::graph::DeclarationExecutionFacts,
+        execution: &DeclarationExecutionFacts,
     ) -> Vec<SourceRange> {
         match access {
             Some(ReferenceAccess::Write) => execution.setter.into_iter().collect(),

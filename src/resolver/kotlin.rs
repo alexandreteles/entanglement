@@ -8,23 +8,13 @@ use std::path::PathBuf;
 
 mod arguments;
 mod build;
-mod constructor_resolution;
+mod calls;
+mod constructors;
 mod context;
 mod execution;
-mod helpers;
-mod index;
-mod inference;
-mod lookup_imports;
-mod lookup_local;
-mod lookup_qualified;
-mod member_extensions;
-mod member_inheritance;
-mod member_types;
+mod lookup;
 mod members;
-mod overloads;
-mod receiver_lambdas;
-mod receiver_scopes;
-mod receiver_types;
+mod receivers;
 mod symbols;
 mod visibility;
 
@@ -32,16 +22,13 @@ use arguments::{
     arguments_match, function_type_parameters, function_type_receiver, generic_type_substitutions,
     lambda_parameter_for_argument, normalize_type, substitute_type_name,
 };
-use context::{
-    SourceContext, conventional_source_edge, project_dependencies, read_text, source_context,
-    source_set_reaches, transitive_closure,
-};
-use helpers::*;
+use context::{SourceContext, conventional_source_edge, source_set_reaches};
 use symbols::*;
 
 use crate::graph::{
-    CallConvention, CallDispatch, DeclarationFacts, ProgramGraph, ProgramSymbolId, ReceiverScope,
-    SemanticVisibility,
+    CallArgumentFact, CallConvention, CallDispatch, CallFacts, CallableSignature,
+    DeclarationExecutionFacts, DeclarationFacts, DeclarationKind, ProgramGraph, ProgramSymbolId,
+    ReceiverScope, SemanticVisibility,
 };
 use crate::languages::ResolutionFamily;
 use crate::model::{
@@ -62,12 +49,17 @@ struct Candidate {
     owner: Vec<String>,
     kind: DefinitionKind,
     declaration: Option<DeclarationFacts>,
-    source: SourceContext,
     public: bool,
     start: usize,
     end: usize,
     scope_start: usize,
     scope_end: usize,
+}
+
+impl Candidate {
+    fn signature(&self) -> Option<&CallableSignature> {
+        self.declaration.as_ref()?.signature.as_ref()
+    }
 }
 
 struct Index<'a> {
@@ -76,7 +68,7 @@ struct Index<'a> {
     sources: Vec<SourceContext>,
     candidates: Vec<Candidate>,
     by_name: HashMap<String, Vec<usize>>,
-    dependencies: HashMap<PathBuf, BTreeMap<String, BTreeSet<build::ProjectDependency>>>,
+    visible_modules: HashMap<String, HashMap<Option<String>, BTreeSet<String>>>,
     source_edges: HashMap<PathBuf, BTreeMap<String, BTreeSet<String>>>,
 }
 
@@ -126,24 +118,20 @@ pub(super) fn resolve(
 
 impl<'a> Index<'a> {
     fn resolve_reference(&self, file: usize, reference: &Reference) -> ReferenceAnalysis {
-        let Some(semantic) = self.graph.semantic(
+        let Some(_) = self.graph.semantic(
             file,
             reference.context_id,
             Some(ResolutionFamily::KotlinModules),
         ) else {
             return analysis(reference, Resolution::Unresolved, None);
         };
-        let package = semantic
-            .context
-            .as_ref()
-            .map_or(&[][..], |context| context.package.as_slice());
         let path = &reference.path;
         let Some(name) = path.last() else {
             return analysis(reference, Resolution::Unresolved, None);
         };
 
         if reference.kind == ReferenceKind::Method {
-            let is_super = self.is_super_reference(file, reference);
+            let is_super = reference.path.first().is_some_and(|part| part == "super");
             let is_type_qualifier = self.is_static_type_qualifier(file, reference);
             let receiver_type = self.method_receiver_type(file, reference, is_super);
             let Some(receiver_type) = receiver_type else {
@@ -162,13 +150,7 @@ impl<'a> Index<'a> {
             return analysis;
         }
 
-        let candidates = if path.len() == 1 {
-            self.simple_candidates(file, reference, name, package)
-        } else {
-            self.qualified_candidates(file, reference, path, package)
-        };
-        let candidates = self.filter_callable_overloads(file, reference, candidates);
-        let candidates = self.select_expect_actual(file, candidates);
+        let candidates = self.reference_candidates(file, reference);
         self.finish_resolution(file, reference, candidates)
     }
 }

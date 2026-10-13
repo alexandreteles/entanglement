@@ -1,7 +1,7 @@
 //! Shared syntax and program graph primitives.
 //!
 //! Syntax adapters keep grammar-specific decisions locally and use these
-//! indexes for common tree relationships. The normalized program graph is
+//! node identities when captures need later lookup. The normalized program graph is
 //! built from semantic facts after language adapters have emitted them.
 
 mod facts;

@@ -2,7 +2,6 @@ use std::collections::{BTreeMap, HashSet};
 
 use tree_sitter::QueryCapture;
 
-use crate::graph::SyntaxGraph;
 use crate::metrics::{SyntaxEvent, SyntaxRole, cyclomatic::FunctionScope};
 
 use super::{QueryAnalyzer, QueryFacts, ranges};
@@ -13,30 +12,31 @@ impl QueryFacts {
         analyzer: &QueryAnalyzer,
         captures: &[QueryCapture<'_>],
         included: &[tree_sitter::Range],
-        syntax: &SyntaxGraph<'_>,
+        source: &[u8],
     ) {
         for capture in captures {
             let node = capture.node;
             if Some(capture.index) == analyzer.syntax_node {
-                self.parents.insert(node.id(), syntax.parent(node.id()));
+                self.parents
+                    .insert(node.id(), node.parent().map(|parent| parent.id()));
             }
             if let Some(role) = analyzer.roles.get(&capture.index) {
                 match role {
-                    SyntaxRole::Node if syntax.children(node.id()).is_empty() => {
+                    SyntaxRole::Node if node.child_count() == 0 => {
                         for range in ranges::node_segments(node, included) {
-                            self.events.push(event_range(*role, node, range, syntax));
+                            self.events.push(event_range(*role, node, range));
                         }
                     }
                     SyntaxRole::Node | SyntaxRole::InjectionContent => {
-                        self.events.push(event(*role, node, syntax));
+                        self.events.push(event(*role, node));
                     }
                     SyntaxRole::Comment => {
                         for range in ranges::node_segments(node, included) {
-                            self.events.push(event_range(*role, node, range, syntax));
+                            self.events.push(event_range(*role, node, range));
                         }
                     }
                     _ if ranges::fully_included(node, included) => {
-                        self.events.push(event(*role, node, syntax));
+                        self.events.push(event(*role, node));
                     }
                     _ => {}
                 }
@@ -50,13 +50,12 @@ impl QueryFacts {
                         .iter()
                         .filter(|item| item.index == name_id)
                         .min_by_key(|item| distance(item.node.start_byte(), node.start_byte()))
-                        .map(|item| syntax.text(item.node.id()).unwrap_or_default())
+                        .map(|item| node_text(item.node, source).unwrap_or_default())
                 });
                 let name = explicit_name
                     .or_else(|| {
-                        syntax
-                            .child_by_field(node.id(), "name")
-                            .and_then(|name| syntax.text(name))
+                        node.child_by_field_name("name")
+                            .and_then(|name| node_text(name, source))
                     })
                     .unwrap_or_else(|| format!("anonymous@{}", node.start_position().row + 1));
                 self.functions.push(FunctionScope {
@@ -76,19 +75,14 @@ impl QueryFacts {
     }
 }
 
-pub(super) fn event(
-    role: SyntaxRole,
-    node: tree_sitter::Node<'_>,
-    syntax: &SyntaxGraph<'_>,
-) -> SyntaxEvent {
-    event_range(role, node, node.range(), syntax)
+pub(super) fn event(role: SyntaxRole, node: tree_sitter::Node<'_>) -> SyntaxEvent {
+    event_range(role, node, node.range())
 }
 
 fn event_range(
     role: SyntaxRole,
     node: tree_sitter::Node<'_>,
     range: tree_sitter::Range,
-    syntax: &SyntaxGraph<'_>,
 ) -> SyntaxEvent {
     SyntaxEvent {
         role,
@@ -98,9 +92,13 @@ fn event_range(
         end_row: range.end_point.row,
         end_column: range.end_point.column,
         node_id: node.id(),
-        parent_id: syntax.parent(node.id()),
-        terminal: syntax.children(node.id()).is_empty(),
+        parent_id: node.parent().map(|parent| parent.id()),
+        terminal: node.child_count() == 0,
     }
+}
+
+fn node_text(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    Some(String::from_utf8_lossy(source.get(node.byte_range())?).into_owned())
 }
 
 fn distance(left: usize, right: usize) -> usize {

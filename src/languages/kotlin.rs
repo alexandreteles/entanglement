@@ -6,7 +6,7 @@ mod tokens;
 
 use std::borrow::Cow;
 
-use tree_sitter::{Language, Tree};
+use tree_sitter::{Language, Node, Tree};
 
 use super::query::QueryAnalyzer;
 use super::{CapturedTree, LanguageHandler, LanguageSpec, ResolutionFamily};
@@ -67,8 +67,12 @@ impl LanguageHandler for Analyzer {
         };
         let scope_index = scopes::ScopeIndex::new(root, source, &contexts);
         let mut shared = self.query.capture(tree, source, false);
-        syntax::remove_else_events_for_else_if(root, &mut shared.events);
-        syntax::append_kotlin_decision_events(root, &mut shared.events, &mut shared.parents);
+        syntax::remove_else_events_for_else_if(scope_index.nodes(), &mut shared.events);
+        syntax::append_kotlin_decision_events(
+            scope_index.nodes(),
+            &mut shared.events,
+            &mut shared.parents,
+        );
         syntax::append_context_terminals(source, &contexts, &mut shared.events);
         let query_functions = std::mem::take(&mut shared.functions);
         shared.functions = scopes::capture(&scope_index, query_functions);
@@ -131,4 +135,28 @@ impl LanguageHandler for Analyzer {
         captured.semantic.file_module_rules = LANGUAGE_SPEC.file_module_rules;
         Ok(captured)
     }
+}
+
+fn all_nodes(root: Node<'_>) -> Vec<Node<'_>> {
+    let mut nodes = Vec::new();
+    let mut pending = vec![root];
+    while let Some(node) = pending.pop() {
+        nodes.push(node);
+        pending.extend(
+            (0..node.child_count())
+                .rev()
+                .filter_map(|index| node.child(index)),
+        );
+    }
+    nodes.sort_by_key(|node| (node.start_byte(), node.end_byte()));
+    nodes
+}
+
+fn named_children(node: Node<'_>) -> Vec<Node<'_>> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor).collect()
+}
+
+fn ancestors(node: Node<'_>) -> impl Iterator<Item = Node<'_>> {
+    std::iter::successors(Some(node), |node| node.parent())
 }

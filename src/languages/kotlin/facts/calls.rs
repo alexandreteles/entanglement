@@ -18,7 +18,11 @@ pub(super) fn nearest_declaration(node: Node<'_>) -> Option<Node<'_>> {
     })
 }
 
-pub(super) fn collect_calls(nodes: &[Node<'_>], source: &[u8]) -> Vec<CallFacts> {
+pub(super) fn collect_calls(
+    nodes: &[Node<'_>],
+    source: &[u8],
+    bindings: &[BindingType],
+) -> Vec<CallFacts> {
     nodes
         .iter()
         .copied()
@@ -39,7 +43,7 @@ pub(super) fn collect_calls(nodes: &[Node<'_>], source: &[u8]) -> Vec<CallFacts>
                 .into_iter()
                 .flat_map(named_children)
                 .filter(|argument| argument.kind() == "value_argument")
-                .filter_map(|argument| call_argument(argument, source, false))
+                .filter_map(|argument| call_argument(argument, source, bindings, false))
                 .collect::<Vec<_>>();
             if let Some(suffix) = suffix {
                 arguments.extend(
@@ -51,7 +55,7 @@ pub(super) fn collect_calls(nodes: &[Node<'_>], source: &[u8]) -> Vec<CallFacts>
                                 .into_iter()
                                 .find(|child| child.kind() == "lambda_literal")
                         })
-                        .filter_map(|lambda| call_argument(lambda, source, true)),
+                        .filter_map(|lambda| call_argument(lambda, source, bindings, true)),
                 );
             }
             let target = children
@@ -78,59 +82,54 @@ pub(super) fn collect_calls(nodes: &[Node<'_>], source: &[u8]) -> Vec<CallFacts>
 pub(super) fn call_argument(
     node: Node<'_>,
     source: &[u8],
+    bindings: &[BindingType],
     is_trailing_lambda: bool,
 ) -> Option<CallArgumentFact> {
-    let (lambda, name, mut type_name, expression, start_byte, end_byte) =
-        if node.kind() == "lambda_literal" {
-            (
-                Some(node),
-                None,
-                None,
-                node,
-                node.start_byte(),
-                node.end_byte(),
-            )
-        } else if node.kind() == "value_argument" {
-            let children = named_children(node);
-            let argument_name = children
-                .iter()
-                .copied()
-                .find(|child| is_argument_label(*child, node, source))
-                .map(|name| text(name, source).trim_matches('`').to_owned());
-            let expression = children.iter().copied().rfind(|child| {
-                child.kind() != "annotation" && !is_argument_label(*child, node, source)
-            });
-            let lambda = expression.and_then(|expression| match expression.kind() {
-                "lambda_literal" => Some(expression),
-                "annotated_lambda" => all_nodes(expression)
-                    .into_iter()
-                    .find(|child| child.kind() == "lambda_literal"),
-                _ => None,
-            });
-            let expression = expression?;
-            let type_name = expression_type(expression, source);
-            (
-                lambda,
-                argument_name,
-                type_name,
-                expression,
-                lambda.map_or(expression.start_byte(), |lambda| lambda.start_byte()),
-                lambda.map_or(expression.end_byte(), |lambda| lambda.end_byte()),
-            )
-        } else {
-            return None;
-        };
-    if type_name.is_none() {
-        type_name = expression_type(expression, source);
-    }
-    let explicit_lambda_parameters = lambda
-        .and_then(|lambda| {
-            named_children(lambda)
+    let (lambda, name, expression, start_byte, end_byte) = if node.kind() == "lambda_literal" {
+        (Some(node), None, node, node.start_byte(), node.end_byte())
+    } else if node.kind() == "value_argument" {
+        let children = named_children(node);
+        let argument_name = children
+            .iter()
+            .copied()
+            .find(|child| is_argument_label(*child, node, source))
+            .map(|name| text(name, source).trim_matches('`').to_owned());
+        let expression = children.iter().copied().rfind(|child| {
+            child.kind() != "annotation" && !is_argument_label(*child, node, source)
+        });
+        let lambda = expression.and_then(|expression| match expression.kind() {
+            "lambda_literal" => Some(expression),
+            "annotated_lambda" => all_nodes(expression)
                 .into_iter()
-                .find(|child| child.kind() == "lambda_parameters")
-        })
-        .into_iter()
-        .flat_map(named_children)
+                .find(|child| child.kind() == "lambda_literal"),
+            _ => None,
+        });
+        let expression = expression?;
+        (
+            lambda,
+            argument_name,
+            expression,
+            lambda.map_or(expression.start_byte(), |lambda| lambda.start_byte()),
+            lambda.map_or(expression.end_byte(), |lambda| lambda.end_byte()),
+        )
+    } else {
+        return None;
+    };
+    let type_name = expression_type(expression, source).or_else(|| {
+        lambda
+            .is_none()
+            .then(|| argument_binding_type(node, source, bindings))
+            .flatten()
+    });
+    let lambda_parameters = lambda.and_then(|lambda| {
+        named_children(lambda)
+            .into_iter()
+            .find(|child| child.kind() == "lambda_parameters")
+    });
+    let parameters = lambda_parameters.map(named_children).unwrap_or_default();
+    let explicit_lambda_parameters = parameters
+        .iter()
+        .copied()
         .filter(|parameter| parameter.kind() == "variable_declaration")
         .map(|parameter| {
             direct_type_children(parameter)
@@ -139,14 +138,8 @@ pub(super) fn call_argument(
                 .map(|ty| normalized_type(text(ty, source)))
         })
         .collect();
-    let lambda_parameter_names = lambda
-        .and_then(|lambda| {
-            named_children(lambda)
-                .into_iter()
-                .find(|child| child.kind() == "lambda_parameters")
-        })
+    let lambda_parameter_names = parameters
         .into_iter()
-        .flat_map(named_children)
         .map(|parameter| {
             named_children(parameter)
                 .into_iter()
@@ -155,11 +148,6 @@ pub(super) fn call_argument(
                 .unwrap_or_default()
         })
         .collect();
-    let lambda_has_explicit_parameters = lambda.is_some_and(|lambda| {
-        named_children(lambda)
-            .into_iter()
-            .any(|child| child.kind() == "lambda_parameters")
-    });
     Some(CallArgumentFact {
         start_byte,
         end_byte,
@@ -168,7 +156,7 @@ pub(super) fn call_argument(
         is_lambda: lambda.is_some(),
         is_trailing_lambda,
         lambda_label: lambda.and_then(|lambda| explicit_lambda_label(lambda, source)),
-        lambda_has_explicit_parameters,
+        lambda_has_explicit_parameters: lambda_parameters.is_some(),
         lambda_parameter_names,
         lambda_parameter_types: explicit_lambda_parameters,
         lambda_receiver_type: None,
@@ -243,43 +231,31 @@ pub(super) fn integer_literal_type(literal: &str) -> Option<&'static str> {
     }
 }
 
-pub(super) fn enrich_call_argument_types(
-    calls: &mut [CallFacts],
-    bindings: &[BindingType],
-    nodes: &[Node<'_>],
+fn argument_binding_type(
+    node: Node<'_>,
     source: &[u8],
-) {
-    for call in calls {
-        for argument in &mut call.arguments {
-            if argument.is_lambda || argument.type_name.is_some() {
-                continue;
-            }
-            let Some(node) = nodes.iter().copied().find(|node| {
-                node.kind() == "value_argument"
-                    && node.start_byte() <= argument.start_byte
-                    && argument.end_byte <= node.end_byte()
-            }) else {
-                continue;
-            };
-            let Some(expression) = named_children(node).into_iter().rfind(|child| {
-                child.kind() != "annotation" && !is_argument_label(*child, node, source)
-            }) else {
-                continue;
-            };
-            if expression.kind() != "simple_identifier" {
-                continue;
-            }
-            let name = text(expression, source).trim_matches('`').to_owned();
-            let binding = bindings
-                .iter()
-                .filter(|binding| {
-                    binding.name == name
-                        && binding.name_start_byte < expression.start_byte()
-                        && binding.scope_start <= expression.start_byte()
-                        && expression.start_byte() < binding.scope_end
-                })
-                .max_by_key(|binding| binding.name_start_byte);
-            argument.type_name = binding.and_then(|binding| binding.type_name.clone());
-        }
+    bindings: &[BindingType],
+) -> Option<String> {
+    // The former enrichment pass chose the first containing value_argument in
+    // source order. Keep that choice for nested calls while avoiding a full-tree scan.
+    let argument = super::super::ancestors(node)
+        .filter(|node| node.kind() == "value_argument")
+        .min_by_key(|node| (node.start_byte(), node.end_byte()))?;
+    let expression = named_children(argument).into_iter().rfind(|child| {
+        child.kind() != "annotation" && !is_argument_label(*child, argument, source)
+    })?;
+    if expression.kind() != "simple_identifier" {
+        return None;
     }
+    let name = text(expression, source).trim_matches('`').to_owned();
+    bindings
+        .iter()
+        .filter(|binding| {
+            binding.name == name
+                && binding.name_start_byte < expression.start_byte()
+                && binding.scope_start <= expression.start_byte()
+                && expression.start_byte() < binding.scope_end
+        })
+        .max_by_key(|binding| binding.name_start_byte)
+        .and_then(|binding| binding.type_name.clone())
 }

@@ -57,12 +57,10 @@ impl Index<'_> {
         &self,
         class: &Candidate,
         ranges: &[SourceRange],
-        arguments: &[crate::graph::CallArgumentFact],
+        arguments: &[CallArgumentFact],
     ) -> Vec<SourceRange> {
         let matches_signature = class
-            .declaration
-            .as_ref()
-            .and_then(|declaration| declaration.signature.as_ref())
+            .signature()
             .is_some_and(|signature| arguments_match(signature, arguments));
         if !matches_signature {
             return Vec::new();
@@ -88,9 +86,10 @@ impl Index<'_> {
                 && candidate.owner == owner
                 && candidate.start == range.start_byte
                 && candidate.end == range.end_byte
-                && candidate.declaration.as_ref().is_some_and(|declaration| {
-                    declaration.kind == crate::graph::DeclarationKind::Constructor
-                })
+                && candidate
+                    .declaration
+                    .as_ref()
+                    .is_some_and(|declaration| declaration.kind == DeclarationKind::Constructor)
         })
     }
 
@@ -98,7 +97,7 @@ impl Index<'_> {
         &self,
         class: &Candidate,
         ranges: &[SourceRange],
-        arguments: &[crate::graph::CallArgumentFact],
+        arguments: &[CallArgumentFact],
     ) -> Vec<SourceRange> {
         let owner = extended_owner(&class.owner, &class.name);
         self.candidates
@@ -107,15 +106,14 @@ impl Index<'_> {
                 candidate.file == class.file
                     && candidate.context_id == class.context_id
                     && candidate.owner == owner
-                    && candidate.declaration.as_ref().is_some_and(|declaration| {
-                        declaration.kind == crate::graph::DeclarationKind::Constructor
-                    })
+                    && candidate
+                        .declaration
+                        .as_ref()
+                        .is_some_and(|declaration| declaration.kind == DeclarationKind::Constructor)
             })
             .filter(|candidate| {
                 candidate
-                    .declaration
-                    .as_ref()
-                    .and_then(|declaration| declaration.signature.as_ref())
+                    .signature()
                     .is_some_and(|signature| arguments_match(signature, arguments))
             })
             .filter_map(|candidate| {
@@ -131,7 +129,7 @@ impl Index<'_> {
         candidate: &'b Candidate,
     ) -> Option<&'b Candidate> {
         let declaration = candidate.declaration.as_ref()?;
-        if declaration.kind != crate::graph::DeclarationKind::TypeAlias {
+        if declaration.kind != DeclarationKind::TypeAlias {
             return None;
         }
         let alias = declaration.alias_target.as_deref()?;
@@ -150,13 +148,11 @@ impl Index<'_> {
     pub(super) fn type_constructor_matches(
         &self,
         candidate: &Candidate,
-        arguments: &[crate::graph::CallArgumentFact],
+        arguments: &[CallArgumentFact],
     ) -> bool {
         let target = self.typealias_target(candidate).unwrap_or(candidate);
         if target
-            .declaration
-            .as_ref()
-            .and_then(|item| item.signature.as_ref())
+            .signature()
             .is_some_and(|signature| arguments_match(signature, arguments))
         {
             return true;
@@ -168,7 +164,7 @@ impl Index<'_> {
                 && constructor.context_id == target.context_id
                 && constructor.owner == owner
                 && constructor.declaration.as_ref().is_some_and(|declaration| {
-                    declaration.kind == crate::graph::DeclarationKind::Constructor
+                    declaration.kind == DeclarationKind::Constructor
                         && declaration
                             .signature
                             .as_ref()

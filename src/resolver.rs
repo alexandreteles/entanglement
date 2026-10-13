@@ -91,7 +91,7 @@ pub(crate) fn resolve_with_snapshot(
     selection: crate::metrics::selection::Selection,
     snapshot: &crate::snapshot::Snapshot,
 ) {
-    let mut graph = ProgramGraph::new(facts);
+    let graph = ProgramGraph::new(facts);
     let resolutions = strategies::resolve(facts, snapshot, &graph);
     let calls: Vec<CallEdge> = graph.confirmed_relations(&resolutions);
     drop(graph);
