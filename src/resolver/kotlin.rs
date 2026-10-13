@@ -34,6 +34,7 @@ struct SourceContext {
 
 #[derive(Clone)]
 struct Candidate {
+    candidate_index: usize,
     graph_id: ProgramSymbolId,
     symbol: SymbolId,
     file: usize,
@@ -168,6 +169,7 @@ impl<'a> Index<'a> {
                     .cloned();
                 let index = candidates.len();
                 candidates.push(Candidate {
+                    candidate_index: index,
                     graph_id: symbol.id,
                     symbol: symbol.semantic_id.clone(),
                     file,
@@ -2403,10 +2405,7 @@ impl<'a> Index<'a> {
     }
 
     fn candidate_index(&self, candidate: &Candidate) -> usize {
-        self.candidates
-            .iter()
-            .position(|item| item.graph_id == candidate.graph_id)
-            .expect("candidate belongs to Kotlin index")
+        candidate.candidate_index
     }
 }
 
