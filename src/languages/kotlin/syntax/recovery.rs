@@ -198,11 +198,11 @@ pub(super) fn is_comment(kind: &str) -> bool {
 }
 
 pub(super) fn push_children<'tree>(node: Node<'tree>, pending: &mut Vec<Node<'tree>>) {
-    for index in (0..node.child_count()).rev() {
-        if let Some(child) = node.child(index) {
-            pending.push(child);
-        }
-    }
+    pending.extend(
+        (0..node.child_count())
+            .rev()
+            .filter_map(|index| node.child(index)),
+    );
 }
 pub(super) fn direct_children<'tree>(node: Node<'tree>) -> Vec<Node<'tree>> {
     (0..node.child_count())
@@ -239,9 +239,10 @@ pub(super) fn leaf_nodes(root: Node<'_>) -> Vec<Node<'_>> {
             continue;
         }
         if node.child_count() == 0 {
-            if !node.is_missing() {
-                leaves.push(node);
+            if node.is_missing() {
+                continue;
             }
+            leaves.push(node);
         } else {
             push_children(node, &mut pending);
         }

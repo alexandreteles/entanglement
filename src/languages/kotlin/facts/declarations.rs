@@ -27,23 +27,20 @@ pub(super) fn collect_definition(
     let package = context.package;
     let contexts = context.contexts;
     let recovered_types = context.recovered_types;
-    let result = &mut *sinks.result;
     let kind = declaration_kind(node);
     let start_byte = crate::languages::kotlin::syntax::context_start(node, contexts);
     let owner = owner_path(node, source, recovered_types);
-    let mut name_node = declaration_name_node(node);
+    let name_node = declaration_name_node(node);
     let name = name_node
         .map(|name| text(name, source).trim_matches('`').to_owned())
         .unwrap_or_else(|| generated_name(node));
     let name_range = name_node
         .map(|name| (name.start_byte(), name.end_byte()))
         .unwrap_or((node.start_byte(), node.end_byte()));
-    if let Some(name_node) = name_node.take() {
-        sinks.excluded.push(name_node.byte_range());
-        sinks
-            .declared_names
-            .insert((name_node.start_byte(), name_node.end_byte()));
+    if let Some(name_node) = name_node {
+        record_declared_name(sinks, name_node);
     }
+    let result = &mut *sinks.result;
 
     let modifier_node = named_children(node)
         .into_iter()
@@ -100,9 +97,8 @@ pub(super) fn collect_definition(
         result,
     );
 
-    if let Some(receiver) = node.child_by_field_name("receiver")
-        && let Some(body) = executable_body(node)
-    {
+    if let Some(receiver) = node.child_by_field_name("receiver") {
+        let body = executable_body(node);
         result.semantic.receivers.push(ReceiverScope {
             start_byte: body.start,
             end_byte: body.end,
@@ -229,8 +225,7 @@ pub(super) fn capture_local_binding(
         .take_while(|ancestor| ancestor.start_byte() >= outer_callable.start_byte())
         .find(|ancestor| ancestor.kind() == "statements")
         .map(range)
-        .or_else(|| executable_body(outer_callable))
-        .unwrap_or_else(|| range(outer_callable));
+        .unwrap_or_else(|| executable_body(outer_callable));
     result.locals.push(LocalBinding {
         name: name.to_owned(),
         start_byte: name_range.0,
@@ -269,6 +264,7 @@ pub(super) fn capture_primary_constructor_parameters(
         return;
     };
     let source = context.source;
+    let class_body = class_body_scope(node);
     for parameter in parameters {
         let Some(name_node) = named_children(parameter)
             .into_iter()
@@ -277,7 +273,6 @@ pub(super) fn capture_primary_constructor_parameters(
             continue;
         };
         let type_name = direct_type_children(parameter)
-            .into_iter()
             .next()
             .map(|ty| normalized_type(text(ty, source)));
         let is_property = named_children(parameter)
@@ -297,7 +292,7 @@ pub(super) fn capture_primary_constructor_parameters(
                 name_node,
                 type_name,
             );
-        } else if let Some(body) = class_body_scope(node) {
+        } else if let Some(body) = class_body.clone() {
             push_binding(
                 sinks.result,
                 BindingEvidence {
@@ -385,20 +380,9 @@ pub(super) fn local_property_metadata(
     let type_name = declared_type
         .map(str::to_owned)
         .or_else(|| initializer.and_then(|value| expression_type(value, source)));
-    let callable_reference =
-        initializer.is_some_and(|initializer| initializer.kind() == "callable_reference");
-    let alias_target = initializer.and_then(|initializer| {
-        if callable_reference {
-            reference_target(initializer, source).map(|(path, _)| path.join("."))
-        } else if matches!(
-            initializer.kind(),
-            "simple_identifier" | "navigation_expression"
-        ) {
-            simple_path(initializer, source).map(|path| path.join("."))
-        } else {
-            None
-        }
-    });
+    let (alias_target, callable_reference) = initializer
+        .map(|initializer| initializer_alias(initializer, source))
+        .unwrap_or_default();
     let immutable = !named_children(node)
         .into_iter()
         .find(|child| child.kind() == "binding_pattern_kind")
@@ -436,7 +420,6 @@ pub(super) fn definition_kind(node: Node<'_>, owner: &[String]) -> DefinitionKin
         "secondary_constructor" | "getter" | "setter" | "anonymous_initializer" => {
             DefinitionKind::Method
         }
-        "property_declaration" => DefinitionKind::Other,
         _ => DefinitionKind::Other,
     }
 }
@@ -454,14 +437,13 @@ pub(super) fn declaration_name_node(node: Node<'_>) -> Option<Node<'_>> {
             });
         }
         "function_declaration" | "property_declaration" => "simple_identifier",
-        "secondary_constructor" => return None,
         _ => return None,
     };
     if node.kind() == "property_declaration" {
         return all_nodes(node)
             .into_iter()
             .filter(|child| child.kind() == "variable_declaration")
-            .flat_map(|child| named_children(child).into_iter().collect::<Vec<_>>())
+            .flat_map(named_children)
             .find(|child| child.kind() == wanted);
     }
     named_children(node)
@@ -589,10 +571,8 @@ pub(super) fn declaration_scope(
     root: Node<'_>,
     recovered_types: &[crate::languages::kotlin::syntax::RecoveredType],
 ) -> Range<usize> {
-    if let Some(owner) = ancestors(node).find(|ancestor| is_executable_scope(ancestor.kind()))
-        && let Some(body) = executable_body(owner)
-    {
-        return body;
+    if let Some(owner) = ancestors(node).find(|ancestor| is_executable_scope(ancestor.kind())) {
+        return executable_body(owner);
     }
     if let Some(owner) = ancestors(node).find(|ancestor| {
         matches!(

@@ -154,11 +154,11 @@ impl Index<'_> {
                 outer.path.last()?,
                 lexical_receivers,
             )
+            .map(|candidates| self.filter_callable_overloads(file, outer, candidates))
             .unwrap_or_else(|| self.callable_candidates(file, outer))
         } else {
             self.callable_candidates(file, outer)
         };
-        let candidates = self.filter_callable_overloads(file, outer, candidates);
         let mut inferred_arguments = None;
         let mut receivers = candidates
             .into_iter()
@@ -176,7 +176,7 @@ impl Index<'_> {
                     self.candidates[index].file,
                     self.candidates[index].context_id,
                     &type_name,
-                    &self.candidates[index].package,
+                    self.candidates[index].package,
                     &mut BTreeSet::new(),
                 )
             })
@@ -199,30 +199,24 @@ impl Index<'_> {
             &type_name,
             self.semantic_package(file, reference.context_id),
         );
-        let mut markers = Vec::new();
-        for ty in types
+        types
             .into_iter()
             .filter(|candidate| candidate.name == final_name)
-        {
-            let Some(declaration) = ty.declaration.as_ref() else {
-                continue;
-            };
-            for annotation in &declaration.dsl_markers {
+            .filter_map(|candidate| candidate.declaration)
+            .flat_map(|declaration| &declaration.dsl_markers)
+            .filter(|annotation| {
                 let marker_name = annotation.rsplit('.').next().unwrap_or(annotation);
-                let is_dsl_marker = self.named(marker_name).any(|candidate| {
-                    candidate.declaration.as_ref().is_some_and(|declaration| {
+                self.named(marker_name).any(|candidate| {
+                    candidate.declaration.is_some_and(|declaration| {
                         declaration
                             .dsl_markers
                             .iter()
                             .any(|marker| marker.rsplit('.').next() == Some("DslMarker"))
                     })
-                });
-                if is_dsl_marker {
-                    markers.push(annotation.clone());
-                }
-            }
-        }
-        markers
+                })
+            })
+            .cloned()
+            .collect()
     }
     pub(super) fn receiver_from_function_type(
         &self,
@@ -248,25 +242,18 @@ impl Index<'_> {
                 .then(|| canonical.into_iter().next())
                 .flatten();
         }
-        for candidate in self.resolve_declared_type(file, context_id, &normalized, package) {
-            let Some(alias) = candidate
-                .declaration
-                .as_ref()
-                .and_then(|declaration| declaration.alias_target.as_deref())
-            else {
-                continue;
-            };
-            if let Some(receiver) = self.receiver_from_function_type(
-                candidate.file,
-                candidate.context_id,
-                alias,
-                &candidate.package,
-                seen,
-            ) {
-                return Some(receiver);
-            }
-        }
-        None
+        self.resolve_declared_type(file, context_id, &normalized, package)
+            .into_iter()
+            .find_map(|candidate| {
+                let alias = candidate.declaration?.alias_target.as_deref()?;
+                self.receiver_from_function_type(
+                    candidate.file,
+                    candidate.context_id,
+                    alias,
+                    candidate.package,
+                    seen,
+                )
+            })
     }
     pub(super) fn callable_candidates(&self, file: usize, reference: &Reference) -> Vec<usize> {
         let package = self.semantic_package(file, reference.context_id);
@@ -376,7 +363,7 @@ impl Index<'_> {
             let canonical = self.canonical_type_names(
                 candidate.file,
                 candidate.context_id,
-                &candidate.package,
+                candidate.package,
                 parameter_type,
                 &mut BTreeSet::new(),
             );
@@ -459,19 +446,18 @@ impl Index<'_> {
             .filter(|candidate| {
                 candidate
                     .declaration
-                    .as_ref()
                     .is_some_and(|item| item.kind == DeclarationKind::Class)
             })
             .filter(|candidate| {
                 candidate.start <= reference.start_byte && reference.start_byte < candidate.end
             })
             .min_by_key(|candidate| candidate.end - candidate.start)?;
-        let declaration = class.declaration.as_ref()?;
+        let declaration = class.declaration?;
         let parents = declaration
             .supertypes
             .iter()
             .flat_map(|supertype| {
-                self.resolve_declared_type(class.file, class.context_id, supertype, &class.package)
+                self.resolve_declared_type(class.file, class.context_id, supertype, class.package)
             })
             .collect::<Vec<_>>();
         match parents.as_slice() {
@@ -510,7 +496,7 @@ impl Index<'_> {
             .iter()
             .filter(|candidate| candidate.file == file)
             .filter(|candidate| {
-                candidate.declaration.as_ref().is_some_and(|item| {
+                candidate.declaration.is_some_and(|item| {
                     matches!(
                         item.kind,
                         DeclarationKind::Class

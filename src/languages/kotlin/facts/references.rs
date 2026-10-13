@@ -147,7 +147,7 @@ pub(super) fn reference(
         .flatten()
         .map(|owner| owner.start);
     let scope = call_owner_node
-        .and_then(executable_body)
+        .map(executable_body)
         .or_else(|| call_owner_range.clone())
         .or_else(|| {
             let scope = call.into_iter().flat_map(ancestors).find(|ancestor| {
@@ -201,7 +201,7 @@ pub(super) fn reference_access(node: Node<'_>, source: &[u8]) -> Option<Referenc
             };
         }
     }
-    if let Some(operator) = ancestors(node)
+    if ancestors(node)
         .find(|ancestor| matches!(ancestor.kind(), "prefix_expression" | "postfix_expression"))
         .and_then(|expression| {
             let operand = named_children(expression)
@@ -215,7 +215,7 @@ pub(super) fn reference_access(node: Node<'_>, source: &[u8]) -> Option<Referenc
                 .map(|child| text(child, source))
                 .find(|text| matches!(text.as_str(), "++" | "--"))
         })
-        && matches!(operator.as_str(), "++" | "--")
+        .is_some()
     {
         return Some(ReferenceAccess::ReadWrite);
     }
@@ -223,13 +223,14 @@ pub(super) fn reference_access(node: Node<'_>, source: &[u8]) -> Option<Referenc
 }
 
 pub(super) fn lvalue_terminal_matches(lvalue: Node<'_>, reference: Node<'_>) -> bool {
-    if all_nodes(lvalue)
-        .into_iter()
+    let nodes = all_nodes(lvalue);
+    if nodes
+        .iter()
         .any(|node| node.kind() == "indexing_expression" && node.end_byte() == lvalue.end_byte())
     {
         return false;
     }
-    all_nodes(lvalue)
+    nodes
         .into_iter()
         .filter(|node| node.kind() == "simple_identifier")
         .max_by_key(|node| node.start_byte())

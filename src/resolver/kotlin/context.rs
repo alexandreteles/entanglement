@@ -20,7 +20,7 @@ pub(super) struct SourceContext {
 
 /// Project evidence belongs to one resolution snapshot, never to a global cache.
 #[derive(Default)]
-pub(super) struct ProjectCache {
+pub(in crate::resolver) struct ProjectCache {
     modules: HashMap<PathBuf, Vec<(String, PathBuf)>>,
     scripts: HashMap<PathBuf, build::BuildFacts>,
 }
@@ -66,20 +66,7 @@ pub(super) fn source_context(
     cache: &mut ProjectCache,
 ) -> SourceContext {
     let absolute = path.to_path_buf();
-    let settings_root = path
-        .ancestors()
-        .find(|directory| {
-            ["settings.gradle.kts", "settings.gradle"]
-                .iter()
-                .any(|name| {
-                    snapshot
-                        .read(&directory.join(name))
-                        .ok()
-                        .flatten()
-                        .is_some()
-                })
-        })
-        .map(Path::to_path_buf);
+    let settings_root = manifest_root(path, snapshot, &["settings.gradle.kts", "settings.gradle"]);
     let source_parts = path
         .components()
         .filter_map(|component| match component {
@@ -98,18 +85,7 @@ pub(super) fn source_context(
                 .nth(path.components().count().saturating_sub(index + 1))
         })
         .map(Path::to_path_buf);
-    let build_root = path
-        .ancestors()
-        .find(|directory| {
-            ["build.gradle.kts", "build.gradle"].iter().any(|name| {
-                snapshot
-                    .read(&directory.join(name))
-                    .ok()
-                    .flatten()
-                    .is_some()
-            })
-        })
-        .map(Path::to_path_buf);
+    let build_root = manifest_root(path, snapshot, &["build.gradle.kts", "build.gradle"]);
     let settings_root = settings_root.or_else(|| build_root.clone());
     let project_root = settings_root
         .clone()
@@ -135,14 +111,29 @@ pub(super) fn source_context(
     }
 }
 
+fn manifest_root(path: &Path, snapshot: &Snapshot, names: &[&str]) -> Option<PathBuf> {
+    path.ancestors()
+        .find(|directory| {
+            names.iter().any(|name| {
+                snapshot
+                    .read(&directory.join(name))
+                    .ok()
+                    .flatten()
+                    .is_some()
+            })
+        })
+        .map(Path::to_path_buf)
+}
+
 fn module_name(project_root: &Path, module_root: &Path, modules: &[(String, PathBuf)]) -> String {
+    let normalized_root = normalize_path(module_root);
     if let Some((module, _)) = modules
         .iter()
-        .find(|(_, path)| normalize_path(path) == normalize_path(module_root))
+        .find(|(_, path)| normalize_path(path) == normalized_root)
     {
         return module.clone();
     }
-    if normalize_path(project_root) == normalize_path(module_root) {
+    if normalize_path(project_root) == normalized_root {
         return ":".to_owned();
     }
     module_root
@@ -302,16 +293,29 @@ impl<'a> Index<'a> {
         facts: &'a [FileFacts],
         snapshot: &'a Snapshot,
         graph: &'a ProgramGraph<'a>,
+        cache: &mut ProjectCache,
+        contexts: &[HashSet<usize>],
     ) -> Self {
-        let mut cache = ProjectCache::default();
         let sources = facts
             .iter()
-            .map(|fact| source_context(&fact.target, snapshot, &mut cache))
+            .zip(contexts)
+            .map(|(fact, contexts)| {
+                if contexts.is_empty() {
+                    SourceContext::default()
+                } else {
+                    source_context(&fact.target, snapshot, cache)
+                }
+            })
             .collect::<Vec<_>>();
-        let (dependencies, source_edges) = project_indexes(&sources, snapshot, &mut cache);
+        let active_sources = sources
+            .iter()
+            .zip(contexts)
+            .filter(|(_, contexts)| !contexts.is_empty())
+            .map(|(source, _)| source);
+        let (dependencies, source_edges) = project_indexes(active_sources.clone(), snapshot, cache);
         let mut visible_modules =
             HashMap::<String, HashMap<Option<String>, BTreeSet<String>>>::new();
-        for source in &sources {
+        for source in active_sources {
             visible_modules
                 .entry(source.module.clone())
                 .or_default()
@@ -341,8 +345,8 @@ impl<'a> Index<'a> {
     }
 }
 
-fn project_indexes(
-    sources: &[SourceContext],
+fn project_indexes<'source>(
+    sources: impl Iterator<Item = &'source SourceContext>,
     snapshot: &Snapshot,
     cache: &mut ProjectCache,
 ) -> ProjectIndexes {
@@ -376,10 +380,10 @@ fn source_set_edges(
     edges
 }
 
-fn indexed_candidates(
+fn indexed_candidates<'a>(
     sources: &[SourceContext],
-    graph: &ProgramGraph<'_>,
-) -> (Vec<Candidate>, HashMap<String, Vec<usize>>) {
+    graph: &'a ProgramGraph<'a>,
+) -> (Vec<Candidate<'a>>, HashMap<String, Vec<usize>>) {
     let mut candidates = Vec::new();
     let mut by_name = HashMap::<String, Vec<usize>>::new();
     for file in 0..sources.len().min(graph.file_count()) {
@@ -389,7 +393,7 @@ fn indexed_candidates(
                 continue;
             };
             by_name
-                .entry(candidate.name.clone())
+                .entry(candidate.name.to_owned())
                 .or_default()
                 .push(candidate.candidate_index);
             candidates.push(candidate);
@@ -398,38 +402,36 @@ fn indexed_candidates(
     (candidates, by_name)
 }
 
-fn candidate_for_symbol(
+fn candidate_for_symbol<'a>(
     candidate_index: usize,
     file: usize,
-    symbol: &crate::graph::ProgramSymbol,
-    graph: &ProgramGraph<'_>,
-) -> Option<Candidate> {
+    symbol: &'a crate::graph::ProgramSymbol,
+    graph: &'a ProgramGraph<'a>,
+) -> Option<Candidate<'a>> {
     let context_id = symbol.scope.context_id;
     let semantic = graph.semantic(file, context_id, Some(ResolutionFamily::KotlinModules))?;
     let definition = graph.definition(symbol.id)?;
-    let package = semantic.context.as_ref().map_or_else(
-        || definition.module.0.clone(),
-        |context| context.package.clone(),
+    let package = semantic
+        .context
+        .as_ref()
+        .map_or(definition.module.0.as_slice(), |context| {
+            context.package.as_slice()
+        });
+    let declaration = graph.declaration(
+        file,
+        context_id,
+        definition.start_byte,
+        Some(ResolutionFamily::KotlinModules),
     );
-    let declaration = graph
-        .declaration(
-            file,
-            context_id,
-            definition.start_byte,
-            Some(ResolutionFamily::KotlinModules),
-        )
-        .cloned();
     Some(Candidate {
         candidate_index,
         graph_id: symbol.id,
-        symbol: symbol.semantic_id.clone(),
+        symbol: &symbol.semantic_id,
         file,
         context_id,
-        name: symbol.name.clone(),
+        name: &symbol.name,
         package,
-        owner: declaration
-            .as_ref()
-            .map_or_else(Vec::new, |declaration| declaration.owner.clone()),
+        owner: declaration.map_or(&[][..], |declaration| declaration.owner.as_slice()),
         kind: symbol.kind.clone(),
         declaration,
         public: symbol.is_public,

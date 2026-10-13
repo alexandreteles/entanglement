@@ -2,7 +2,6 @@ mod calls;
 mod imports;
 mod paths;
 
-pub(super) use paths::child_field;
 use paths::path_segments;
 
 use std::ops::Range;

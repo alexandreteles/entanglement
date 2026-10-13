@@ -13,16 +13,15 @@ pub(super) fn is_executable_scope(kind: &str) -> bool {
     )
 }
 
-pub(super) fn executable_body(node: Node<'_>) -> Option<Range<usize>> {
+pub(super) fn executable_body(node: Node<'_>) -> Range<usize> {
     if node.kind() == "lambda_literal" {
-        return Some(range(node));
+        return range(node);
     }
     all_nodes(node)
         .into_iter()
-        .filter(|child| child.start_byte() >= node.start_byte())
         .find(|child| child.kind() == "statements" || child.kind() == "function_body")
         .map(range)
-        .or_else(|| Some(range(node)))
+        .unwrap_or_else(|| range(node))
 }
 
 pub(super) fn class_body_scope(node: Node<'_>) -> Option<Range<usize>> {
@@ -126,21 +125,13 @@ pub(super) fn property_accessors(property: Node<'_>) -> Vec<Node<'_>> {
     else {
         return accessors;
     };
-    for sibling in siblings.iter().skip(position + 1).copied() {
-        if matches!(sibling.kind(), "line_comment" | "multiline_comment") {
-            continue;
-        }
-        if matches!(sibling.kind(), "getter" | "setter") {
-            if !accessors
-                .iter()
-                .any(|accessor| accessor.id() == sibling.id())
-            {
-                accessors.push(sibling);
-            }
-            continue;
-        }
-        break;
-    }
+    accessors.extend(
+        siblings
+            .into_iter()
+            .skip(position + 1)
+            .filter(|sibling| !matches!(sibling.kind(), "line_comment" | "multiline_comment"))
+            .take_while(|sibling| matches!(sibling.kind(), "getter" | "setter")),
+    );
     accessors
 }
 
@@ -220,7 +211,7 @@ pub(in crate::languages::kotlin::facts) fn recovered_type_execution(
     scope_index: &crate::languages::kotlin::scopes::ScopeIndex<'_>,
 ) -> Option<DeclarationExecutionFacts> {
     let mut execution = DeclarationExecutionFacts::default();
-    for node in all_nodes(scope_index.root()) {
+    for node in scope_index.nodes().iter().copied() {
         if is_recovered_primary_constructor(node, recovered, recovered_types) {
             if let Some(range) = scope_index.metric_scope_range_for(node) {
                 execution.constructors.push(source_range(range));
@@ -267,25 +258,11 @@ pub(super) fn collect_recovered_member_execution(
     scope_index: &crate::languages::kotlin::scopes::ScopeIndex<'_>,
     execution: &mut DeclarationExecutionFacts,
 ) {
-    match member.kind() {
-        "secondary_constructor" => {
-            if let Some(range) = scope_index.metric_scope_range_for(member) {
-                execution.constructors.push(source_range(range));
-            }
+    if member.kind() == "enum_entry" {
+        if let Some(range) = scope_index.metric_scope_range_for(member) {
+            execution.initializers.push(source_range(range));
         }
-        "property_declaration" => {
-            if let Some(range) = crate::languages::kotlin::scopes::property_initializer_range(
-                member,
-                scope_index.contexts(),
-            ) {
-                execution.initializers.push(source_range(range));
-            }
-        }
-        "anonymous_initializer" | "enum_entry" => {
-            if let Some(range) = scope_index.metric_scope_range_for(member) {
-                execution.initializers.push(source_range(range));
-            }
-        }
-        _ => {}
+    } else {
+        collect_type_member_execution(member, scope_index, execution);
     }
 }

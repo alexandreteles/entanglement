@@ -3,7 +3,7 @@ use std::ops::Range;
 use super::super::capture::has_visibility;
 use super::super::scopes::{lexical_scope, relative_module};
 use super::super::{CaptureFacts, ModuleSpan, NodeGraph, RawImport};
-use super::paths::{child_field, is_path_node, is_use_node, path_segments};
+use super::paths::{is_path_node, is_use_node, path_segments};
 use crate::model::Import;
 
 impl CaptureFacts<'_> {
@@ -46,7 +46,7 @@ fn flatten_import(
     graph: &NodeGraph<'_>,
     imports: &mut Vec<RawImport>,
 ) {
-    let Some(argument) = child_field(root, "argument", graph) else {
+    let Some(argument) = graph.child_by_field(root, "argument") else {
         return;
     };
     flatten_use_node(argument, &[], is_public, graph, imports);
@@ -67,7 +67,9 @@ fn flatten_use_node(
         "use_list" => flatten_use_list(node, prefix, is_public, graph, imports),
         "use_as_clause" => {
             let path = field_path(node_id, prefix, graph);
-            let alias = child_field(node_id, "alias", graph).and_then(|alias| graph.text(alias));
+            let alias = graph
+                .child_by_field(node_id, "alias")
+                .and_then(|alias| graph.text(alias));
             push_import(node_id, node, path, alias, is_public, imports);
         }
         "use_wildcard" => flatten_wildcard(node, prefix, is_public, graph, imports),
@@ -90,7 +92,7 @@ fn flatten_scoped_use_list(
     imports: &mut Vec<RawImport>,
 ) {
     let path = field_path(node_id, prefix, graph);
-    if let Some(list) = child_field(node_id, "list", graph) {
+    if let Some(list) = graph.child_by_field(node_id, "list") {
         flatten_use_node(list, &path, is_public, graph, imports);
     }
 }
@@ -128,7 +130,7 @@ fn flatten_wildcard(
 
 fn field_path(node_id: usize, prefix: &[String], graph: &NodeGraph<'_>) -> Vec<String> {
     let mut path = prefix.to_vec();
-    if let Some(path_node) = child_field(node_id, "path", graph) {
+    if let Some(path_node) = graph.child_by_field(node_id, "path") {
         path.extend(path_segments(path_node, graph));
     }
     path

@@ -53,6 +53,7 @@ pub(super) fn resolve(
     snapshot: &Snapshot,
     graph: &ProgramGraph<'_>,
 ) -> Vec<Vec<ReferenceAnalysis>> {
+    let mut cache = super::kotlin::ProjectCache::default();
     let homogeneous = facts.iter().all(|fact| {
         let native = Strategy {
             family: fact.resolution_family,
@@ -64,7 +65,7 @@ pub(super) fn resolve(
         })
     });
     if homogeneous {
-        return super::resolve_references(facts, snapshot, graph);
+        return super::resolve_references(facts, snapshot, graph, &mut cache);
     }
     let mut strategies = Vec::<Strategy>::new();
     for fact in facts {
@@ -118,16 +119,17 @@ pub(super) fn resolve(
             })
             .collect::<Vec<_>>();
         let projected_graph = ProgramGraph::new(&projected);
-        let resolved = super::resolve_references(&projected, snapshot, &projected_graph);
-        for (file_index, fact) in facts.iter().enumerate() {
+        let resolved =
+            super::resolve_references(&projected, snapshot, &projected_graph, &mut cache);
+        for (file_index, (fact, resolutions)) in facts.iter().zip(resolved).enumerate() {
             let indices = fact
                 .references
                 .iter()
                 .enumerate()
                 .filter(|(_, reference)| strategy.same(for_context(fact, reference.context_id)))
                 .map(|(index, _)| index);
-            for (index, resolution) in indices.zip(resolved[file_index].iter()) {
-                result[file_index][index] = resolution.clone();
+            for (index, resolution) in indices.zip(resolutions) {
+                result[file_index][index] = resolution;
             }
         }
     }

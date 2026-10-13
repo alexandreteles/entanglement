@@ -136,10 +136,7 @@ pub(in crate::languages::kotlin::syntax) fn skip_annotation(
         let (_, end) = read_identifier(source, offset)?;
         offset = end;
     }
-    loop {
-        if source.get(offset) != Some(&b'.') {
-            break;
-        }
+    while source.get(offset) == Some(&b'.') {
         let (_, end) = read_identifier(source, skip_trivia(source, offset + 1))?;
         offset = end;
     }
@@ -285,10 +282,11 @@ pub(in crate::languages::kotlin::syntax) fn consume_punctuation(
     source: &[u8],
     offset: usize,
 ) -> usize {
-    for symbol in [b"::".as_slice(), b"->", b"?.", b"!!", b"?:", b"..", b"<>"] {
-        if source.get(offset..offset + symbol.len()) == Some(symbol) {
-            return offset + symbol.len();
-        }
+    if matches!(
+        source.get(offset..offset + 2),
+        Some(b"::" | b"->" | b"?." | b"!!" | b"?:" | b".." | b"<>")
+    ) {
+        return offset + 2;
     }
     offset + utf8_width(source[offset])
 }

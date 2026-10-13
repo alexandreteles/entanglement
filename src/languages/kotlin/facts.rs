@@ -86,25 +86,27 @@ pub(super) fn capture(scope_index: &super::scopes::ScopeIndex<'_>) -> Capture {
         scope_index,
     };
 
-    for node in nodes.iter().copied() {
-        if is_definition_node(node) {
-            collect_definition(
-                node,
-                &definition_context,
-                &mut DefinitionSinks {
-                    result: &mut result,
-                    excluded: &mut excluded,
-                    declared_names: &mut declared_names,
-                },
-            );
-        }
+    for node in nodes
+        .iter()
+        .copied()
+        .filter(|node| is_definition_node(*node))
+    {
+        collect_definition(
+            node,
+            &definition_context,
+            &mut DefinitionSinks {
+                result: &mut result,
+                excluded: &mut excluded,
+                declared_names: &mut declared_names,
+            },
+        );
     }
 
     collect_recovered_type_definitions(&definition_context, &mut result);
 
     result.imports = imports;
-    collect_locals(root, source, nodes, &declared_names, &mut result);
-    collect_context_facts(root, source, nodes, contexts, &mut result);
+    collect_locals(source, nodes, &declared_names, &mut result);
+    collect_context_facts(nodes, contexts, &mut result);
     result.semantic.calls = collect_calls(nodes, source, &result.semantic.bindings);
     result.references = collect_references(scope_index, nodes, &excluded);
     let conventions = super::conventions::capture(

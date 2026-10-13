@@ -1,7 +1,6 @@
 use super::*;
 
 pub(super) fn collect_locals(
-    root: Node<'_>,
     source: &[u8],
     nodes: &[Node<'_>],
     declared_names: &HashSet<(usize, usize)>,
@@ -10,10 +9,10 @@ pub(super) fn collect_locals(
     for node in nodes.iter().copied() {
         match node.kind() {
             "parameter" | "class_parameter" | "variable_declaration" => {
-                collect_value_binding(node, source, declared_names, root, result);
+                collect_value_binding(node, source, declared_names, result);
             }
             "context_parameter" => {
-                collect_context_parameter(node, source, root, result);
+                collect_context_parameter(node, source, result);
             }
             _ => {}
         }
@@ -24,7 +23,6 @@ fn collect_value_binding(
     node: Node<'_>,
     source: &[u8],
     declared_names: &HashSet<(usize, usize)>,
-    root: Node<'_>,
     result: &mut Capture,
 ) {
     let Some(name_node) = named_children(node)
@@ -36,12 +34,11 @@ fn collect_value_binding(
     if declared_names.contains(&(name_node.start_byte(), name_node.end_byte())) {
         return;
     }
-    let Some(scope) = binding_scope(node, root) else {
+    let Some(scope) = binding_scope(node) else {
         return;
     };
     let type_name = direct_type_children(node)
-        .into_iter()
-        .last()
+        .next_back()
         .map(|ty| normalized_type(text(ty, source)));
     let (alias_target, callable_reference) = local_alias(node, source);
     push_binding(
@@ -71,6 +68,10 @@ fn local_alias(node: Node<'_>, source: &[u8]) -> (Option<String>, bool) {
     let Some(initializer) = property_initializer(property, node) else {
         return (None, false);
     };
+    initializer_alias(initializer, source)
+}
+
+pub(super) fn initializer_alias(initializer: Node<'_>, source: &[u8]) -> (Option<String>, bool) {
     match initializer.kind() {
         "callable_reference" => (
             reference_target(initializer, source).map(|(path, _)| path.join(".")),
@@ -99,14 +100,14 @@ fn is_immutable_binding(node: Node<'_>, source: &[u8]) -> bool {
         .is_some_and(|kind| text(kind, source) == "var")
 }
 
-fn collect_context_parameter(node: Node<'_>, source: &[u8], root: Node<'_>, result: &mut Capture) {
-    let Some(scope) = binding_scope(node, root) else {
+fn collect_context_parameter(node: Node<'_>, source: &[u8], result: &mut Capture) {
+    let Some(scope) = binding_scope(node) else {
         return;
     };
     let name_node = named_children(node)
         .into_iter()
         .find(|child| child.kind() == "simple_identifier");
-    let type_node = direct_type_children(node).into_iter().last();
+    let type_node = direct_type_children(node).next_back();
     if let Some(name_node) = name_node {
         push_binding(
             result,
@@ -135,9 +136,7 @@ fn collect_implicit_context_receiver(
         return;
     };
     let ty = normalized_type(text(ty, source));
-    let Some(body) = executable_body(owner) else {
-        return;
-    };
+    let body = executable_body(owner);
     result.semantic.receivers.push(ReceiverScope {
         start_byte: body.start,
         end_byte: body.end,
@@ -149,8 +148,6 @@ fn collect_implicit_context_receiver(
 }
 
 pub(super) fn collect_context_facts(
-    _root: Node<'_>,
-    _source: &[u8],
     nodes: &[Node<'_>],
     contexts: &[crate::languages::kotlin::syntax::ContextParameters],
     result: &mut Capture,
@@ -175,26 +172,26 @@ pub(super) fn collect_context_facts(
         ) {
             class_body_scope(declaration)
         } else {
-            executable_body(declaration)
+            Some(executable_body(declaration))
         }) else {
             continue;
         };
         for parameter in &context.parameters {
             let type_name = normalized_type(parameter.type_name.clone());
-            let markers = result
-                .semantic
-                .declarations
-                .iter()
-                .find(|fact| {
-                    fact.kind == DeclarationKind::Class
-                        && fact.start_byte < declaration.start_byte()
-                        && fact.declared_type.as_deref().is_some_and(|name| {
-                            name.rsplit('.').next() == type_name.rsplit('.').next()
-                        })
-                })
-                .map(|fact| fact.dsl_markers.clone())
-                .unwrap_or_default();
             if parameter.name.is_none() {
+                let markers = result
+                    .semantic
+                    .declarations
+                    .iter()
+                    .find(|fact| {
+                        fact.kind == DeclarationKind::Class
+                            && fact.start_byte < declaration.start_byte()
+                            && fact.declared_type.as_deref().is_some_and(|name| {
+                                name.rsplit('.').next() == type_name.rsplit('.').next()
+                            })
+                    })
+                    .map(|fact| fact.dsl_markers.clone())
+                    .unwrap_or_default();
                 result.semantic.receivers.push(ReceiverScope {
                     start_byte: scope.start,
                     end_byte: scope.end,
@@ -251,16 +248,16 @@ pub(super) fn push_binding(result: &mut Capture, evidence: BindingEvidence<'_>) 
     });
 }
 
-pub(super) fn binding_scope(node: Node<'_>, _root: Node<'_>) -> Option<Range<usize>> {
+pub(super) fn binding_scope(node: Node<'_>) -> Option<Range<usize>> {
     if matches!(node.kind(), "parameter" | "class_parameter") {
         let owner = nearest_declaration(node)?;
         if owner.kind() == "class_declaration" {
             return class_body_scope(owner).or(Some(range(owner)));
         }
-        return executable_body(owner).or(Some(range(owner)));
+        return Some(executable_body(owner));
     }
     if node.kind() == "context_parameter" {
-        return nearest_declaration(node).and_then(executable_body);
+        return nearest_declaration(node).map(executable_body);
     }
     let owner = nearest_declaration(node)?;
     if !is_executable_scope(owner.kind()) {
@@ -275,7 +272,7 @@ pub(super) fn binding_scope(node: Node<'_>, _root: Node<'_>) -> Option<Range<usi
             )
         })
         .map(range)
-        .or_else(|| executable_body(owner))?;
+        .unwrap_or_else(|| executable_body(owner));
     // A local is visible only after its full initializer/declaration.
     let start = if node.kind() == "variable_declaration" {
         node.parent()

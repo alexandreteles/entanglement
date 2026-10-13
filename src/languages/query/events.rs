@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 
 use tree_sitter::QueryCapture;
 
@@ -21,19 +21,16 @@ impl QueryFacts {
                     .insert(node.id(), node.parent().map(|parent| parent.id()));
             }
             if let Some(role) = analyzer.roles.get(&capture.index) {
-                match role {
-                    SyntaxRole::Node if node.child_count() == 0 => {
-                        for range in ranges::node_segments(node, included) {
-                            self.events.push(event_range(*role, node, range));
-                        }
+                match (role, node.child_count()) {
+                    (SyntaxRole::Comment, _) | (SyntaxRole::Node, 0) => {
+                        self.events.extend(
+                            ranges::node_segments(node, included)
+                                .into_iter()
+                                .map(|range| event_range(*role, node, range)),
+                        );
                     }
-                    SyntaxRole::Node | SyntaxRole::InjectionContent => {
+                    (SyntaxRole::Node | SyntaxRole::InjectionContent, _) => {
                         self.events.push(event(*role, node));
-                    }
-                    SyntaxRole::Comment => {
-                        for range in ranges::node_segments(node, included) {
-                            self.events.push(event_range(*role, node, range));
-                        }
                     }
                     _ if ranges::fully_included(node, included) => {
                         self.events.push(event(*role, node));
@@ -111,17 +108,14 @@ fn deduplicate<T, K: Eq + std::hash::Hash>(values: &mut Vec<T>, key: impl Fn(&T)
 }
 
 fn deduplicate_functions(functions: &mut Vec<FunctionScope>) {
-    let mut unique = BTreeMap::new();
-    for function in functions.drain(..) {
-        let key = (function.range.start, function.range.end);
-        match unique.entry(key).or_insert_with(|| function.clone()) {
-            current if is_anonymous(&current.name) && !is_anonymous(&function.name) => {
-                *current = function;
-            }
-            _ => {}
-        }
-    }
-    functions.extend(unique.into_values());
+    functions.sort_by_key(|function| {
+        (
+            function.range.start,
+            function.range.end,
+            is_anonymous(&function.name),
+        )
+    });
+    functions.dedup_by_key(|function| (function.range.start, function.range.end));
 }
 
 fn is_anonymous(name: &str) -> bool {

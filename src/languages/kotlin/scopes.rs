@@ -79,16 +79,17 @@ pub(in crate::languages::kotlin) fn capture(
     query_functions: Vec<FunctionScope>,
 ) -> Vec<FunctionScope> {
     let source = index.source();
-    let mut scopes = Vec::new();
     let recovered_types = index.recovered_types();
-
-    for node in index.nodes().iter().copied() {
-        let name = executable_scope_name(node, source, &query_functions, recovered_types);
-        if let Some(name) = name {
+    let mut scopes = index
+        .nodes()
+        .iter()
+        .copied()
+        .filter_map(|node| {
+            let name = executable_scope_name(node, source, &query_functions, recovered_types)?;
             let start = syntax::context_start(node, index.contexts());
-            scopes.push(scope(name, start, node.end_byte(), source));
-        }
-    }
+            Some(scope(name, start, node.end_byte(), source))
+        })
+        .collect::<Vec<_>>();
     scopes.extend(index.script.iter().cloned());
 
     scopes.sort_by_key(|item| (item.range.start, item.range.end, item.name.clone()));

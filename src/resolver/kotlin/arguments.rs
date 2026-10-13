@@ -172,22 +172,19 @@ fn argument_matches_parameter(
     parameter: &CallableParameter,
     substitutions: &BTreeMap<String, String>,
 ) -> bool {
-    if let (Some(actual), Some(expected)) = (
-        argument.type_name.as_deref(),
-        parameter.type_name.as_deref(),
-    ) {
-        let expected = substitute_type_name(expected, substitutions);
-        if !is_type_compatible(&expected, actual) {
-            return false;
-        }
+    if argument.type_name.is_none() && !argument.is_lambda {
+        return true;
     }
-    if argument.is_lambda
-        && let Some(expected) = parameter.type_name.as_deref()
-    {
-        let expected = substitute_type_name(expected, substitutions);
-        return lambda_parameters_match(&expected, &argument.lambda_parameter_types);
-    }
-    true
+    let Some(expected) = parameter.type_name.as_deref() else {
+        return true;
+    };
+    let expected = substitute_type_name(expected, substitutions);
+    argument
+        .type_name
+        .as_deref()
+        .is_none_or(|actual| is_type_compatible(&expected, actual))
+        && (!argument.is_lambda
+            || lambda_parameters_match(&expected, &argument.lambda_parameter_types))
 }
 
 fn bind_generic_argument(

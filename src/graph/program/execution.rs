@@ -71,25 +71,27 @@ impl<'a> ProgramGraph<'a> {
         if analysis.dispatch != Some(CallDispatch::Direct) {
             return;
         }
-        for execution in &analysis.execution_targets {
-            if !self.valid_execution_target(target, execution)
-                || !self.is_reported_execution_caller(
-                    file_index,
-                    reference,
-                    execution.caller_start_byte,
-                )
-            {
-                continue;
-            }
-            calls.push(CallEdge {
-                caller_file: file_index,
-                caller_start_byte: execution.caller_start_byte,
-                callee_file: execution.file_index,
-                callee_start_byte: execution.range.start_byte,
-                call_start_byte: reference.start_byte,
-                call_end_byte: reference.end_byte,
-            });
-        }
+        calls.extend(
+            analysis
+                .execution_targets
+                .iter()
+                .filter(|execution| {
+                    self.valid_execution_target(target, execution)
+                        && self.is_reported_execution_caller(
+                            file_index,
+                            reference,
+                            execution.caller_start_byte,
+                        )
+                })
+                .map(|execution| CallEdge {
+                    caller_file: file_index,
+                    caller_start_byte: execution.caller_start_byte,
+                    callee_file: execution.file_index,
+                    callee_start_byte: execution.range.start_byte,
+                    call_start_byte: reference.start_byte,
+                    call_end_byte: reference.end_byte,
+                }),
+        );
     }
 
     fn legacy_call_edge(

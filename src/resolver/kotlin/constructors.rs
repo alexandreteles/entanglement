@@ -1,48 +1,52 @@
 use super::*;
 
 impl Index<'_> {
-    pub(super) fn matches_primary_constructor(
+    pub(super) fn constructor_execution_ranges(
         &self,
         file: usize,
         reference: &Reference,
         candidate: &Candidate,
-    ) -> bool {
-        let Some(declaration) = candidate.declaration.as_ref() else {
-            return false;
-        };
-        let Some(signature) = declaration.signature.as_ref() else {
-            return false;
-        };
+        execution: &DeclarationExecutionFacts,
+    ) -> Vec<SourceRange> {
+        let constructor_class = self.typealias_target(candidate).unwrap_or(candidate);
+        let constructor_execution = constructor_class
+            .declaration
+            .and_then(|declaration| declaration.execution.as_ref());
+        if constructor_execution.is_none() && candidate.signature().is_none() {
+            return Vec::new();
+        }
         let Some(call) = self.containing_call_facts(file, reference) else {
-            return false;
+            return Vec::new();
         };
         let arguments = self.infer_argument_return_types(file, reference, &call.arguments);
-        arguments_match(signature, &arguments)
-            && declaration
-                .execution
-                .as_ref()
-                .is_some_and(|execution| execution.constructors.is_empty())
+        if let Some(range) = constructor_execution.and_then(|execution| {
+            self.selected_constructor_range(constructor_class, execution, &arguments)
+        }) {
+            return vec![range];
+        }
+        if execution.constructors.is_empty()
+            && candidate
+                .signature()
+                .is_some_and(|signature| arguments_match(signature, &arguments))
+        {
+            execution.initializers.clone()
+        } else {
+            Vec::new()
+        }
     }
 
     pub(super) fn selected_constructor_range(
         &self,
-        file: usize,
-        reference: &Reference,
         class: &Candidate,
+        execution: &DeclarationExecutionFacts,
+        arguments: &[CallArgumentFact],
     ) -> Option<SourceRange> {
-        let constructor_class = self.typealias_target(class).unwrap_or(class);
-        let execution = constructor_class.declaration.as_ref()?.execution.as_ref()?;
-        let call = self.containing_call_facts(file, reference)?;
-        let arguments = self.infer_argument_return_types(file, reference, &call.arguments);
-        let mut matched = self.primary_constructor_matches(
-            constructor_class,
-            &execution.constructors,
-            &arguments,
-        );
+        let mut matched =
+            self.primary_constructor_matches(class, &execution.constructors, arguments);
         matched.extend(self.secondary_constructor_matches(
-            constructor_class,
+            class,
             &execution.constructors,
-            &arguments,
+            arguments,
         ));
         matched.sort_by_key(|range| (range.start_byte, range.end_byte));
         matched.dedup();
@@ -65,7 +69,7 @@ impl Index<'_> {
         if !matches_signature {
             return Vec::new();
         }
-        let owner = extended_owner(&class.owner, &class.name);
+        let owner = extended_owner(class.owner, class.name);
         ranges
             .iter()
             .copied()
@@ -88,7 +92,6 @@ impl Index<'_> {
                 && candidate.end == range.end_byte
                 && candidate
                     .declaration
-                    .as_ref()
                     .is_some_and(|declaration| declaration.kind == DeclarationKind::Constructor)
         })
     }
@@ -99,7 +102,7 @@ impl Index<'_> {
         ranges: &[SourceRange],
         arguments: &[CallArgumentFact],
     ) -> Vec<SourceRange> {
-        let owner = extended_owner(&class.owner, &class.name);
+        let owner = extended_owner(class.owner, class.name);
         self.candidates
             .iter()
             .filter(|candidate| {
@@ -108,7 +111,6 @@ impl Index<'_> {
                     && candidate.owner == owner
                     && candidate
                         .declaration
-                        .as_ref()
                         .is_some_and(|declaration| declaration.kind == DeclarationKind::Constructor)
             })
             .filter(|candidate| {
@@ -126,9 +128,9 @@ impl Index<'_> {
 
     pub(super) fn typealias_target<'b>(
         &'b self,
-        candidate: &'b Candidate,
-    ) -> Option<&'b Candidate> {
-        let declaration = candidate.declaration.as_ref()?;
+        candidate: &'b Candidate<'b>,
+    ) -> Option<&'b Candidate<'b>> {
+        let declaration = candidate.declaration?;
         if declaration.kind != DeclarationKind::TypeAlias {
             return None;
         }
@@ -137,7 +139,7 @@ impl Index<'_> {
             candidate.file,
             candidate.context_id,
             alias,
-            &candidate.package,
+            candidate.package,
         );
         if targets.len() != 1 {
             return None;
@@ -157,13 +159,12 @@ impl Index<'_> {
         {
             return true;
         }
-        let mut owner = target.owner.clone();
-        owner.push(target.name.clone());
+        let owner = extended_owner(target.owner, target.name);
         self.candidates.iter().any(|constructor| {
             constructor.file == target.file
                 && constructor.context_id == target.context_id
                 && constructor.owner == owner
-                && constructor.declaration.as_ref().is_some_and(|declaration| {
+                && constructor.declaration.is_some_and(|declaration| {
                     declaration.kind == DeclarationKind::Constructor
                         && declaration
                             .signature

@@ -18,8 +18,11 @@ impl Index<'_> {
             if !local.is_empty() {
                 return self.accessible(file, reference, local);
             }
-            if let Some(candidates) = self.callable_alias_lookup(file, reference, name, package) {
-                return self.accessible(file, reference, candidates);
+            if let Some(target) =
+                self.graph
+                    .binding_callable_alias(file, name, reference.context_id, position)
+            {
+                return self.callable_alias_candidates(file, reference, &target, package);
             }
         }
         if let Some(alias) = self
@@ -91,7 +94,7 @@ impl Index<'_> {
         file: usize,
         reference: &'b Reference,
         name: &'b str,
-    ) -> impl Iterator<Item = &'b Candidate> + 'b {
+    ) -> impl Iterator<Item = &'b Candidate<'b>> + 'b {
         let position = reference.start_byte;
         self.named(name).filter(move |candidate| {
             candidate.file == file
@@ -109,7 +112,7 @@ impl Index<'_> {
     ) -> Vec<usize> {
         self.in_scope_local_candidates(file, reference, name)
             .filter(|candidate| {
-                candidate.declaration.as_ref().is_some_and(|declaration| {
+                candidate.declaration.is_some_and(|declaration| {
                     declaration.kind == DeclarationKind::Property
                         && declaration
                             .execution
@@ -119,24 +122,6 @@ impl Index<'_> {
             })
             .map(|candidate| candidate.candidate_index)
             .collect()
-    }
-    pub(super) fn callable_alias_lookup(
-        &self,
-        file: usize,
-        reference: &Reference,
-        name: &str,
-        package: &[String],
-    ) -> Option<Vec<usize>> {
-        if reference.kind != ReferenceKind::Call {
-            return None;
-        }
-        let target = self.graph.binding_callable_alias(
-            file,
-            name,
-            reference.context_id,
-            reference.start_byte,
-        )?;
-        Some(self.callable_alias_candidates(file, reference, &target, package))
     }
     pub(super) fn alias_target_candidates(
         &self,
@@ -220,15 +205,17 @@ impl Index<'_> {
         self.named(name)
             .filter(|candidate| candidate.package == target_package && candidate.owner.is_empty())
             .filter(|candidate| {
-                candidate.declaration.as_ref().is_some_and(|declaration| {
+                candidate.declaration.is_some_and(|declaration| {
                     declaration.kind == DeclarationKind::Function
                         && !declaration.modifiers.is_open
                         && !declaration.modifiers.is_abstract
                         && !declaration.modifiers.is_expect
                 })
             })
+            .filter(|candidate| {
+                self.candidate_accessible(file, reference, candidate, &self.sources[file])
+            })
             .map(|candidate| candidate.candidate_index)
-            .filter(|index| !self.accessible(file, reference, vec![*index]).is_empty())
             .collect()
     }
     pub(super) fn namespace_receiver_candidates(
@@ -274,7 +261,7 @@ impl Index<'_> {
                     let candidates = self
                         .named(name)
                         .filter(|candidate| {
-                            candidate.package == qualified[..split] && candidate.owner.is_empty()
+                            candidate.package == &qualified[..split] && candidate.owner.is_empty()
                         })
                         .map(|candidate| candidate.candidate_index)
                         .collect::<Vec<_>>();
@@ -429,7 +416,7 @@ impl Index<'_> {
         self.accessible(
             file,
             reference,
-            self.members_of_type(file, reference, name, &class.name),
+            self.members_of_type(file, reference, name, class.name),
         )
     }
     pub(super) fn typed_receiver_candidates(

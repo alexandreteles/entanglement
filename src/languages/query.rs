@@ -124,22 +124,22 @@ impl QueryAnalyzer {
     /// Compile one query and index standard capture names and injection settings.
     pub(crate) fn new(language: &Language, source: &str) -> Result<Self> {
         let query = Query::new(language, source)?;
-        let mut roles = HashMap::new();
-        for (index, name) in query.capture_names().iter().enumerate() {
-            if let Some(role) = roles::capture_role(name) {
-                roles.insert(index as u32, role);
-            }
-        }
+        let roles = query
+            .capture_names()
+            .iter()
+            .enumerate()
+            .filter_map(|(index, name)| roles::capture_role(name).map(|role| (index as u32, role)))
+            .collect();
         let capture = |name| query.capture_index_for_name(name);
         let injection_content = capture("injection.content");
         let injection_language = capture("injection.language");
         let injection_host = capture("injection.host");
-        let mut injection_patterns = HashMap::new();
-        for index in 0..query.pattern_count() {
-            if let Some(properties) = InjectionProperties::from_query_pattern(&query, index) {
-                injection_patterns.insert(index, properties);
-            }
-        }
+        let injection_patterns = (0..query.pattern_count())
+            .filter_map(|index| {
+                InjectionProperties::from_query_pattern(&query, index)
+                    .map(|properties| (index, properties))
+            })
+            .collect();
         Ok(Self {
             syntax_node: capture("syntax.node"),
             function: capture("metric.function"),

@@ -92,15 +92,6 @@ impl<'tree> SyntaxGraph<'tree> {
         })
     }
 
-    /// Resolve an adapter-defined semantic owner by walking generic ancestry.
-    pub(crate) fn owner(
-        &self,
-        id: usize,
-        predicate: impl FnMut(usize, Node<'tree>) -> bool,
-    ) -> Option<usize> {
-        self.nearest(id, predicate)
-    }
-
     /// Return the source bytes used to build this index.
     pub(crate) fn source(&self) -> &'tree [u8] {
         self.source

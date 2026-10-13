@@ -79,8 +79,7 @@ pub(in crate::languages::kotlin::facts) fn collect_recovered_type_definitions(
         if let Some(outer_callable) =
             ancestors(error).find(|ancestor| is_executable_scope(ancestor.kind()))
         {
-            let local_scope =
-                executable_body(outer_callable).unwrap_or_else(|| range(outer_callable));
+            let local_scope = executable_body(outer_callable);
             result.locals.push(LocalBinding {
                 name: name.clone(),
                 start_byte: recovered

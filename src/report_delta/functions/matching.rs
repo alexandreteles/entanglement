@@ -57,10 +57,7 @@ pub(super) fn pair_functions(
     // Keep the established unique-name fallback for named declarations. Anonymous
     // line numbers cannot establish identity when a replaced scope disappears.
     pair_unique(old, new, &mut pairs, &mut used, true, |left, right| {
-        !anonymous(left)
-            && left.name == right.name
-            && old.iter().filter(|item| item.name == left.name).count() == 1
-            && new.iter().filter(|item| item.name == right.name).count() == 1
+        !anonymous(left) && left.name == right.name
     });
     pairs
 }
@@ -75,12 +72,10 @@ fn pair_unique(
 ) {
     // Exact spelling must identify a unique original scope. Call-site matching
     // may use the remaining set after stronger source matches reserve siblings.
-    for (index, function) in old
-        .iter()
-        .enumerate()
-        .filter(|(index, _)| pairs[*index].is_none())
-        .collect::<Vec<_>>()
-    {
+    for (index, function) in old.iter().enumerate() {
+        if pairs[index].is_some() {
+            continue;
+        }
         let candidates = new
             .iter()
             .enumerate()

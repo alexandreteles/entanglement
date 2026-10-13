@@ -31,7 +31,6 @@ impl Index<'_> {
         if let [class] = classes.as_slice()
             && let Some(alias) = class
                 .declaration
-                .as_ref()
                 .and_then(|declaration| declaration.alias_target.as_deref())
             && alias.rsplit('.').next().unwrap_or(alias)
                 != type_name.rsplit('.').next().unwrap_or(type_name)
@@ -65,7 +64,7 @@ impl Index<'_> {
         self.named(name)
             .filter(|candidate| !candidate.owner.is_empty())
             .filter(|candidate| {
-                owners.contains(&(candidate.package.clone(), candidate.owner.clone()))
+                owners.contains(&(candidate.package.to_vec(), candidate.owner.to_vec()))
             })
             .filter(|candidate| self.visible_in_source_set(file, candidate))
             .map(|candidate| candidate.candidate_index)
@@ -82,11 +81,10 @@ impl Index<'_> {
         for companion in self.candidates.iter().filter(|candidate| {
             candidate
                 .declaration
-                .as_ref()
                 .is_some_and(|item| item.kind == DeclarationKind::CompanionObject)
-                && owners.contains(&(candidate.package.clone(), candidate.owner.clone()))
+                && owners.contains(&(candidate.package.to_vec(), candidate.owner.to_vec()))
         }) {
-            let companion_owner = extended_owner(&companion.owner, &companion.name);
+            let companion_owner = extended_owner(companion.owner, companion.name);
             members.extend(self.named(name).filter_map(|candidate| {
                 (candidate.package == companion.package && candidate.owner == companion_owner)
                     .then_some(candidate.candidate_index)
@@ -105,11 +103,10 @@ impl Index<'_> {
             .filter(|class| {
                 class
                     .declaration
-                    .as_ref()
                     .is_some_and(|declaration| declaration.kind == DeclarationKind::Object)
             })
             .flat_map(|class| {
-                let owner = extended_owner(&class.owner, &class.name);
+                let owner = extended_owner(class.owner, class.name);
                 self.named(name)
                     .filter(move |candidate| {
                         candidate.package == class.package && candidate.owner == owner
@@ -158,7 +155,7 @@ impl Index<'_> {
         file: usize,
         reference: &Reference,
         type_name: &str,
-    ) -> Vec<&'b Candidate> {
+    ) -> Vec<&'b Candidate<'b>> {
         let normalized = normalize_type(type_name);
         let short_name = normalized.rsplit('.').next().unwrap_or(&normalized);
         let package = self.semantic_package(file, reference.context_id);
@@ -177,7 +174,7 @@ impl Index<'_> {
                 }
             })
             .collect::<Vec<_>>();
-        classes.dedup_by_key(|candidate| candidate.symbol.clone());
+        classes.dedup_by_key(|candidate| candidate.symbol);
         classes
     }
     pub(super) fn resolve_declared_type(
@@ -186,7 +183,7 @@ impl Index<'_> {
         context_id: usize,
         type_name: &str,
         package: &[String],
-    ) -> Vec<&Candidate> {
+    ) -> Vec<&Candidate<'_>> {
         let name = type_name.rsplit('.').next().unwrap_or(type_name);
         if let Some((qualified_package, _)) = type_name.rsplit_once('.') {
             let qualified = qualified_package
@@ -203,17 +200,8 @@ impl Index<'_> {
                 .collect();
         }
         let imported = self
-            .graph
-            .imports(file)
-            .iter()
-            .filter(|import| import.context_id == context_id && !import.namespace)
-            .filter(|import| {
-                import
-                    .alias
-                    .as_deref()
-                    .or_else(|| import.path.last().map(String::as_str))
-                    == Some(name)
-            })
+            .imports(file, context_id)
+            .filter(|import| !import.namespace && imported_name(import) == Some(name))
             .flat_map(|import| {
                 let imported_name = import.path.last().map(String::as_str).unwrap_or(name);
                 self.named(imported_name).filter(move |candidate| {
@@ -253,13 +241,12 @@ impl Index<'_> {
         match declarations.as_slice() {
             [candidate] => match candidate
                 .declaration
-                .as_ref()
                 .and_then(|declaration| declaration.alias_target.as_deref())
             {
                 Some(alias) => self.canonical_type_names(
                     candidate.file,
                     candidate.context_id,
-                    &candidate.package,
+                    candidate.package,
                     alias,
                     seen,
                 ),
@@ -282,10 +269,10 @@ impl Index<'_> {
     ) -> Vec<usize> {
         let mut inherited = Vec::new();
         for class in classes {
-            if !seen.insert(class.symbol.clone()) {
+            if !seen.insert((*class.symbol).clone()) {
                 continue;
             }
-            let Some(declaration) = class.declaration.as_ref() else {
+            let Some(declaration) = class.declaration else {
                 continue;
             };
             for supertype in &declaration.supertypes {
@@ -293,7 +280,7 @@ impl Index<'_> {
                     class.file,
                     class.context_id,
                     supertype,
-                    &class.package,
+                    class.package,
                 );
                 for parent in parents {
                     inherited.extend(self.members_of_type_seen(
@@ -318,11 +305,10 @@ impl Index<'_> {
             !members.iter().any(|member_index| {
                 self.candidates[*member_index]
                     .declaration
-                    .as_ref()
                     .is_some_and(|declaration| declaration.modifiers.is_override)
                     && same_callable_signature(
-                        self.candidates[*member_index].declaration.as_ref(),
-                        self.candidates[*inherited_index].declaration.as_ref(),
+                        self.candidates[*member_index].declaration,
+                        self.candidates[*inherited_index].declaration,
                     )
             })
         });
@@ -358,7 +344,7 @@ impl Index<'_> {
                                 .path
                                 .last()
                                 .is_some_and(|imported_name| imported_name == name)
-                                && import.path[..import.path.len().saturating_sub(1)]
+                                && &import.path[..import.path.len().saturating_sub(1)]
                                     == candidate.package
                         }
                     })
@@ -373,7 +359,7 @@ impl Index<'_> {
                 let actual = self.canonical_type_names(
                     candidate.file,
                     candidate.context_id,
-                    &candidate.package,
+                    candidate.package,
                     receiver,
                     &mut BTreeSet::new(),
                 );
