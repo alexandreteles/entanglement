@@ -353,34 +353,19 @@ impl<'a> ProgramGraph<'a> {
                 .flatten()
                 .filter(|binding| resolve_type || has_alias(binding));
             let Some(next) = next else {
-                return self.terminal_alias_path(
-                    target,
-                    target.split('.').next()?,
-                    current.end_byte,
-                    callable_reference,
+                return (!self.has_local_binding(
                     file_index,
+                    target.split('.').next()?,
                     context_id,
-                );
+                    current.end_byte,
+                ))
+                .then(|| BindingAlias::Path {
+                    path: target.to_owned(),
+                    callable_reference,
+                });
             };
             current = next;
         }
-    }
-
-    fn terminal_alias_path(
-        &self,
-        path: &str,
-        first: &str,
-        position: usize,
-        callable_reference: bool,
-        file_index: usize,
-        context_id: usize,
-    ) -> Option<BindingAlias> {
-        (!self.has_local_binding(file_index, first, context_id, position)).then(|| {
-            BindingAlias::Path {
-                path: path.to_owned(),
-                callable_reference,
-            }
-        })
     }
 }
 

@@ -4,8 +4,8 @@ pub(super) fn same_logical_declaration(left: &Candidate, right: &Candidate) -> b
     if left.name != right.name || left.package != right.package || left.owner != right.owner {
         return false;
     }
-    let left_decl = left.declaration.as_ref();
-    let right_decl = right.declaration.as_ref();
+    let left_decl = left.declaration;
+    let right_decl = right.declaration;
     match (left_decl, right_decl) {
         (Some(left), Some(right)) => {
             let both_type = matches!(
@@ -34,13 +34,13 @@ pub(super) fn same_logical_declaration(left: &Candidate, right: &Candidate) -> b
     }
 }
 
-pub(super) fn candidate_type_segments(candidate: &Candidate) -> Vec<String> {
+pub(super) fn candidate_type_segments<'a>(candidate: &Candidate<'a>) -> Vec<&'a str> {
     candidate
         .package
         .iter()
-        .chain(&candidate.owner)
-        .chain(std::iter::once(&candidate.name))
-        .cloned()
+        .chain(candidate.owner)
+        .map(String::as_str)
+        .chain(std::iter::once(candidate.name))
         .collect()
 }
 
@@ -82,7 +82,7 @@ pub(super) fn same_callable_signature(
 }
 
 pub(super) fn is_type_declaration(candidate: &Candidate) -> bool {
-    candidate.declaration.as_ref().is_some_and(|declaration| {
+    candidate.declaration.is_some_and(|declaration| {
         matches!(
             declaration.kind,
             DeclarationKind::Class
@@ -155,8 +155,8 @@ pub(super) fn owner_paths(classes: &[&Candidate]) -> BTreeSet<(Vec<String>, Vec<
         .iter()
         .map(|class| {
             (
-                class.package.clone(),
-                extended_owner(&class.owner, &class.name),
+                class.package.to_vec(),
+                extended_owner(class.owner, class.name),
             )
         })
         .collect()
@@ -206,7 +206,7 @@ pub(super) fn matches_convention(
     candidate: &Candidate,
     convention: Option<CallConvention>,
 ) -> bool {
-    let Some(declaration) = candidate.declaration.as_ref() else {
+    let Some(declaration) = candidate.declaration else {
         return convention.is_none();
     };
     match convention {
@@ -217,7 +217,7 @@ pub(super) fn matches_convention(
 }
 
 pub(super) fn candidate_visibility(candidate: &Candidate) -> SemanticVisibility {
-    candidate.declaration.as_ref().map_or_else(
+    candidate.declaration.map_or_else(
         || {
             if candidate.public {
                 SemanticVisibility::Public
@@ -237,7 +237,7 @@ pub(super) fn imported_name(import: &Import) -> Option<&str> {
 }
 
 pub(super) fn call_dispatch(candidate: &Candidate, reference: &Reference) -> CallDispatch {
-    let Some(declaration) = candidate.declaration.as_ref() else {
+    let Some(declaration) = candidate.declaration else {
         return CallDispatch::Unknown;
     };
     if reference.path.iter().any(|segment| segment == "super") {

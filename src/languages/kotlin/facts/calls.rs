@@ -133,8 +133,7 @@ pub(super) fn call_argument(
         .filter(|parameter| parameter.kind() == "variable_declaration")
         .map(|parameter| {
             direct_type_children(parameter)
-                .into_iter()
-                .last()
+                .next_back()
                 .map(|ty| normalized_type(text(ty, source)))
         })
         .collect();

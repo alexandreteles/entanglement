@@ -30,10 +30,6 @@ pub(super) fn token_identifier(tokens: &[Token], index: usize) -> Option<&str> {
     }
 }
 
-pub(super) fn is_identifier(token: &Token) -> bool {
-    matches!(token.kind, TokenKind::Identifier(_))
-}
-
 fn symbol(token: &Token, expected: char) -> bool {
     matches!(token.kind, TokenKind::Symbol(actual) if actual == expected)
 }
@@ -138,10 +134,7 @@ pub(super) fn statement_end(tokens: &[Token], start: usize) -> usize {
             TokenKind::Symbol(';') | TokenKind::Symbol('}') if nesting.is_statement_boundary() => {
                 break;
             }
-            TokenKind::Symbol('(') => nesting.parens += 1,
-            TokenKind::Symbol(')') => nesting.parens = nesting.parens.saturating_sub(1),
-            TokenKind::Symbol('[') => nesting.brackets += 1,
-            TokenKind::Symbol(']') => nesting.brackets = nesting.brackets.saturating_sub(1),
+            TokenKind::Symbol(symbol) => nesting.advance(symbol),
             _ => {}
         }
         index += 1;
@@ -159,12 +152,7 @@ pub(super) fn split_arguments(tokens: &[Token], start: usize, end: usize) -> Vec
                 push_range(&mut ranges, argument_start, index);
                 argument_start = index + 1;
             }
-            TokenKind::Symbol('(') => nesting.parens += 1,
-            TokenKind::Symbol(')') => nesting.parens = nesting.parens.saturating_sub(1),
-            TokenKind::Symbol('{') => nesting.braces += 1,
-            TokenKind::Symbol('}') => nesting.braces = nesting.braces.saturating_sub(1),
-            TokenKind::Symbol('[') => nesting.brackets += 1,
-            TokenKind::Symbol(']') => nesting.brackets = nesting.brackets.saturating_sub(1),
+            TokenKind::Symbol(symbol) => nesting.advance(symbol),
             _ => {}
         }
     }
@@ -186,6 +174,18 @@ struct Nesting {
 }
 
 impl Nesting {
+    fn advance(&mut self, symbol: char) {
+        match symbol {
+            '(' => self.parens += 1,
+            ')' => self.parens = self.parens.saturating_sub(1),
+            '{' => self.braces += 1,
+            '}' => self.braces = self.braces.saturating_sub(1),
+            '[' => self.brackets += 1,
+            ']' => self.brackets = self.brackets.saturating_sub(1),
+            _ => {}
+        }
+    }
+
     fn is_empty(&self) -> bool {
         self.parens == 0 && self.braces == 0 && self.brackets == 0
     }

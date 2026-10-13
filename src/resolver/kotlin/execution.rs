@@ -30,9 +30,8 @@ impl Index<'_> {
                     )
                 ) && candidate
                     .declaration
-                    .as_ref()
                     .is_some_and(|declaration| declaration.kind == DeclarationKind::Property);
-                let mut dispatch =
+                let dispatch =
                     if matches!(reference.kind, ReferenceKind::Call | ReferenceKind::Method)
                         || accessor_access
                     {
@@ -42,7 +41,7 @@ impl Index<'_> {
                     };
                 let mut result = analysis(
                     reference,
-                    Resolution::Exact(candidate.symbol.clone()),
+                    Resolution::Exact((*candidate.symbol).clone()),
                     dispatch,
                 );
                 let ranges = self.execution_ranges_for_reference(file, reference, candidate);
@@ -51,8 +50,6 @@ impl Index<'_> {
                         reference.execution_owner.or(reference.call_owner)
                     && dispatch == Some(CallDispatch::Direct)
                 {
-                    dispatch = Some(CallDispatch::Direct);
-                    result.dispatch = dispatch;
                     result
                         .execution_targets
                         .extend(ranges.into_iter().map(|range| ExecutionTarget {
@@ -69,7 +66,7 @@ impl Index<'_> {
                 Resolution::Ambiguous(
                     candidates
                         .into_iter()
-                        .map(|candidate| self.candidates[candidate].symbol.clone())
+                        .map(|candidate| (*self.candidates[candidate].symbol).clone())
                         .collect::<BTreeSet<_>>()
                         .into_iter()
                         .collect(),
@@ -85,53 +82,26 @@ impl Index<'_> {
         reference: &Reference,
         candidate: &Candidate,
     ) -> Vec<SourceRange> {
-        let Some(declaration) = candidate.declaration.as_ref() else {
+        let Some(declaration) = candidate.declaration else {
             return Vec::new();
         };
         let Some(execution) = declaration.execution.as_ref() else {
             return Vec::new();
         };
-        if reference.kind == ReferenceKind::Call {
-            return self.call_execution_ranges(file, reference, candidate);
-        }
-        if !matches!(
-            reference.kind,
-            ReferenceKind::Value | ReferenceKind::Qualified
-        ) || declaration.kind != DeclarationKind::Property
-        {
-            return Vec::new();
-        }
-        self.accessor_execution_ranges(reference.access, execution)
-    }
-
-    pub(super) fn call_execution_ranges(
-        &self,
-        file: usize,
-        reference: &Reference,
-        candidate: &Candidate,
-    ) -> Vec<SourceRange> {
-        let Some(declaration) = candidate.declaration.as_ref() else {
-            return Vec::new();
-        };
-        let Some(execution) = declaration.execution.as_ref() else {
-            return Vec::new();
-        };
-        if declaration.kind == DeclarationKind::Property {
-            return execution
+        match (reference.kind, declaration.kind) {
+            (ReferenceKind::Call, DeclarationKind::Property) => execution
                 .callable_value
-                .map(|range| vec![range])
-                .unwrap_or_else(|| execution.getter.into_iter().collect());
+                .or(execution.getter)
+                .into_iter()
+                .collect(),
+            (ReferenceKind::Call, _) if is_type_declaration(candidate) => {
+                self.constructor_execution_ranges(file, reference, candidate, execution)
+            }
+            (ReferenceKind::Value | ReferenceKind::Qualified, DeclarationKind::Property) => {
+                self.accessor_execution_ranges(reference.access, execution)
+            }
+            _ => Vec::new(),
         }
-        if !is_type_declaration(candidate) {
-            return Vec::new();
-        }
-        if let Some(range) = self.selected_constructor_range(file, reference, candidate) {
-            return vec![range];
-        }
-        if self.matches_primary_constructor(file, reference, candidate) {
-            return execution.initializers.clone();
-        }
-        Vec::new()
     }
 
     pub(super) fn accessor_execution_ranges(

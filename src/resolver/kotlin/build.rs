@@ -5,8 +5,7 @@ mod lexer;
 mod syntax;
 
 use lexer::{
-    ident, is_identifier, matching, split_arguments, statement_end, statement_start, symbol_at,
-    token_identifier,
+    ident, matching, split_arguments, statement_end, statement_start, symbol_at, token_identifier,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -149,44 +148,35 @@ fn includes(script: &StaticScript) -> BTreeSet<String> {
 
 fn collect_include(script: &StaticScript, index: usize, modules: &mut BTreeSet<String>) -> usize {
     let tokens = script.tokens();
-    if symbol_at(tokens, index + 1, '(') {
+    let (start, end, next) = if symbol_at(tokens, index + 1, '(') {
         let Some(close) = matching(tokens, index + 1, '(', ')') else {
             return index + 1;
         };
-        for (start, end) in split_arguments(tokens, index + 2, close) {
-            if let Some(path) = script.literal_path(start, end) {
-                modules.insert(path);
-            }
-        }
-        return close + 1;
-    }
-
-    // Groovy also uses `include ':app', ':lib'`.
-    let end = statement_end(tokens, index + 1);
-    for (start, end) in split_arguments(tokens, index + 1, end) {
-        if let Some(path) = script.literal_path(start, end) {
-            modules.insert(path);
-        }
-    }
-    end.max(index + 1)
+        (index + 2, close, close + 1)
+    } else {
+        // Groovy also uses `include ':app', ':lib'`.
+        let end = statement_end(tokens, index + 1);
+        (index + 1, end, end.max(index + 1))
+    };
+    modules.extend(
+        split_arguments(tokens, start, end)
+            .into_iter()
+            .filter_map(|(start, end)| script.literal_path(start, end)),
+    );
+    next
 }
 
 /// Resolve only direct settings-script mappings to relative file literals.
 fn project_directories(script: &StaticScript) -> BTreeMap<String, PathBuf> {
     let tokens = script.tokens();
-    let mut directories = BTreeMap::new();
-    for index in 0..tokens.len() {
-        if !script.is_root_statement(index, "project")
-            || !symbol_at(tokens, index + 1, '(')
-            || symbol_at(tokens, index.saturating_sub(1), '.')
-        {
-            continue;
-        }
-        if let Some((module_path, directory)) = script.project_directory(index) {
-            directories.insert(module_path, directory);
-        }
-    }
-    directories
+    (0..tokens.len())
+        .filter(|index| {
+            script.is_root_statement(*index, "project")
+                && symbol_at(tokens, index + 1, '(')
+                && !symbol_at(tokens, index.saturating_sub(1), '.')
+        })
+        .filter_map(|index| script.project_directory(index))
+        .collect()
 }
 
 /// Extract literal project dependencies while retaining configuration and
@@ -236,15 +226,10 @@ fn collect_dependency_block(
     block: DependencyBlock,
     result: &mut BTreeSet<ProjectDependency>,
 ) {
-    let tokens = script.tokens();
     let direct_depth = script.brace_depth(block.open).unwrap_or_default() + 1;
     let mut index = block.open + 1;
     while index < block.close {
-        if !is_direct_configuration(script, index, direct_depth) {
-            index += 1;
-            continue;
-        }
-        let Some(configuration) = identifier(tokens, index) else {
+        let Some(configuration) = direct_configuration(script, index, direct_depth) else {
             index += 1;
             continue;
         };
@@ -270,22 +255,12 @@ fn collect_dependency_block(
     }
 }
 
-fn is_direct_configuration(script: &StaticScript, index: usize, direct_depth: usize) -> bool {
-    script.brace_depth(index) == Some(direct_depth)
-        && lexer::statement_start(script.tokens(), index)
-        && script.tokens().get(index).is_some_and(is_identifier)
-        && script
-            .tokens()
-            .get(index)
-            .is_some_and(|token| script.syntax().permits_identifier(token))
-        && script
-            .tokens()
-            .get(index)
-            .is_some_and(|token| script.syntax().outside_control_flow(token))
-}
-
-fn identifier(tokens: &[lexer::Token], index: usize) -> Option<&str> {
-    lexer::token_identifier(tokens, index)
+fn direct_configuration(script: &StaticScript, index: usize, direct_depth: usize) -> Option<&str> {
+    (script.brace_depth(index) == Some(direct_depth)
+        && statement_start(script.tokens(), index)
+        && script.is_static_token(index))
+    .then_some(())?;
+    token_identifier(script.tokens(), index)
 }
 
 fn dependency_paths_after(

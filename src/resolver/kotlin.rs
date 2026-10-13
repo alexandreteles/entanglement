@@ -22,6 +22,7 @@ use arguments::{
     arguments_match, function_type_parameters, function_type_receiver, generic_type_substitutions,
     lambda_parameter_for_argument, normalize_type, substitute_type_name,
 };
+pub(super) use context::ProjectCache;
 use context::{SourceContext, conventional_source_edge, source_set_reaches};
 use symbols::*;
 
@@ -37,18 +38,18 @@ use crate::model::{
 };
 use crate::snapshot::Snapshot;
 
-struct Candidate {
+struct Candidate<'a> {
     /// Stable position in `Index::candidates`, used as the resolver-local id.
     candidate_index: usize,
     graph_id: ProgramSymbolId,
-    symbol: SymbolId,
+    symbol: &'a SymbolId,
     file: usize,
     context_id: usize,
-    name: String,
-    package: Vec<String>,
-    owner: Vec<String>,
+    name: &'a str,
+    package: &'a [String],
+    owner: &'a [String],
     kind: DefinitionKind,
-    declaration: Option<DeclarationFacts>,
+    declaration: Option<&'a DeclarationFacts>,
     public: bool,
     start: usize,
     end: usize,
@@ -56,9 +57,9 @@ struct Candidate {
     scope_end: usize,
 }
 
-impl Candidate {
+impl Candidate<'_> {
     fn signature(&self) -> Option<&CallableSignature> {
-        self.declaration.as_ref()?.signature.as_ref()
+        self.declaration?.signature.as_ref()
     }
 }
 
@@ -66,7 +67,7 @@ struct Index<'a> {
     graph: &'a ProgramGraph<'a>,
     snapshot: &'a Snapshot,
     sources: Vec<SourceContext>,
-    candidates: Vec<Candidate>,
+    candidates: Vec<Candidate<'a>>,
     by_name: HashMap<String, Vec<usize>>,
     visible_modules: HashMap<String, HashMap<Option<String>, BTreeSet<String>>>,
     source_edges: HashMap<PathBuf, BTreeMap<String, BTreeSet<String>>>,
@@ -76,55 +77,55 @@ pub(super) fn resolve(
     facts: &[FileFacts],
     snapshot: &Snapshot,
     graph: &ProgramGraph<'_>,
+    cache: &mut ProjectCache,
 ) -> Vec<Option<Vec<ReferenceAnalysis>>> {
-    let index = Index::new(facts, snapshot, graph);
+    let contexts = facts
+        .iter()
+        .map(|fact| {
+            fact.semantic
+                .iter()
+                .filter(|semantic| {
+                    semantic.resolution_family == Some(ResolutionFamily::KotlinModules)
+                })
+                .map(|semantic| semantic.context_id)
+                .collect::<HashSet<_>>()
+        })
+        .collect::<Vec<_>>();
+    let active = facts.iter().zip(&contexts).any(|(fact, contexts)| {
+        fact.references
+            .iter()
+            .any(|reference| contexts.contains(&reference.context_id))
+    });
+    if !active {
+        return vec![None; facts.len()];
+    }
+    let index = Index::new(facts, snapshot, graph, cache, &contexts);
     facts
         .iter()
+        .zip(contexts)
         .enumerate()
-        .map(|(file, fact)| {
-            let has_kotlin_reference = fact.references.iter().any(|reference| {
-                graph
-                    .semantic(
-                        file,
-                        reference.context_id,
-                        Some(ResolutionFamily::KotlinModules),
-                    )
-                    .is_some()
-            });
-            if !has_kotlin_reference {
-                return None;
-            }
-            Some(
-                fact.references
-                    .iter()
-                    .map(|reference| {
-                        if graph
-                            .semantic(
-                                file,
-                                reference.context_id,
-                                Some(ResolutionFamily::KotlinModules),
-                            )
-                            .is_none()
-                        {
-                            return analysis(reference, Resolution::Unresolved, None);
-                        }
-                        index.resolve_reference(file, reference)
-                    })
-                    .collect(),
-            )
+        .map(|(file, (fact, contexts))| {
+            fact.references
+                .iter()
+                .any(|reference| contexts.contains(&reference.context_id))
+                .then(|| {
+                    fact.references
+                        .iter()
+                        .map(|reference| {
+                            if contexts.contains(&reference.context_id) {
+                                index.resolve_reference(file, reference)
+                            } else {
+                                analysis(reference, Resolution::Unresolved, None)
+                            }
+                        })
+                        .collect()
+                })
         })
         .collect()
 }
 
 impl<'a> Index<'a> {
     fn resolve_reference(&self, file: usize, reference: &Reference) -> ReferenceAnalysis {
-        let Some(_) = self.graph.semantic(
-            file,
-            reference.context_id,
-            Some(ResolutionFamily::KotlinModules),
-        ) else {
-            return analysis(reference, Resolution::Unresolved, None);
-        };
         let path = &reference.path;
         let Some(name) = path.last() else {
             return analysis(reference, Resolution::Unresolved, None);

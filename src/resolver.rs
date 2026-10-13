@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use rayon::prelude::*;
 
-use crate::graph::{CallEdge, ProgramGraph};
+use crate::graph::ProgramGraph;
 use crate::model::{FileFacts, ReferenceAnalysis, Resolution, SymbolId};
 
 mod files;
@@ -93,13 +93,15 @@ pub(crate) fn resolve_with_snapshot(
 ) {
     let graph = ProgramGraph::new(facts);
     let resolutions = strategies::resolve(facts, snapshot, &graph);
-    let calls: Vec<CallEdge> = graph.confirmed_relations(&resolutions);
+    let calls = selection
+        .includes(crate::metrics::selection::Metric::Cogc)
+        .then(|| graph.confirmed_relations(&resolutions));
     drop(graph);
     facts
         .par_iter_mut()
         .zip(resolutions)
         .for_each(|(fact, resolved)| fact.analysis.resolution = resolved);
-    if selection.includes(crate::metrics::selection::Metric::Cogc) {
+    if let Some(calls) = calls {
         crate::metrics::recursion::annotate(facts, &calls);
     }
 }
@@ -108,11 +110,12 @@ fn resolve_references(
     facts: &[FileFacts],
     snapshot: &crate::snapshot::Snapshot,
     graph: &ProgramGraph<'_>,
+    kotlin_cache: &mut kotlin::ProjectCache,
 ) -> Vec<Vec<ReferenceAnalysis>> {
     let mut index = Index::new(graph);
     index.resolve_imports();
     let file_resolutions = files::resolve(facts, graph);
-    let kotlin_resolutions = kotlin::resolve(facts, snapshot, graph);
+    let kotlin_resolutions = kotlin::resolve(facts, snapshot, graph, kotlin_cache);
     let package_resolutions = packages::resolve(facts, snapshot, graph);
     facts
         .iter()

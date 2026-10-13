@@ -50,7 +50,6 @@ struct Captures {
 
 pub(super) type NodeGraph<'a> = SyntaxGraph<'a>;
 
-#[derive(Clone)]
 struct RawDefinition {
     node_id: usize,
     range: Range<usize>,
@@ -70,7 +69,6 @@ struct RawImport {
     is_public: bool,
 }
 
-#[derive(Clone)]
 struct RawReference {
     node_id: usize,
     path: Vec<String>,
@@ -99,7 +97,6 @@ enum LocalScopeKind {
     Closure,
 }
 
-#[derive(Clone)]
 struct ModuleSpan {
     name: String,
     body: Range<usize>,
@@ -167,16 +164,6 @@ impl<'a> CaptureFacts<'a> {
             .collect();
 
         deduplicate(&mut self.events, |event| (event.role, event.node_id));
-        deduplicate(&mut self.functions, |function| {
-            (function.range.start, function.range.end)
-        });
-        deduplicate(&mut self.injections, |injection| {
-            (
-                injection.range.start,
-                injection.range.end,
-                injection.language.clone(),
-            )
-        });
         deduplicate(&mut references, |reference| {
             (reference.start_byte, reference.path.clone(), reference.kind)
         });

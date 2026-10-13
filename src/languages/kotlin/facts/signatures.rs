@@ -1,10 +1,9 @@
 use super::*;
 
-pub(super) fn direct_type_children(node: Node<'_>) -> Vec<Node<'_>> {
-    named_children(node)
-        .into_iter()
+pub(super) fn direct_type_children(node: Node<'_>) -> impl DoubleEndedIterator<Item = Node<'_>> {
+    (0..node.named_child_count())
+        .filter_map(move |index| node.named_child(index as u32))
         .filter(|child| is_type_node(child.kind()))
-        .collect()
 }
 
 pub(super) fn is_type_node(kind: &str) -> bool {
@@ -34,7 +33,7 @@ pub(super) fn declared_type(node: Node<'_>, source: &[u8]) -> Option<String> {
         return all_nodes(node)
             .into_iter()
             .find(|child| child.kind() == "variable_declaration")
-            .and_then(|variable| direct_type_children(variable).into_iter().next())
+            .and_then(|variable| direct_type_children(variable).next())
             .map(|ty| normalized_type(text(ty, source)));
     }
     if node.kind() == "class_declaration" || node.kind() == "object_declaration" {
@@ -61,8 +60,7 @@ pub(super) fn declaration_supertypes(node: Node<'_>, source: &[u8]) -> Vec<Strin
 
 pub(super) fn alias_target(node: Node<'_>, source: &[u8]) -> Option<String> {
     direct_type_children(node)
-        .into_iter()
-        .last()
+        .next_back()
         .map(|ty| normalized_type(text(ty, source)))
 }
 
@@ -77,20 +75,22 @@ pub(super) fn callable_signature(node: Node<'_>, source: &[u8]) -> Option<Callab
     ) {
         return None;
     }
+    let value_parameters = (node.kind() != "class_declaration")
+        .then(|| {
+            all_nodes(node)
+                .into_iter()
+                .find(|child| child.kind() == "function_value_parameters")
+        })
+        .flatten();
     let parameter_container = if node.kind() == "class_declaration" {
         primary_constructor_parameters(node)
     } else {
-        all_nodes(node)
-            .into_iter()
-            .find(|child| child.kind() == "function_value_parameters")
-            .map(|container| {
-                named_children(container)
-                    .into_iter()
-                    .filter(|child| {
-                        matches!(child.kind(), "parameter" | "function_value_parameter")
-                    })
-                    .collect::<Vec<_>>()
-            })
+        value_parameters.map(|container| {
+            named_children(container)
+                .into_iter()
+                .filter(|child| matches!(child.kind(), "parameter" | "function_value_parameter"))
+                .collect::<Vec<_>>()
+        })
     };
     let parameters = parameter_container
         .unwrap_or_default()
@@ -103,10 +103,7 @@ pub(super) fn callable_signature(node: Node<'_>, source: &[u8]) -> Option<Callab
     let return_type = if node.kind() == "property_declaration" {
         declared_type(node, source)
     } else if node.kind() == "function_declaration" || node.kind() == "anonymous_function" {
-        let params_end = all_nodes(node)
-            .into_iter()
-            .find(|child| child.kind() == "function_value_parameters")
-            .map_or(node.start_byte(), |params| params.end_byte());
+        let params_end = value_parameters.map_or(node.start_byte(), |params| params.end_byte());
         named_children(node)
             .into_iter()
             .find(|child| {
@@ -201,7 +198,6 @@ pub(super) fn type_parameter_parts(node: Node<'_>, source: &[u8]) -> Option<(Str
         .find(|child| child.kind() == "type_identifier")
         .map(|name| text(name, source).trim_matches('`').to_owned())?;
     let bounds = direct_type_children(node)
-        .into_iter()
         .map(|bound| normalized_type(text(bound, source)))
         .collect();
     Some((name, bounds))
@@ -218,8 +214,7 @@ pub(super) fn parameter_info(node: Node<'_>, source: &[u8]) -> Option<CallablePa
         .find(|child| matches!(child.kind(), "simple_identifier" | "type_identifier"))
         .map(|name| text(name, source).trim_matches('`').to_owned());
     let type_name = direct_type_children(node)
-        .into_iter()
-        .last()
+        .next_back()
         .map(|ty| normalized_type(text(ty, source)));
     if name.is_none() && type_name.is_none() {
         return None;

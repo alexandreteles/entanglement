@@ -79,15 +79,11 @@ impl Index<'_> {
     ) -> Option<String> {
         let call = exact_argument_call(calls, argument)?;
         let inner = call_target_reference(references, reference.context_id, call)?;
-        let candidates = self.call_candidates(file, inner);
+        let candidates = self.reference_candidates(file, inner);
         let [candidate] = candidates.as_slice() else {
             return None;
         };
         self.inferred_call_result_type(file, inner, call, &self.candidates[*candidate])
-    }
-
-    pub(super) fn call_candidates(&self, file: usize, reference: &Reference) -> Vec<usize> {
-        self.accessible(file, reference, self.reference_candidates(file, reference))
     }
 
     pub(super) fn reference_candidates(&self, file: usize, reference: &Reference) -> Vec<usize> {
@@ -183,7 +179,7 @@ impl Index<'_> {
             return candidates
                 .into_iter()
                 .filter(|candidate| {
-                    let declaration = self.candidates[*candidate].declaration.as_ref();
+                    let declaration = self.candidates[*candidate].declaration;
                     declaration.is_none_or(|declaration| !declaration.modifiers.is_actual)
                 })
                 .collect();
@@ -194,7 +190,6 @@ impl Index<'_> {
             .filter(|index| {
                 self.candidates[*index]
                     .declaration
-                    .as_ref()
                     .is_some_and(|item| item.modifiers.is_actual)
             })
             .collect::<Vec<_>>();
@@ -204,7 +199,7 @@ impl Index<'_> {
         candidates
             .into_iter()
             .filter(|index| {
-                let Some(declaration) = self.candidates[*index].declaration.as_ref() else {
+                let Some(declaration) = self.candidates[*index].declaration else {
                     return true;
                 };
                 if !declaration.modifiers.is_expect {

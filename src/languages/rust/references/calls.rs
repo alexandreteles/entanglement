@@ -29,30 +29,29 @@ fn direct_call<'tree>(
     reference: tree_sitter::Node<'tree>,
     reference_range: &Range<usize>,
 ) -> Option<tree_sitter::Node<'tree>> {
-    let mut current = reference;
-    loop {
-        match current.kind() {
-            "closure_expression" | "async_block" | "function_item" => return None,
-            "call_expression" => {
-                let is_direct_target = current
-                    .child_by_field_name("function")
-                    .is_some_and(|callee| direct_callee(callee, reference, reference_range));
-                return is_direct_target.then_some(current);
-            }
-            _ => current = current.parent()?,
-        }
-    }
+    let current = std::iter::successors(Some(reference), |node| node.parent()).find(|node| {
+        matches!(
+            node.kind(),
+            "closure_expression" | "async_block" | "function_item" | "call_expression"
+        )
+    })?;
+    (current.kind() == "call_expression")
+        .then(|| current.child_by_field_name("function"))
+        .flatten()
+        .filter(|callee| direct_callee(*callee, reference, reference_range))
+        .map(|_| current)
 }
 
-fn enclosing_function<'tree>(call: tree_sitter::Node<'tree>) -> Option<usize> {
-    let mut current = call.parent()?;
-    loop {
-        match current.kind() {
-            "closure_expression" | "async_block" => return None,
-            "function_item" => return Some(current.start_byte()),
-            _ => current = current.parent()?,
-        }
-    }
+fn enclosing_function(call: tree_sitter::Node<'_>) -> Option<usize> {
+    std::iter::successors(call.parent(), |node| node.parent())
+        .find(|node| {
+            matches!(
+                node.kind(),
+                "closure_expression" | "async_block" | "function_item"
+            )
+        })
+        .filter(|node| node.kind() == "function_item")
+        .map(|node| node.start_byte())
 }
 
 fn direct_callee<'tree>(

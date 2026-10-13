@@ -88,28 +88,22 @@ impl KotlinSyntax {
 
 pub(super) struct GradleScopes {
     ancestors: Vec<Vec<GradleBlock>>,
-    brace_depths: Vec<usize>,
 }
 
 impl GradleScopes {
     pub(super) fn scan(tokens: &[Token], syntax: &KotlinSyntax) -> Self {
         let mut stack = Vec::new();
         let mut ancestors = Vec::with_capacity(tokens.len());
-        let mut brace_depths = Vec::with_capacity(tokens.len());
         for (index, token) in tokens.iter().enumerate() {
             if matches!(token.kind, TokenKind::Symbol('}')) {
                 stack.pop();
             }
             ancestors.push(stack.clone());
-            brace_depths.push(stack.len());
             if matches!(token.kind, TokenKind::Symbol('{')) {
                 stack.push(classify_block(tokens, index, syntax, &stack));
             }
         }
-        Self {
-            ancestors,
-            brace_depths,
-        }
+        Self { ancestors }
     }
 
     pub(super) fn at(&self, index: usize) -> &[GradleBlock] {
@@ -117,7 +111,7 @@ impl GradleScopes {
     }
 
     pub(super) fn brace_depth(&self, index: usize) -> Option<usize> {
-        self.brace_depths.get(index).copied()
+        self.ancestors.get(index).map(Vec::len)
     }
 }
 

@@ -152,7 +152,7 @@ impl Index<'_> {
             .filter(move |item| item.context_id == context_id)
     }
 
-    pub(super) fn named(&self, name: &str) -> impl Iterator<Item = &Candidate> {
+    pub(super) fn named(&self, name: &str) -> impl Iterator<Item = &Candidate<'_>> {
         self.by_name
             .get(name)
             .into_iter()

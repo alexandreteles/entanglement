@@ -34,7 +34,7 @@ pub(super) fn capture(
             push(
                 &mut tokens,
                 node.byte_range(),
-                literal_text(node, source),
+                node_text(node, source),
                 HalsteadTokenKind::Operand,
                 source,
             );
@@ -46,11 +46,11 @@ pub(super) fn capture(
             push(&mut tokens, node.byte_range(), text, token_kind, source);
             continue;
         }
-        for index in (0..node.child_count()).rev() {
-            if let Some(child) = node.child(index) {
-                pending.push(child);
-            }
-        }
+        pending.extend(
+            (0..node.child_count())
+                .rev()
+                .filter_map(|index| node.child(index)),
+        );
     }
 
     for context in contexts {
@@ -84,44 +84,41 @@ fn capture_string<'tree>(
 ) {
     let mut had_string_content = false;
     let mut had_interpolation = false;
-    for index in (0..node.child_count()).rev() {
-        if let Some(child) = node.child(index) {
-            match child.kind() {
-                "string_content" => {
-                    had_string_content = true;
-                    push(
-                        tokens,
-                        child.byte_range(),
-                        "<string>".to_owned(),
-                        HalsteadTokenKind::Operand,
-                        source,
-                    );
-                }
-                "interpolated_expression" => {
-                    had_interpolation = true;
-                    pending.push(child);
-                }
-                "interpolated_identifier" => {
-                    had_interpolation = true;
-                    let (text, kind) = normalize_leaf(
-                        child.kind(),
-                        &node_text(child, source),
-                        true,
-                        context_names,
-                    );
-                    push(tokens, child.byte_range(), text, kind, source);
-                }
-                "interpolation_expression_start"
-                | "interpolation_expression_end"
-                | "interpolation_identifier_start" => push(
+    for child in (0..node.child_count())
+        .rev()
+        .filter_map(|index| node.child(index))
+    {
+        match child.kind() {
+            "string_content" => {
+                had_string_content = true;
+                push(
                     tokens,
                     child.byte_range(),
-                    node_text(child, source),
-                    HalsteadTokenKind::Operator,
+                    "<string>".to_owned(),
+                    HalsteadTokenKind::Operand,
                     source,
-                ),
-                _ => {}
+                );
             }
+            "interpolated_expression" => {
+                had_interpolation = true;
+                pending.push(child);
+            }
+            "interpolated_identifier" => {
+                had_interpolation = true;
+                let (text, kind) =
+                    normalize_leaf(child.kind(), &node_text(child, source), true, context_names);
+                push(tokens, child.byte_range(), text, kind, source);
+            }
+            "interpolation_expression_start"
+            | "interpolation_expression_end"
+            | "interpolation_identifier_start" => push(
+                tokens,
+                child.byte_range(),
+                node_text(child, source),
+                HalsteadTokenKind::Operator,
+                source,
+            ),
+            _ => {}
         }
     }
     if !had_string_content && !had_interpolation {
@@ -151,11 +148,7 @@ fn normalize_leaf(
         kind,
         "simple_identifier" | "type_identifier" | "identifier" | "interpolated_identifier"
     ) {
-        let identifier = raw
-            .strip_prefix('`')
-            .and_then(|value| value.strip_suffix('`'))
-            .unwrap_or(raw);
-        return (identifier.to_owned(), HalsteadTokenKind::Operand);
+        return (normalize_identifier(raw), HalsteadTokenKind::Operand);
     }
     let identifier = normalize_identifier(raw);
     if context_names.contains(&identifier) {
@@ -273,10 +266,6 @@ fn is_atomic_operand(kind: &str) -> bool {
             | "character_literal"
             | "null_literal"
     )
-}
-
-fn literal_text(node: Node<'_>, source: &[u8]) -> String {
-    node_text(node, source)
 }
 
 fn node_text(node: Node<'_>, source: &[u8]) -> String {

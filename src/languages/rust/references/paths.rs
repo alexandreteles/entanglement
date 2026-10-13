@@ -1,13 +1,5 @@
 use super::super::NodeGraph;
 
-pub(in crate::languages::rust) fn child_field(
-    node_id: usize,
-    field: &str,
-    graph: &NodeGraph<'_>,
-) -> Option<usize> {
-    graph.child_by_field(node_id, field)
-}
-
 pub(super) fn path_segments(node_id: usize, graph: &NodeGraph<'_>) -> Vec<String> {
     let Some(node) = graph.node(node_id) else {
         return Vec::new();
@@ -27,8 +19,8 @@ pub(super) fn path_segments(node_id: usize, graph: &NodeGraph<'_>) -> Vec<String
 
 fn field_path_segments(node_id: usize, graph: &NodeGraph<'_>) -> Option<Vec<String>> {
     let (Some(path), Some(name)) = (
-        child_field(node_id, "path", graph),
-        child_field(node_id, "name", graph),
+        graph.child_by_field(node_id, "path"),
+        graph.child_by_field(node_id, "name"),
     ) else {
         return None;
     };
