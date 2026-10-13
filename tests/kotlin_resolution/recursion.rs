@@ -250,3 +250,98 @@ fn getter_references_and_property_writes_do_not_create_getter_edges() {
     );
     assert!(!recursive(function(file, "assign")));
 }
+
+#[test]
+fn qualified_property_navigation_keeps_read_write_and_readwrite_references() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("project");
+    let read_source = concat!(
+        "package access\n",
+        "var sink = 0\n",
+        "class ReadBox {\n",
+        "    var value: Int = 0\n",
+        "        get() = readBridge(this)\n",
+        "        set(input) {}\n",
+        "}\n",
+        "fun readBridge(box: ReadBox): Int { sink = box.value; return 0 }\n",
+        "fun readOnly(box: ReadBox) { sink = box.value }\n",
+    );
+    let write_source = concat!(
+        "package access\n",
+        "class WriteBox {\n",
+        "    var value: Int = 0\n",
+        "        get() = writeBridge(this, 0)\n",
+        "        set(input) { writeBridge(this, input) }\n",
+        "}\n",
+        "fun writeBridge(box: WriteBox, input: Int): Int { box.value = input; return 0 }\n",
+        "fun writeOnly(box: WriteBox, input: Int) { box.value = input }\n",
+    );
+    let update_source = concat!(
+        "package access\n",
+        "class UpdateBox {\n",
+        "    var value: Int = 0\n",
+        "        get() = updateBridge(this)\n",
+        "        set(input) { updateBridge(this) }\n",
+        "}\n",
+        "fun updateBridge(box: UpdateBox): Int { box.value++; box.value--; return 0 }\n",
+        "fun updateOnly(box: UpdateBox) { box.value++ }\n",
+    );
+    write(&root.join("src/main/kotlin/access/Read.kt"), read_source);
+    write(&root.join("src/main/kotlin/access/Write.kt"), write_source);
+    write(
+        &root.join("src/main/kotlin/access/Update.kt"),
+        update_source,
+    );
+
+    let project = report(&run(&root, "repo", None));
+    let read_file = file(&project, "/Read.kt");
+    for occurrence in [1, 2] {
+        let reference = ref_at(read_file, read_source, "value", occurrence);
+        exact_target(reference, "/Read.kt", "value");
+        assert_eq!(
+            reference["path"],
+            serde_json::json!(["box", "value"]),
+            "a qualified RHS getter read must retain its receiver: {reference:#}"
+        );
+    }
+    assert!(recursive(function(read_file, "get")));
+    assert!(recursive(function(read_file, "readBridge")));
+    assert!(!recursive(function(read_file, "set")));
+    assert!(!recursive(function(read_file, "readOnly")));
+
+    let write_file = file(&project, "/Write.kt");
+    for occurrence in [1, 2] {
+        let reference = ref_at(write_file, write_source, "value", occurrence);
+        exact_target(reference, "/Write.kt", "value");
+        assert_eq!(
+            reference["path"],
+            serde_json::json!(["box", "value"]),
+            "a qualified assignment target must retain its receiver: {reference:#}"
+        );
+    }
+    assert!(recursive(function(write_file, "set")));
+    assert!(recursive(function(write_file, "writeBridge")));
+    assert!(
+        !recursive(function(write_file, "get")),
+        "a property write must invoke its setter without creating a getter edge"
+    );
+    assert!(!recursive(function(write_file, "writeOnly")));
+
+    let update_file = file(&project, "/Update.kt");
+    for occurrence in [1, 2, 3] {
+        let reference = ref_at(update_file, update_source, "value", occurrence);
+        exact_target(reference, "/Update.kt", "value");
+        assert_eq!(
+            reference["path"],
+            serde_json::json!(["box", "value"]),
+            "a qualified increment/decrement target must retain its receiver: {reference:#}"
+        );
+    }
+    assert!(
+        recursive(function(update_file, "get"))
+            && recursive(function(update_file, "set"))
+            && recursive(function(update_file, "updateBridge")),
+        "postfix read-write access must reach both getter and setter execution scopes"
+    );
+    assert!(!recursive(function(update_file, "updateOnly")));
+}

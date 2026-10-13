@@ -65,12 +65,13 @@ impl LanguageHandler for Analyzer {
                 .flat_map(|(base, slice)| syntax::context_parameters_at(slice, base))
                 .collect()
         };
+        let scope_index = scopes::ScopeIndex::new(root, source, &contexts);
         let mut shared = self.query.capture(tree, source, false);
         syntax::remove_else_events_for_else_if(root, &mut shared.events);
         syntax::append_kotlin_decision_events(root, &mut shared.events, &mut shared.parents);
         syntax::append_context_terminals(source, &contexts, &mut shared.events);
         let query_functions = std::mem::take(&mut shared.functions);
-        shared.functions = scopes::capture(root, source, &contexts, query_functions);
+        shared.functions = scopes::capture(&scope_index, query_functions);
         shared.events.retain_mut(|event| {
             if event.role != SyntaxRole::Function {
                 return true;
@@ -119,7 +120,7 @@ impl LanguageHandler for Analyzer {
             shared.tokens = tokens::capture(root, source, &contexts);
         }
 
-        let semantic = facts::capture(root, source, &contexts);
+        let semantic = facts::capture(&scope_index);
         let mut captured = CapturedTree::from(shared);
         captured.definitions = semantic.definitions;
         captured.imports = semantic.imports;

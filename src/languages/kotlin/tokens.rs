@@ -27,7 +27,7 @@ pub(super) fn capture(
             continue;
         }
         if kind == "string_literal" {
-            capture_string(node, source, &mut tokens, &context_names);
+            capture_string(node, source, &mut tokens, &context_names, &mut pending);
             continue;
         }
         if is_atomic_operand(kind) {
@@ -75,13 +75,13 @@ pub(super) fn capture(
     tokens
 }
 
-fn capture_string(
-    node: Node<'_>,
+fn capture_string<'tree>(
+    node: Node<'tree>,
     source: &[u8],
     tokens: &mut Vec<HalsteadToken>,
     context_names: &HashSet<String>,
+    pending: &mut Vec<Node<'tree>>,
 ) {
-    let mut pending = Vec::new();
     let mut had_string_content = false;
     let mut had_interpolation = false;
     for index in (0..node.child_count()).rev() {
@@ -132,37 +132,6 @@ fn capture_string(
             HalsteadTokenKind::Operand,
             source,
         );
-    }
-    while let Some(node) = pending.pop() {
-        let kind = node.kind();
-        if node.is_missing() || is_comment(kind) {
-            continue;
-        }
-        if kind == "string_literal" {
-            capture_string(node, source, tokens, context_names);
-            continue;
-        }
-        if is_atomic_operand(kind) {
-            push(
-                tokens,
-                node.byte_range(),
-                literal_text(node, source),
-                HalsteadTokenKind::Operand,
-                source,
-            );
-            continue;
-        }
-        if node.child_count() == 0 {
-            let raw = node_text(node, source);
-            let (text, token_kind) = normalize_leaf(kind, &raw, node.is_named(), context_names);
-            push(tokens, node.byte_range(), text, token_kind, source);
-            continue;
-        }
-        for index in (0..node.child_count()).rev() {
-            if let Some(child) = node.child(index) {
-                pending.push(child);
-            }
-        }
     }
 }
 
