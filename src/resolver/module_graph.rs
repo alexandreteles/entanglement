@@ -63,8 +63,8 @@ pub(super) fn file_contexts(graph: &ProgramGraph<'_>) -> Vec<Vec<FileContext>> {
         if fact.resolution_family != ResolutionFamily::RustCrates {
             continue;
         }
-        for path in &fact.aliases {
-            for declaration in graph.definitions(file_index).iter().filter(|definition| {
+        for path in fact.aliases {
+            for declaration in graph.definitions(file_index).filter(|definition| {
                 definition.kind == DefinitionKind::Module && definition.external_module
             }) {
                 let relative_module = joined_path(&fact.module.0, &declaration.module.0);
@@ -85,7 +85,7 @@ pub(super) fn file_contexts(graph: &ProgramGraph<'_>) -> Vec<Vec<FileContext>> {
             continue;
         }
         if assignment.is_empty() && !incoming.contains(&index) {
-            for path in &graph.file(index).aliases {
+            for path in graph.file(index).aliases {
                 pending.push_back((
                     index,
                     FileContext {
@@ -143,7 +143,7 @@ fn walk_module_graph(
         }
         assignments[file].insert(context.clone());
         let file_module = joined_path(&context.module, &graph.file(file).module.0);
-        for declaration in graph.definitions(file).iter().filter(|definition| {
+        for declaration in graph.definitions(file).filter(|definition| {
             definition.kind == DefinitionKind::Module && definition.external_module
         }) {
             let module = joined_path(&file_module, &declaration.module.0);
@@ -159,7 +159,7 @@ fn walk_module_graph(
                 .collect::<BTreeSet<_>>();
             if targets.len() == 1 {
                 for (child_path, child_file) in candidates {
-                    let target = &graph.file(child_file).target;
+                    let target = graph.file(child_file).target;
                     if ancestry.contains(target) {
                         continue;
                     }

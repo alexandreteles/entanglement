@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::{collections::HashMap, ops::Range};
 
 use tree_sitter::Node;
 
@@ -12,7 +12,28 @@ pub(super) struct ScopeIndex<'tree> {
     contexts: &'tree [ContextParameters],
     recovered_types: Vec<syntax::RecoveredType>,
     nodes: Vec<Node<'tree>>,
-    script: Option<FunctionScope>,
+    executable: HashMap<usize, ScopeIdentity>,
+    script: Option<ScriptScope>,
+}
+
+struct ScriptScope {
+    range: Range<usize>,
+    line: usize,
+}
+
+struct ScopeIdentity {
+    kind: ScopeKind,
+    range: Range<usize>,
+}
+
+enum ScopeKind {
+    Declaration(&'static str),
+    Named(&'static str),
+    Anonymous,
+    PrimaryConstructor,
+    SecondaryConstructor,
+    Property,
+    Destructuring,
 }
 
 impl<'tree> ScopeIndex<'tree> {
@@ -23,18 +44,24 @@ impl<'tree> ScopeIndex<'tree> {
     ) -> Self {
         let nodes = super::all_nodes(root);
         let recovered_types = syntax::recovered_types(root, source);
+        let executable = nodes
+            .iter()
+            .filter_map(|node| {
+                let kind = executable_scope_kind(*node, &recovered_types)?;
+                let range = syntax::context_start(*node, contexts)..node.end_byte();
+                Some((node.id(), ScopeIdentity { kind, range }))
+            })
+            .collect();
         let mut script_nodes = (0..root.named_child_count())
             .filter_map(|index| root.named_child(index as u32))
             .filter(|child| is_top_level_executable(child.kind()))
             .filter(|child| !recovered_error(*child, &recovered_types));
         let script = script_nodes.next().map(|first| {
             let last = script_nodes.next_back().unwrap_or(first);
-            scope(
-                format!("script@{}", first.start_position().row + 1),
-                first.start_byte(),
-                last.end_byte(),
-                source,
-            )
+            ScriptScope {
+                range: first.start_byte()..last.end_byte(),
+                line: first.start_position().row + 1,
+            }
         });
         Self {
             root,
@@ -42,6 +69,7 @@ impl<'tree> ScopeIndex<'tree> {
             contexts,
             recovered_types,
             nodes,
+            executable,
             script,
         }
     }
@@ -79,18 +107,29 @@ pub(in crate::languages::kotlin) fn capture(
     query_functions: Vec<FunctionScope>,
 ) -> Vec<FunctionScope> {
     let source = index.source();
-    let recovered_types = index.recovered_types();
     let mut scopes = index
         .nodes()
         .iter()
         .copied()
         .filter_map(|node| {
-            let name = executable_scope_name(node, source, &query_functions, recovered_types)?;
-            let start = syntax::context_start(node, index.contexts());
-            Some(scope(name, start, node.end_byte(), source))
+            let identity = index.executable.get(&node.id())?;
+            let name = scope_name(&identity.kind, node, index, &query_functions);
+            Some(scope(
+                name,
+                identity.range.start,
+                identity.range.end,
+                source,
+            ))
         })
         .collect::<Vec<_>>();
-    scopes.extend(index.script.iter().cloned());
+    scopes.extend(index.script.iter().map(|script| {
+        scope(
+            format!("script@{}", script.line),
+            script.range.start,
+            script.range.end,
+            source,
+        )
+    }));
 
     scopes.sort_by_key(|item| (item.range.start, item.range.end, item.name.clone()));
     scopes.dedup_by(|left, right| left.range == right.range && left.name == right.name);
@@ -106,11 +145,10 @@ pub(super) fn metric_scope_range_for(
     node: Node<'_>,
 ) -> Option<Range<usize>> {
     let root = index.root();
-    let recovered_types = index.recovered_types();
-    if let Some(candidate) = super::ancestors(node).find(|candidate| {
-        executable_scope_name(*candidate, index.source(), &[], recovered_types).is_some()
-    }) {
-        return Some(syntax::context_start(candidate, index.contexts())..candidate.end_byte());
+    if let Some(identity) =
+        super::ancestors(node).find_map(|candidate| index.executable.get(&candidate.id()))
+    {
+        return Some(identity.range.clone());
     }
 
     let mut direct_child = node;
@@ -141,77 +179,62 @@ pub(in crate::languages::kotlin) fn property_initializer_range(
     .then(|| syntax::context_start(property, contexts)..property.end_byte())
 }
 
-pub(super) fn executable_scope_name(
+/// Classify executable nodes once, before query-dependent names are available.
+fn executable_scope_kind(
     node: Node<'_>,
-    source: &[u8],
-    query_functions: &[FunctionScope],
     recovered_types: &[syntax::RecoveredType],
-) -> Option<String> {
-    callable_scope_name(node, source)
-        .or_else(|| lambda_scope_name(node, source, query_functions))
-        .or_else(|| constructor_scope_name(node, source, recovered_types))
-        .or_else(|| initializer_scope_name(node, source))
-}
-pub(super) fn callable_scope_name(node: Node<'_>, source: &[u8]) -> Option<String> {
+) -> Option<ScopeKind> {
     match node.kind() {
-        "function_declaration" if has_named_child(node, "function_body") => {
-            Some(declaration_name(node, source, "function"))
+        "function_declaration" => {
+            has_named_child(node, "function_body").then_some(ScopeKind::Declaration("function"))
         }
-        "getter" if has_named_child(node, "function_body") => Some("get".to_owned()),
-        "setter" if has_named_child(node, "function_body") => Some("set".to_owned()),
-        _ => None,
-    }
-}
-pub(super) fn lambda_scope_name(
-    node: Node<'_>,
-    source: &[u8],
-    query_functions: &[FunctionScope],
-) -> Option<String> {
-    match node.kind() {
-        "lambda_literal" | "anonymous_function"
-            if node.kind() == "lambda_literal" || has_named_child(node, "function_body") =>
-        {
-            Some(
-                bound_lambda_name(node, source)
-                    .or_else(|| query_name(query_functions, node))
-                    .unwrap_or_else(|| format!("anonymous@{}", node.start_position().row + 1)),
-            )
+        "getter" => has_named_child(node, "function_body").then_some(ScopeKind::Named("get")),
+        "setter" => has_named_child(node, "function_body").then_some(ScopeKind::Named("set")),
+        "lambda_literal" => Some(ScopeKind::Anonymous),
+        "anonymous_function" => {
+            has_named_child(node, "function_body").then_some(ScopeKind::Anonymous)
+        }
+        "primary_constructor" => (!has_bodyless_api_primary_constructor(node, recovered_types))
+            .then_some(ScopeKind::PrimaryConstructor),
+        "secondary_constructor" => {
+            has_direct_child(node, "{").then_some(ScopeKind::SecondaryConstructor)
+        }
+        "property_declaration" => (has_property_initializer(node)
+            && bound_function_value(node).is_none())
+        .then_some(ScopeKind::Property),
+        "destructuring_declaration" => {
+            has_direct_child(node, "=").then_some(ScopeKind::Destructuring)
+        }
+        "anonymous_initializer" => Some(ScopeKind::Named("init")),
+        "enum_entry" => {
+            has_named_child(node, "value_arguments").then_some(ScopeKind::Declaration("enum_entry"))
         }
         _ => None,
     }
 }
 
-pub(super) fn constructor_scope_name(
+fn scope_name(
+    kind: &ScopeKind,
     node: Node<'_>,
-    source: &[u8],
-    recovered_types: &[syntax::RecoveredType],
-) -> Option<String> {
-    match node.kind() {
-        "primary_constructor" if !has_bodyless_api_primary_constructor(node, recovered_types) => {
-            Some(primary_constructor_name(node, source, recovered_types))
+    index: &ScopeIndex<'_>,
+    query_functions: &[FunctionScope],
+) -> String {
+    let source = index.source();
+    match kind {
+        ScopeKind::Declaration(fallback) => declaration_name(node, source, fallback),
+        ScopeKind::Named(name) => (*name).to_owned(),
+        ScopeKind::Anonymous => bound_lambda_name(node, source)
+            .or_else(|| query_name(query_functions, node))
+            .unwrap_or_else(|| format!("anonymous@{}", node.start_position().row + 1)),
+        ScopeKind::PrimaryConstructor => {
+            primary_constructor_name(node, source, index.recovered_types())
         }
-        "secondary_constructor" if has_direct_child(node, "{") => Some(format!(
+        ScopeKind::SecondaryConstructor => format!(
             "{}.constructor",
-            enclosing_type_name(node, source, recovered_types)
-        )),
-        _ => None,
-    }
-}
-pub(super) fn initializer_scope_name(node: Node<'_>, source: &[u8]) -> Option<String> {
-    match node.kind() {
-        "property_declaration"
-            if has_property_initializer(node) && bound_function_value(node).is_none() =>
-        {
-            Some(property_name(node, source))
-        }
-        "destructuring_declaration" if has_direct_child(node, "=") => {
-            Some(format!("destructuring@{}", node.start_position().row + 1))
-        }
-        "anonymous_initializer" => Some("init".to_owned()),
-        "enum_entry" if has_named_child(node, "value_arguments") => {
-            Some(declaration_name(node, source, "enum_entry"))
-        }
-        _ => None,
+            enclosing_type_name(node, source, index.recovered_types())
+        ),
+        ScopeKind::Property => property_name(node, source),
+        ScopeKind::Destructuring => format!("destructuring@{}", node.start_position().row + 1),
     }
 }
 pub(super) fn bound_lambda_name(node: Node<'_>, source: &[u8]) -> Option<String> {
@@ -393,4 +416,81 @@ pub(super) fn is_top_level_executable(kind: &str) -> bool {
             | "type_alias"
             | "enum_entry"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ScopeIndex, capture, scope, syntax};
+
+    #[test]
+    fn cached_ranges_precede_names_and_preserve_nearest_scope_identity() {
+        let source = concat!(
+            "context(String)\n",
+            "fun run(flag: Boolean = defaultCall()) {\n",
+            "    val bound = { boundCall() }\n",
+            "    consume { callbackCall() }\n",
+            "}\n",
+            "println(scriptCall())\n",
+        );
+        let contexts = syntax::context_parameters(source.as_bytes());
+        let masked = syntax::mask_context_parameters(source.as_bytes()).unwrap();
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_kotlin::LANGUAGE.into())
+            .unwrap();
+        let tree = parser.parse(masked, None).unwrap();
+        let index = ScopeIndex::new(tree.root_node(), source.as_bytes(), &contexts);
+        let range_of = |text: &str| {
+            let start = source.find(text).unwrap();
+            start..start + text.len()
+        };
+        let bound = range_of("{ boundCall() }");
+        let callback = range_of("{ callbackCall() }");
+        let outer = 0..source.find("\n}\n").unwrap() + 2;
+        let script = range_of("println(scriptCall())");
+
+        // Ownership is available before query capture supplies display names.
+        for (marker, expected) in [
+            ("defaultCall", outer.clone()),
+            ("boundCall", bound.clone()),
+            ("callbackCall", callback.clone()),
+            ("scriptCall", script.clone()),
+        ] {
+            let range = range_of(marker);
+            let node = index
+                .nodes()
+                .iter()
+                .find(|node| node.byte_range() == range)
+                .unwrap();
+            assert_eq!(index.metric_scope_range_for(*node), Some(expected));
+        }
+        let lambda = index
+            .nodes()
+            .iter()
+            .find(|node| node.kind() == "lambda_literal" && node.byte_range() == callback)
+            .unwrap();
+        assert_eq!(
+            index.metric_scope_range_for(*lambda),
+            Some(callback.clone())
+        );
+        assert_eq!(index.metric_scope_range_for(tree.root_node()), None);
+
+        let query_functions = [bound.clone(), callback.clone()]
+            .into_iter()
+            .map(|range| scope("run".into(), range.start, range.end, source.as_bytes()))
+            .collect();
+        let functions = capture(&index, query_functions);
+        for (name, range) in [
+            ("run", outer),
+            ("bound", bound),
+            ("run", callback),
+            ("script@6", script),
+        ] {
+            assert!(
+                functions
+                    .iter()
+                    .any(|function| function.name == name && function.range == range)
+            );
+        }
+    }
 }

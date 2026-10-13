@@ -14,5 +14,5 @@ pub(crate) use facts::{
     DeclarationKind, DeclarationModifiers, ReceiverScope, SemanticContext, SemanticFacts,
     SemanticVisibility,
 };
-pub(crate) use program::{CallEdge, ProgramGraph, ProgramSymbol, ProgramSymbolId};
+pub(crate) use program::{CallEdge, FileFactsView, ProgramGraph, ProgramSymbol, ProgramSymbolId};
 pub(crate) use syntax::SyntaxGraph;

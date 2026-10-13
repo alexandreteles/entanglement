@@ -290,7 +290,7 @@ type ProjectIndexes = (
 
 impl<'a> Index<'a> {
     pub(super) fn new(
-        facts: &'a [FileFacts],
+        facts: &'a [FileFactsView<'a>],
         snapshot: &'a Snapshot,
         graph: &'a ProgramGraph<'a>,
         cache: &mut ProjectCache,
@@ -303,7 +303,7 @@ impl<'a> Index<'a> {
                 if contexts.is_empty() {
                     SourceContext::default()
                 } else {
-                    source_context(&fact.target, snapshot, cache)
+                    source_context(fact.target, snapshot, cache)
                 }
             })
             .collect::<Vec<_>>();
@@ -341,6 +341,7 @@ impl<'a> Index<'a> {
             by_name,
             visible_modules,
             source_edges,
+            argument_evidence: RefCell::default(),
         }
     }
 }

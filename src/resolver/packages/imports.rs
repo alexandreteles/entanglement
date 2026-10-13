@@ -1,4 +1,5 @@
-use crate::model::{FileFacts, Import};
+use crate::graph::FileFactsView;
+use crate::model::Import;
 
 use super::{Context, Index, PackageKey, modules};
 
@@ -11,13 +12,12 @@ pub(super) enum ImportTarget {
 impl Index {
     pub(super) fn bound_imports<'a>(
         &'a self,
-        fact: &'a FileFacts,
+        fact: &'a FileFactsView<'_>,
         id: usize,
         context: &'a Context,
         name: &'a str,
     ) -> impl Iterator<Item = ImportTarget> + 'a {
-        fact.imports
-            .iter()
+        fact.imports()
             .filter(move |import| import.context_id == id)
             .filter_map(move |import| {
                 let target = self.import_target(context, import);

@@ -1,8 +1,9 @@
+use crate::graph::FileFactsView;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use crate::graph::ProgramGraph;
-use crate::model::{DefinitionKind, FileFacts, Reference};
+use crate::model::{DefinitionKind, Reference};
 
 use super::normalize;
 
@@ -21,7 +22,7 @@ pub(super) struct Context {
 }
 
 pub(super) fn for_reference(
-    fact: &FileFacts,
+    fact: &FileFactsView<'_>,
     graph: &ProgramGraph<'_>,
     file_index: usize,
     context_id: usize,

@@ -1,7 +1,7 @@
 //! Inventory metrics include all source files; conditional members are not proven targets.
-use std::path::Path;
 
-use crate::model::FileFacts;
+use crate::graph::FileFactsView;
+use std::path::Path;
 
 // Go's filename constraints (go/build/syslist.go); no host platform is selected.
 const PLATFORMS: &[&str] = &[
@@ -49,12 +49,11 @@ const PLATFORMS: &[&str] = &[
     "wasm",
 ];
 
-pub(super) fn conditional(path: &Path, fact: &FileFacts) -> bool {
+pub(super) fn conditional(path: &Path, fact: &FileFactsView<'_>) -> bool {
     constrained_name(path)
         || has_build_directive(fact)
         || fact
-            .imports
-            .iter()
+            .imports()
             .any(|import| import.source.as_deref() == Some("C"))
 }
 
@@ -70,10 +69,9 @@ fn constrained_name(path: &Path) -> bool {
         .is_some_and(|(_, suffix)| PLATFORMS.contains(&suffix))
 }
 
-fn has_build_directive(fact: &FileFacts) -> bool {
+fn has_build_directive(fact: &FileFactsView<'_>) -> bool {
     let package_start = fact
-        .definitions
-        .iter()
+        .definitions()
         .filter(|item| item.kind == crate::model::DefinitionKind::Module)
         .map(|item| item.start_byte)
         .min()

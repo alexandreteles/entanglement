@@ -17,9 +17,8 @@ impl Index<'_, '_> {
         if !visiting.insert(key.clone()) {
             return Vec::new();
         }
-        let exports = &self.facts[file].exports;
-        let explicit = exports
-            .iter()
+        let explicit = self.facts[file]
+            .exports()
             .filter(|export| export.exported_name == name)
             .collect::<Vec<_>>();
         let targets = if explicit.is_empty() {
@@ -44,8 +43,7 @@ impl Index<'_, '_> {
             return vec![Target::Unresolved];
         }
         self.facts[file]
-            .exports
-            .iter()
+            .exports()
             .filter(|export| export.exported_name == "*" && !export.namespace)
             .flat_map(|export| {
                 self.resolve_export_entry(file, export, visiting)

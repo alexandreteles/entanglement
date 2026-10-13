@@ -1,6 +1,6 @@
 //! Dispatch semantic contexts independently, including mixed-language files.
 
-use crate::graph::ProgramGraph;
+use crate::graph::{FileFactsView, ProgramGraph};
 use crate::languages::{FileModuleRules, ResolutionFamily};
 use crate::model::{FileFacts, ReferenceAnalysis, Resolution};
 use crate::snapshot::Snapshot;
@@ -65,7 +65,7 @@ pub(super) fn resolve(
         })
     });
     if homogeneous {
-        return super::resolve_references(facts, snapshot, graph, &mut cache);
+        return super::resolve_references(graph.files(), snapshot, graph, &mut cache);
     }
     let mut strategies = Vec::<Strategy>::new();
     for fact in facts {
@@ -98,29 +98,19 @@ pub(super) fn resolve(
         let projected = facts
             .iter()
             .map(|fact| {
-                let belongs = |context_id| strategy.same(for_context(fact, context_id));
-                let mut projected = fact.clone();
-                let present = context_ids(fact).any(belongs);
-                projected.resolution_family = if present {
-                    strategy.family
-                } else {
-                    ResolutionFamily::None
-                };
-                projected.file_module_rules = present.then_some(strategy.rules).flatten();
-                projected
-                    .definitions
-                    .retain(|item| belongs(item.context_id));
-                projected.imports.retain(|item| belongs(item.context_id));
-                projected.exports.retain(|item| belongs(item.context_id));
-                projected.references.retain(|item| belongs(item.context_id));
-                projected.locals.retain(|item| belongs(item.context_id));
-                projected.semantic.retain(|layer| belongs(layer.context_id));
-                projected
+                let contexts = context_ids(fact)
+                    .filter(|context_id| strategy.same(for_context(fact, *context_id)))
+                    .collect();
+                FileFactsView::projected(fact, contexts, strategy.family, strategy.rules)
             })
-            .collect::<Vec<_>>();
-        let projected_graph = ProgramGraph::new(&projected);
-        let resolved =
-            super::resolve_references(&projected, snapshot, &projected_graph, &mut cache);
+            .collect();
+        let projected_graph = graph.project(projected);
+        let resolved = super::resolve_references(
+            projected_graph.files(),
+            snapshot,
+            &projected_graph,
+            &mut cache,
+        );
         for (file_index, (fact, resolutions)) in facts.iter().zip(resolved).enumerate() {
             let indices = fact
                 .references
@@ -128,7 +118,14 @@ pub(super) fn resolve(
                 .enumerate()
                 .filter(|(_, reference)| strategy.same(for_context(fact, reference.context_id)))
                 .map(|(index, _)| index);
-            for (index, resolution) in indices.zip(resolutions) {
+            let indices = indices.collect::<Vec<_>>();
+            // A family with no semantic evidence may produce no analyses;
+            // preserve the prefilled unresolved entries in that case.
+            assert!(
+                resolutions.is_empty() || indices.len() == resolutions.len(),
+                "strategy results must preserve reference cardinality"
+            );
+            for (index, resolution) in indices.into_iter().zip(resolutions) {
                 result[file_index][index] = resolution;
             }
         }

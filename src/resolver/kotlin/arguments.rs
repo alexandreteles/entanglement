@@ -1,101 +1,194 @@
 //! Conservative Kotlin call argument binding and type compatibility.
 
 use crate::graph::{CallArgumentFact, CallableParameter, CallableSignature};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
-struct ArgumentBinding<'a> {
-    argument: &'a CallArgumentFact,
+use std::cell::{OnceCell, RefCell};
+use std::rc::Rc;
+
+struct ArgumentBinding {
     parameter: Option<usize>,
     first_binding: bool,
 }
 
-/// Map arguments once while retaining invalid positions for strict matching
-/// and partial generic inference. Named and trailing arguments update the same
-/// bound state used by subsequent positional arguments.
-fn argument_bindings<'a>(
-    signature: &CallableSignature,
-    arguments: &'a [CallArgumentFact],
-) -> Vec<ArgumentBinding<'a>> {
-    let mut bound = HashSet::new();
-    let mut positional = 0;
-    arguments
-        .iter()
-        .map(|argument| {
-            let parameter = parameter_index(signature, argument, &bound, &mut positional);
-            let first_binding = parameter
-                .is_some_and(|index| signature.parameters[index].is_vararg || bound.insert(index));
-            ArgumentBinding {
-                argument,
-                parameter,
-                first_binding,
-            }
-        })
-        .collect()
+/// Structural binding is independent of inferred argument types. Both raw
+/// lambda lookup and typed matching borrow the same plan for one signature.
+struct BindingPlan {
+    bindings: Vec<ArgumentBinding>,
+    required_parameters_bound: bool,
+    raw_types: ArgumentTypes,
+    inferred_types: ArgumentTypes,
 }
 
-pub(super) fn arguments_match(
-    signature: &CallableSignature,
-    arguments: &[CallArgumentFact],
-) -> bool {
-    let bindings = argument_bindings(signature, arguments);
-    let substitutions = substitutions_for_bindings(signature, &bindings);
-    if !generic_bounds_match(signature, &substitutions)
-        || !bindings.iter().all(|binding| {
-            binding.first_binding
-                && binding.parameter.is_some_and(|index| {
-                    argument_matches_parameter(
-                        binding.argument,
-                        &signature.parameters[index],
-                        &substitutions,
-                    )
-                })
-        })
-    {
-        return false;
-    }
-    let bound = bindings
-        .iter()
-        .filter_map(|binding| binding.parameter)
-        .collect::<HashSet<_>>();
-    signature
-        .parameters
-        .iter()
-        .enumerate()
-        .all(|(index, parameter)| {
-            bound.contains(&index) || parameter.has_default || parameter.is_vararg
-        })
-}
-
-pub(super) fn lambda_parameter_for_argument<'a>(
-    signature: &'a CallableSignature,
-    arguments: &[CallArgumentFact],
-    wanted: &CallArgumentFact,
-) -> Option<&'a CallableParameter> {
-    for binding in argument_bindings(signature, arguments) {
-        let index = binding.parameter?;
-        if binding.argument.start_byte == wanted.start_byte
-            && binding.argument.end_byte == wanted.end_byte
-        {
-            return signature.parameters.get(index);
+impl BindingPlan {
+    fn new(signature: &CallableSignature, arguments: &[CallArgumentFact]) -> Self {
+        let mut bound = HashSet::new();
+        let mut positional = 0;
+        let bindings: Vec<_> = arguments
+            .iter()
+            .map(|argument| {
+                let parameter = parameter_index(signature, argument, &bound, &mut positional);
+                let first_binding = parameter.is_some_and(|index| {
+                    signature.parameters[index].is_vararg || bound.insert(index)
+                });
+                ArgumentBinding {
+                    parameter,
+                    first_binding,
+                }
+            })
+            .collect();
+        let required_parameters_bound =
+            signature
+                .parameters
+                .iter()
+                .enumerate()
+                .all(|(index, parameter)| {
+                    bound.contains(&index) || parameter.has_default || parameter.is_vararg
+                });
+        Self {
+            bindings,
+            required_parameters_bound,
+            raw_types: ArgumentTypes::default(),
+            inferred_types: ArgumentTypes::default(),
         }
     }
-    None
 }
 
-pub(super) fn generic_type_substitutions(
-    signature: &CallableSignature,
-    arguments: &[CallArgumentFact],
-) -> BTreeMap<String, String> {
-    if signature.type_parameters.is_empty() {
-        return BTreeMap::new();
+#[derive(Default)]
+struct ArgumentTypes {
+    substitutions: OnceCell<BTreeMap<String, String>>,
+    matches: OnceCell<bool>,
+}
+
+/// Derived evidence lives only for one resolver invocation. No candidate
+/// selection is cached: lexical receiver and lookup semantics remain local.
+#[derive(Default)]
+pub(super) struct CallArgumentEvidence {
+    pub(super) inferred: OnceCell<Rc<Vec<CallArgumentFact>>>,
+    bindings: RefCell<HashMap<usize, Rc<BindingPlan>>>,
+}
+
+pub(super) struct CallArguments<'a> {
+    pub(super) arguments: &'a [CallArgumentFact],
+    pub(super) evidence: Rc<CallArgumentEvidence>,
+    inferred: bool,
+}
+
+impl<'a> CallArguments<'a> {
+    pub(super) fn new(
+        arguments: &'a [CallArgumentFact],
+        evidence: Rc<CallArgumentEvidence>,
+    ) -> Self {
+        Self {
+            arguments,
+            evidence,
+            inferred: false,
+        }
     }
-    substitutions_for_bindings(signature, &argument_bindings(signature, arguments))
+
+    pub(super) fn with_inferred<'b>(&self, arguments: &'b [CallArgumentFact]) -> CallArguments<'b> {
+        debug_assert_eq!(arguments.len(), self.arguments.len());
+        CallArguments {
+            arguments,
+            evidence: Rc::clone(&self.evidence),
+            inferred: true,
+        }
+    }
+
+    pub(super) fn bind<'s>(&self, signature: &'s CallableSignature) -> BoundArguments<'s, 'a> {
+        // Signatures are canonical immutable graph facts for this invocation.
+        let key = signature as *const CallableSignature as usize;
+        let plan = self
+            .evidence
+            .bindings
+            .borrow_mut()
+            .entry(key)
+            .or_insert_with(|| Rc::new(BindingPlan::new(signature, self.arguments)))
+            .clone();
+        BoundArguments {
+            signature,
+            arguments: self.arguments,
+            plan,
+            inferred: self.inferred,
+        }
+    }
+}
+
+pub(super) struct BoundArguments<'s, 'a> {
+    signature: &'s CallableSignature,
+    arguments: &'a [CallArgumentFact],
+    plan: Rc<BindingPlan>,
+    inferred: bool,
+}
+
+impl<'s, 'a> BoundArguments<'s, 'a> {
+    fn types(&self) -> &ArgumentTypes {
+        if self.inferred {
+            &self.plan.inferred_types
+        } else {
+            &self.plan.raw_types
+        }
+    }
+
+    pub(super) fn substitutions(&self) -> &BTreeMap<String, String> {
+        self.types().substitutions.get_or_init(|| {
+            substitutions_for_bindings(self.signature, self.arguments, &self.plan.bindings)
+        })
+    }
+
+    pub(super) fn matches(&self) -> bool {
+        *self.types().matches.get_or_init(|| self.compute_match())
+    }
+
+    fn compute_match(&self) -> bool {
+        let signature = self.signature;
+        let substitutions = self.substitutions();
+        if !generic_bounds_match(signature, substitutions)
+            || !self
+                .plan
+                .bindings
+                .iter()
+                .zip(self.arguments)
+                .all(|(binding, argument)| {
+                    binding.first_binding
+                        && binding.parameter.is_some_and(|index| {
+                            argument_matches_parameter(
+                                argument,
+                                &signature.parameters[index],
+                                substitutions,
+                            )
+                        })
+                })
+        {
+            return false;
+        }
+        self.plan.required_parameters_bound
+    }
+
+    pub(super) fn lambda_parameter(
+        &self,
+        wanted: &CallArgumentFact,
+    ) -> Option<&'s CallableParameter> {
+        for (binding, argument) in self.plan.bindings.iter().zip(self.arguments) {
+            // Invalid earlier arguments intentionally stop lambda lookup,
+            // while generic substitutions still inspect every valid binding.
+            let index = binding.parameter?;
+            if argument.start_byte == wanted.start_byte && argument.end_byte == wanted.end_byte {
+                return self.signature.parameters.get(index);
+            }
+        }
+        None
+    }
 }
 
 fn substitutions_for_bindings(
     signature: &CallableSignature,
-    bindings: &[ArgumentBinding<'_>],
+    arguments: &[CallArgumentFact],
+    bindings: &[ArgumentBinding],
 ) -> BTreeMap<String, String> {
+    if signature.type_parameters.is_empty() {
+        return BTreeMap::new();
+    }
     let type_parameters = signature
         .type_parameters
         .iter()
@@ -103,11 +196,11 @@ fn substitutions_for_bindings(
         .collect::<HashSet<_>>();
     let mut substitutions = BTreeMap::new();
     let mut conflicting = HashSet::new();
-    for binding in bindings {
+    for (binding, argument) in bindings.iter().zip(arguments) {
         if let Some(index) = binding.parameter {
             bind_generic_argument(
                 signature,
-                binding.argument,
+                argument,
                 index,
                 &type_parameters,
                 &mut substitutions,
@@ -406,4 +499,155 @@ pub(super) fn types_match(left: &str, right: &str) -> bool {
     let left = normalize_type(left);
     let right = normalize_type(right);
     left == right
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::CallableTypeParameter;
+
+    fn generic_signature() -> CallableSignature {
+        CallableSignature {
+            type_parameters: vec![CallableTypeParameter {
+                name: "T".into(),
+                bounds: Vec::new(),
+            }],
+            parameters: vec![
+                CallableParameter {
+                    name: Some("value".into()),
+                    type_name: Some("T".into()),
+                    ..Default::default()
+                },
+                CallableParameter {
+                    name: Some("callback".into()),
+                    type_name: Some("(T)->Unit".into()),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn shared_bindings_keep_raw_and_inferred_types_separate() {
+        let mut signature = generic_signature();
+        signature.type_parameters[0].bounds.push("Number".into());
+        let raw = vec![
+            CallArgumentFact {
+                start_byte: 1,
+                end_byte: 2,
+                ..Default::default()
+            },
+            CallArgumentFact {
+                start_byte: 3,
+                end_byte: 8,
+                is_lambda: true,
+                is_trailing_lambda: true,
+                ..Default::default()
+            },
+        ];
+        let arguments = CallArguments::new(&raw, Rc::default());
+        let bound = arguments.bind(&signature);
+        assert!(bound.lambda_parameter(&raw[1]).is_some());
+        assert!(arguments.evidence.inferred.get().is_none());
+        assert!(bound.substitutions().is_empty());
+        assert!(bound.matches());
+        let mut inferred = raw.clone();
+        inferred[0].type_name = Some("String".into());
+        let typed = arguments.with_inferred(&inferred);
+        let inferred_bound = typed.bind(&signature);
+        assert!(Rc::ptr_eq(&bound.plan, &inferred_bound.plan));
+        assert_eq!(
+            inferred_bound.substitutions().get("T").map(String::as_str),
+            Some("String")
+        );
+        assert!(!inferred_bound.matches());
+        assert!(bound.substitutions().is_empty());
+        let repeated = typed.bind(&signature);
+        assert!(std::ptr::eq(
+            inferred_bound.substitutions(),
+            repeated.substitutions()
+        ));
+        assert!(repeated.plan.inferred_types.matches.get().is_some());
+        assert_eq!(arguments.evidence.bindings.borrow().len(), 1);
+    }
+
+    #[test]
+    fn invalid_and_duplicate_arguments_keep_partial_inference_and_lambda_barrier() {
+        let signature = generic_signature();
+        let arguments = vec![
+            CallArgumentFact {
+                name: Some("absent".into()),
+                type_name: Some("String".into()),
+                ..Default::default()
+            },
+            CallArgumentFact {
+                name: Some("value".into()),
+                type_name: Some("Int".into()),
+                start_byte: 1,
+                end_byte: 2,
+                ..Default::default()
+            },
+            CallArgumentFact {
+                is_lambda: true,
+                is_trailing_lambda: true,
+                start_byte: 3,
+                end_byte: 8,
+                ..Default::default()
+            },
+        ];
+        let call = CallArguments::new(&arguments, Rc::default());
+        let bound = call.bind(&signature);
+        assert!(!bound.matches());
+        assert_eq!(
+            bound.substitutions().get("T").map(String::as_str),
+            Some("Int")
+        );
+        assert!(bound.lambda_parameter(&arguments[2]).is_none());
+        let mut duplicate = arguments.clone();
+        duplicate.insert(
+            2,
+            CallArgumentFact {
+                name: Some("value".into()),
+                type_name: Some("String".into()),
+                start_byte: 2,
+                end_byte: 3,
+                ..Default::default()
+            },
+        );
+        let duplicate_call = CallArguments::new(&duplicate, Rc::default());
+        let duplicate_bound = duplicate_call.bind(&signature);
+        assert!(duplicate_bound.substitutions().is_empty());
+        assert!(!duplicate_bound.matches());
+    }
+
+    #[test]
+    fn call_and_signature_evidence_do_not_cross_contaminate() {
+        let signature = generic_signature();
+        let mut bounded = signature.clone();
+        bounded.type_parameters[0].bounds.push("Number".into());
+        let raw = vec![
+            CallArgumentFact {
+                name: Some("value".into()),
+                type_name: Some("String".into()),
+                ..Default::default()
+            },
+            CallArgumentFact {
+                is_lambda: true,
+                is_trailing_lambda: true,
+                start_byte: 3,
+                end_byte: 8,
+                ..Default::default()
+            },
+        ];
+        let arguments = CallArguments::new(&raw, Rc::default());
+        let first = arguments.bind(&signature);
+        let second = arguments.bind(&bounded);
+        assert!(!Rc::ptr_eq(&first.plan, &second.plan));
+        assert!(first.substitutions().contains_key("T"));
+        assert!(first.matches());
+        assert!(!second.matches());
+        let other_call = CallArguments::new(&raw, Rc::default());
+        assert!(!Rc::ptr_eq(&first.plan, &other_call.bind(&signature).plan));
+    }
 }

@@ -6,7 +6,8 @@ use crate::model::{Definition, DefinitionKind, FileFacts, SymbolId};
 
 use super::lookup::binding_identity;
 use super::{
-    ProgramBinding, ProgramGraph, ProgramScope, ProgramScopeId, ProgramSymbol, ProgramSymbolId,
+    FileFactsView, ProgramBinding, ProgramGraph, ProgramIndexes, ProgramScope, ProgramScopeId,
+    ProgramSymbol, ProgramSymbolId,
 };
 
 impl<'a> ProgramGraph<'a> {
@@ -19,21 +20,39 @@ impl<'a> ProgramGraph<'a> {
         graph
     }
 
-    fn empty(facts: &'a [FileFacts]) -> Self {
+    /// Restrict resolver eligibility while reusing all canonical indexes.
+    pub(crate) fn project(&self, facts: Vec<FileFactsView<'a>>) -> Self {
+        assert_eq!(facts.len(), self.facts.len());
+        assert!(
+            facts
+                .iter()
+                .zip(&self.facts)
+                .all(|(view, canonical)| std::ptr::eq(view.canonical, canonical.canonical)),
+            "projected views must borrow the indexed canonical files in order"
+        );
         Self {
             facts,
-            symbols: Vec::new(),
-            symbols_by_file: vec![Vec::new(); facts.len()],
-            symbols_by_name: (0..facts.len()).map(|_| HashMap::new()).collect(),
-            symbol_by_semantic_id: HashMap::new(),
-            function_starts: (0..facts.len()).map(|_| HashSet::new()).collect(),
-            callable_scopes: (0..facts.len()).map(|_| HashSet::new()).collect(),
-            scopes: Vec::new(),
-            scopes_by_file: vec![Vec::new(); facts.len()],
-            scope_by_id: HashMap::new(),
-            bindings: Vec::new(),
-            bindings_by_file_name: (0..facts.len()).map(|_| HashMap::new()).collect(),
-            aliases: BTreeMap::<PathBuf, std::collections::BTreeSet<usize>>::new(),
+            indexes: self.indexes.clone(),
+        }
+    }
+
+    fn empty(facts: &'a [FileFacts]) -> Self {
+        Self {
+            facts: facts.iter().map(FileFactsView::new).collect(),
+            indexes: std::sync::Arc::new(ProgramIndexes {
+                symbols: Vec::new(),
+                symbols_by_file: vec![Vec::new(); facts.len()],
+                symbols_by_name: (0..facts.len()).map(|_| HashMap::new()).collect(),
+                symbol_by_semantic_id: HashMap::new(),
+                function_starts: (0..facts.len()).map(|_| HashSet::new()).collect(),
+                callable_scopes: (0..facts.len()).map(|_| HashSet::new()).collect(),
+                scopes: Vec::new(),
+                scopes_by_file: vec![Vec::new(); facts.len()],
+                scope_by_id: HashMap::new(),
+                bindings: Vec::new(),
+                bindings_by_file_name: (0..facts.len()).map(|_| HashMap::new()).collect(),
+                aliases: BTreeMap::<PathBuf, std::collections::BTreeSet<usize>>::new(),
+            }),
         }
     }
 
@@ -135,16 +154,18 @@ impl<'a> ProgramGraph<'a> {
     }
 
     fn add_scope(&mut self, id: ProgramScopeId) {
-        if let std::collections::hash_map::Entry::Vacant(entry) = self.scope_by_id.entry(id) {
-            let index = self.scopes.len();
-            self.scopes.push(ProgramScope { id, parent: None });
-            self.scopes_by_file[id.file_index].push(index);
+        let indexes = std::sync::Arc::get_mut(&mut self.indexes)
+            .expect("scope indexing runs before any graph projections");
+        if let std::collections::hash_map::Entry::Vacant(entry) = indexes.scope_by_id.entry(id) {
+            let index = indexes.scopes.len();
+            indexes.scopes.push(ProgramScope { id, parent: None });
+            indexes.scopes_by_file[id.file_index].push(index);
             entry.insert(index);
         }
     }
     fn link_scope_parents(&mut self) {
-        for file_scopes in &self.scopes_by_file {
-            let mut ordered = file_scopes.clone();
+        for file_index in 0..self.scopes_by_file.len() {
+            let mut ordered = self.scopes_by_file[file_index].clone();
             ordered.sort_by_key(|index| {
                 let scope = self.scopes[*index].id;
                 (scope.context_id, scope.start_byte, Reverse(scope.end_byte))

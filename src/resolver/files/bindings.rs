@@ -1,5 +1,6 @@
+use crate::graph::FileFactsView;
 use crate::graph::ProgramGraph;
-use crate::model::{FileFacts, Import};
+use crate::model::Import;
 
 use super::Target;
 use super::symbols::local_symbols;
@@ -18,7 +19,7 @@ pub(super) enum BindingTarget<'a> {
 }
 
 pub(super) fn binding_target<'a>(
-    fact: &'a FileFacts,
+    fact: &'a FileFactsView<'_>,
     graph: &ProgramGraph<'_>,
     file_index: usize,
     name: &str,
@@ -60,14 +61,13 @@ pub(super) fn binding_target<'a>(
 }
 
 pub(super) fn imported_binding<'a>(
-    fact: &'a FileFacts,
+    fact: &'a FileFactsView<'_>,
     name: &str,
     position: usize,
     context_id: usize,
 ) -> ImportLookup<'a> {
     let imports = fact
-        .imports
-        .iter()
+        .imports()
         .filter(|import| {
             import.source.is_some()
                 && import.alias.as_deref().or(import.imported_name.as_deref()) == Some(name)
@@ -97,15 +97,14 @@ pub(super) fn imported_binding<'a>(
 }
 
 pub(super) fn local_binding_rank(
-    fact: &FileFacts,
+    fact: &FileFactsView<'_>,
     name: &str,
     position: usize,
     context_id: usize,
 ) -> Option<usize> {
     let rules = fact.file_module_rules;
     let locals = fact
-        .locals
-        .iter()
+        .locals()
         .filter(|local| {
             local.name == name
                 && local.scope_start <= position
@@ -118,8 +117,7 @@ pub(super) fn local_binding_rank(
         })
         .map(|local| local.scope_end.saturating_sub(local.scope_start));
     let wildcard_imports = fact
-        .imports
-        .iter()
+        .imports()
         .filter(|import| {
             rules.is_some_and(|rules| rules.wildcard_imports_shadow)
                 && import.imported_name.as_deref() == Some("*")
@@ -132,13 +130,13 @@ pub(super) fn local_binding_rank(
 }
 
 fn import_local_is_visible(
-    fact: &FileFacts,
+    fact: &FileFactsView<'_>,
     local: &crate::model::LocalBinding,
     name: &str,
     position: usize,
     context_id: usize,
 ) -> bool {
-    fact.imports.iter().any(|import| {
+    fact.imports().any(|import| {
         import.source.is_some()
             && import.alias.as_deref().or(import.imported_name.as_deref()) == Some(name)
             && import.context_id == context_id

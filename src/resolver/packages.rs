@@ -1,5 +1,7 @@
 //! Resolve Go package members without inferring types or choosing build tags.
 
+use crate::graph::FileFactsView;
+
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -7,7 +9,7 @@ use rayon::prelude::*;
 
 use crate::graph::ProgramGraph;
 use crate::languages::ResolutionFamily;
-use crate::model::{FileFacts, Reference, ReferenceAnalysis, Resolution};
+use crate::model::{Reference, ReferenceAnalysis, Resolution};
 use crate::snapshot::Snapshot;
 
 use super::files::indexing::normalize;
@@ -25,7 +27,7 @@ use members::Package;
 use modules::ModuleState;
 
 pub(super) fn resolve(
-    facts: &[FileFacts],
+    facts: &[FileFactsView<'_>],
     snapshot: &Snapshot,
     graph: &ProgramGraph<'_>,
 ) -> Vec<Option<Vec<ReferenceAnalysis>>> {
@@ -35,8 +37,7 @@ pub(super) fn resolve(
         .enumerate()
         .map(|(file_index, fact)| {
             is_go(fact).then(|| {
-                fact.references
-                    .iter()
+                fact.references()
                     .map(|reference| ReferenceAnalysis {
                         path: reference.path.clone(),
                         start_byte: reference.start_byte,
@@ -74,7 +75,7 @@ impl Index {
     fn resolve_reference(
         &self,
         file_index: usize,
-        fact: &FileFacts,
+        fact: &FileFactsView<'_>,
         reference: &Reference,
         graph: &ProgramGraph<'_>,
     ) -> Resolution {
@@ -93,7 +94,7 @@ impl Index {
 
     fn resolve_in_context(
         &self,
-        fact: &FileFacts,
+        fact: &FileFactsView<'_>,
         reference: &Reference,
         context: &Context,
         name: &str,
@@ -117,6 +118,6 @@ impl Index {
     }
 }
 
-fn is_go(fact: &FileFacts) -> bool {
+fn is_go(fact: &FileFactsView<'_>) -> bool {
     fact.resolution_family == ResolutionFamily::GoPackages
 }

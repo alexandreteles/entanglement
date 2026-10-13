@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::graph::{ProgramGraph, ProgramSymbolId};
+use crate::graph::ProgramGraph;
 use crate::languages::ResolutionFamily;
 use crate::model::{DefinitionKind, Import, ModulePath, SymbolId};
 
@@ -40,9 +40,10 @@ impl Index {
                     });
                 }
 
-                for (definition_index, definition) in
-                    graph.definitions(file_index).iter().enumerate()
-                {
+                for graph_symbol in graph.symbols_for_file(file_index) {
+                    let definition = graph
+                        .definition(graph_symbol.id)
+                        .expect("eligible symbol has canonical definition");
                     let module = joined_path(&file_module, &definition.module.0);
                     let module_key = ModuleKey {
                         crate_root: context.crate_root.clone(),
@@ -58,10 +59,7 @@ impl Index {
                         continue;
                     }
                     let id = graph
-                        .symbol_id(ProgramSymbolId {
-                            file_index,
-                            definition_index,
-                        })
+                        .symbol_id(graph_symbol.id)
                         .cloned()
                         .expect("program graph indexes every definition");
                     let id = SymbolId {

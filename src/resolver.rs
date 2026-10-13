@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use rayon::prelude::*;
 
-use crate::graph::ProgramGraph;
+use crate::graph::{FileFactsView, ProgramGraph};
 use crate::model::{FileFacts, ReferenceAnalysis, Resolution, SymbolId};
 
 mod files;
@@ -107,7 +107,7 @@ pub(crate) fn resolve_with_snapshot(
 }
 
 fn resolve_references(
-    facts: &[FileFacts],
+    facts: &[FileFactsView<'_>],
     snapshot: &crate::snapshot::Snapshot,
     graph: &ProgramGraph<'_>,
     kotlin_cache: &mut kotlin::ProjectCache,
@@ -133,7 +133,7 @@ fn resolve_references(
 fn resolve_fact(
     index: &Index,
     file_index: usize,
-    fact: &FileFacts,
+    fact: &FileFactsView<'_>,
     resolved: Option<&Vec<ReferenceAnalysis>>,
 ) -> Vec<ReferenceAnalysis> {
     if let Some(resolved) = resolved {
@@ -143,8 +143,7 @@ fn resolve_fact(
         return Vec::new();
     }
     let context = &index.contexts[file_index];
-    fact.references
-        .iter()
+    fact.references()
         .map(|reference| ReferenceAnalysis {
             path: reference.path.clone(),
             start_byte: reference.start_byte,

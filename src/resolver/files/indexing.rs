@@ -1,21 +1,21 @@
+use crate::graph::FileFactsView;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 
 use crate::graph::ProgramGraph;
 use crate::languages::{FileModuleLayout, FileModuleRules, ResolutionFamily};
-use crate::model::FileFacts;
 
 use super::Target;
 use super::layout;
 
 pub(super) struct Index<'a, 'g> {
-    pub(super) facts: &'a [FileFacts],
+    pub(super) facts: &'a [FileFactsView<'a>],
     pub(super) graph: &'g ProgramGraph<'a>,
     pub(super) by_path: BTreeMap<PathBuf, BTreeSet<usize>>,
 }
 
 impl<'a, 'g> Index<'a, 'g> {
-    pub(super) fn new(facts: &'a [FileFacts], graph: &'g ProgramGraph<'a>) -> Self {
+    pub(super) fn new(facts: &'a [FileFactsView<'a>], graph: &'g ProgramGraph<'a>) -> Self {
         let mut by_path = BTreeMap::<PathBuf, BTreeSet<usize>>::new();
         for (path, indexes) in graph.aliases() {
             for index in indexes {

@@ -185,12 +185,12 @@ pub(super) fn exact_argument_call<'a>(
 }
 
 pub(super) fn call_target_reference<'a>(
-    references: &'a [Reference],
+    references: impl IntoIterator<Item = &'a Reference>,
     context_id: usize,
     call: &CallFacts,
 ) -> Option<&'a Reference> {
     let target = call.target.as_ref()?;
-    references.iter().find(|reference| {
+    references.into_iter().find(|reference| {
         reference.context_id == context_id
             && reference.start_byte == target.start_byte
             && reference.end_byte == target.end_byte

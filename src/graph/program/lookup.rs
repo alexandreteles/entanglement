@@ -3,10 +3,11 @@ use std::path::PathBuf;
 
 use crate::graph::{CallFacts, DeclarationFacts, SemanticFacts};
 use crate::languages::ResolutionFamily;
-use crate::model::{Definition, FileFacts, Import, SymbolId};
+use crate::model::{Definition, Import, SymbolId};
 
 use super::{
-    ProgramBinding, ProgramGraph, ProgramScope, ProgramScopeId, ProgramSymbol, ProgramSymbolId,
+    FileFactsView, ProgramBinding, ProgramGraph, ProgramScope, ProgramScopeId, ProgramSymbol,
+    ProgramSymbolId,
 };
 
 impl<'a> ProgramGraph<'a> {
@@ -14,12 +15,12 @@ impl<'a> ProgramGraph<'a> {
         self.facts.len()
     }
 
-    pub(crate) fn file(&self, file_index: usize) -> &'a FileFacts {
+    pub(crate) fn file(&self, file_index: usize) -> &FileFactsView<'a> {
         &self.facts[file_index]
     }
 
-    pub(crate) fn files(&self) -> &'a [FileFacts] {
-        self.facts
+    pub(crate) fn files(&self) -> &[FileFactsView<'a>] {
+        &self.facts
     }
 
     pub(crate) fn aliases(&self) -> &BTreeMap<PathBuf, BTreeSet<usize>> {
@@ -33,6 +34,7 @@ impl<'a> ProgramGraph<'a> {
         self.symbols_by_file[file_index]
             .iter()
             .map(|index| &self.symbols[*index])
+            .filter(move |symbol| self.file(file_index).allows(symbol.scope.context_id))
     }
 
     pub(crate) fn symbols_named(
@@ -45,6 +47,7 @@ impl<'a> ProgramGraph<'a> {
             .into_iter()
             .flatten()
             .map(|index| &self.symbols[*index])
+            .filter(move |symbol| self.file(file_index).allows(symbol.scope.context_id))
     }
 
     pub(crate) fn symbol(&self, id: ProgramSymbolId) -> Option<&ProgramSymbol> {
@@ -52,7 +55,9 @@ impl<'a> ProgramGraph<'a> {
             .symbols_by_file
             .get(id.file_index)?
             .get(id.definition_index)?;
-        self.symbols.get(*definition_index)
+        self.symbols
+            .get(*definition_index)
+            .filter(|symbol| self.file(id.file_index).allows(symbol.scope.context_id))
     }
 
     pub(crate) fn symbol_id(&self, id: ProgramSymbolId) -> Option<&SymbolId> {
@@ -60,18 +65,20 @@ impl<'a> ProgramGraph<'a> {
     }
 
     pub(crate) fn definition(&self, id: ProgramSymbolId) -> Option<&'a Definition> {
-        self.facts
-            .get(id.file_index)?
-            .definitions
-            .get(id.definition_index)
+        let file = self.facts.get(id.file_index)?;
+        let definition = file.canonical.definitions.get(id.definition_index)?;
+        file.allows(definition.context_id).then_some(definition)
     }
 
-    pub(crate) fn definitions(&self, file_index: usize) -> &'a [Definition] {
-        &self.facts[file_index].definitions
+    pub(crate) fn definitions(
+        &self,
+        file_index: usize,
+    ) -> impl Iterator<Item = &'a Definition> + '_ {
+        self.facts[file_index].definitions()
     }
 
-    pub(crate) fn imports(&self, file_index: usize) -> &'a [Import] {
-        &self.facts[file_index].imports
+    pub(crate) fn imports(&self, file_index: usize) -> impl Iterator<Item = &'a Import> + '_ {
+        self.facts[file_index].imports()
     }
 
     pub(crate) fn semantic(
@@ -80,7 +87,7 @@ impl<'a> ProgramGraph<'a> {
         context_id: usize,
         family: Option<ResolutionFamily>,
     ) -> Option<&'a SemanticFacts> {
-        self.file(file_index).semantic.iter().find(|semantic| {
+        self.file(file_index).semantic().find(|semantic| {
             semantic.context_id == context_id
                 && family.is_none_or(|family| semantic.resolution_family == Some(family))
         })
@@ -114,10 +121,15 @@ impl<'a> ProgramGraph<'a> {
         if let Some(exact) = exact {
             // SymbolId has no layer identity. If several semantic layers
             // emitted the same ID, it cannot prove which declaration matched.
-            return match exact.as_slice() {
-                [symbol] => Some(*symbol),
-                _ => None,
-            };
+            let mut eligible = exact
+                .iter()
+                .copied()
+                .filter(|id| self.symbol(*id).is_some());
+            if let Some(symbol) = eligible.next() {
+                return eligible.next().is_none().then_some(symbol);
+            }
+            // An exact key present only in excluded contexts is absent from
+            // this view, so the family-specific module fallback still applies.
         }
 
         // Some resolver families (notably Rust modules) qualify the target
@@ -127,7 +139,9 @@ impl<'a> ProgramGraph<'a> {
             .symbols
             .iter()
             .filter(|symbol| {
-                symbol.semantic_id.file == target.file
+                self.file(symbol.id.file_index)
+                    .allows(symbol.scope.context_id)
+                    && symbol.semantic_id.file == target.file
                     && symbol.semantic_id.name == target.name
                     && symbol.semantic_id.kind == target.kind
                     && symbol.semantic_id.start_byte == target.start_byte
@@ -142,6 +156,7 @@ impl<'a> ProgramGraph<'a> {
         self.scopes_by_file[file_index]
             .iter()
             .map(|index| self.scopes[*index])
+            .filter(move |scope| self.file(file_index).allows(scope.id.context_id))
     }
 
     pub(crate) fn scope_at(
@@ -161,7 +176,10 @@ impl<'a> ProgramGraph<'a> {
     }
 
     fn scope(&self, id: ProgramScopeId) -> Option<ProgramScope> {
-        self.scope_by_id.get(&id).map(|index| self.scopes[*index])
+        self.file(id.file_index)
+            .allows(id.context_id)
+            .then(|| self.scope_by_id.get(&id).map(|index| self.scopes[*index]))
+            .flatten()
     }
 
     fn within_callable_scope(
@@ -219,7 +237,8 @@ impl<'a> ProgramGraph<'a> {
             .flatten()
             .map(|index| &self.bindings[*index])
             .filter(move |binding| {
-                binding.scope.context_id == context_id
+                self.file(file_index).allows(binding.scope.context_id)
+                    && binding.scope.context_id == context_id
                     && binding.start_byte <= position
                     && binding.scope.start_byte <= position
                     && position < binding.scope.end_byte
@@ -383,4 +402,167 @@ fn is_simple_binding_name(name: &str) -> bool {
 
 fn has_alias(binding: &ProgramBinding) -> bool {
     binding.immutable && binding.alias_target.is_some()
+}
+
+#[cfg(test)]
+mod projection_tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::graph::BindingType;
+    use crate::metrics::halstead::HalsteadMetrics;
+    use crate::model::{DefinitionKind, FileAnalysis, FileFacts, LocalBinding, ModulePath};
+
+    fn fixture() -> FileFacts {
+        let definition = |context_id, module: &str| Definition {
+            name: "shared".into(),
+            kind: DefinitionKind::Function,
+            module: ModulePath(vec![module.into()]),
+            start_byte: 10,
+            end_byte: 90,
+            scope_start: 0,
+            scope_end: 100,
+            is_public: true,
+            inline_module: false,
+            external_module: false,
+            context_id,
+        };
+        let semantic = |context_id, type_name: &str| SemanticFacts {
+            context_id,
+            bindings: vec![BindingType {
+                name: "value".into(),
+                name_start_byte: 25,
+                name_end_byte: 30,
+                scope_start: 20,
+                scope_end: 80,
+                type_name: Some(type_name.into()),
+                alias_target: None,
+                callable_reference: false,
+                immutable: true,
+            }],
+            ..SemanticFacts::default()
+        };
+        FileFacts {
+            definitions: vec![
+                definition(0, "excluded"),
+                definition(1, "included"),
+                definition(2, "included"),
+            ],
+            semantic: vec![semantic(1, "First"), semantic(2, "Second")],
+            locals: vec![LocalBinding {
+                name: "value".into(),
+                start_byte: 25,
+                end_byte: 30,
+                scope_start: 20,
+                scope_end: 80,
+                context_id: 1,
+            }],
+            source: Arc::from(vec![b' '; 100]),
+            target: PathBuf::from("fixture.rs"),
+            aliases: vec![PathBuf::from("fixture.rs")],
+            path: PathBuf::from("fixture.rs"),
+            module: ModulePath::default(),
+            resolution_family: ResolutionFamily::RustCrates,
+            file_module_rules: None,
+            imports: Vec::new(),
+            exports: Vec::new(),
+            references: Vec::new(),
+            analysis: FileAnalysis {
+                path: "fixture.rs".into(),
+                hash: String::new(),
+                language: "rust".into(),
+                nloc: 0,
+                halstead: HalsteadMetrics::calculate(0, 0, 0, 0),
+                maintainability_index: None,
+                functions: Vec::new(),
+                injections: Vec::new(),
+                resolution: Vec::new(),
+            },
+        }
+    }
+
+    #[test]
+    fn projections_reuse_indexes_and_preserve_canonical_identity_and_context_evidence() {
+        let facts = [fixture()];
+        let graph = ProgramGraph::new(&facts);
+        let project = |contexts| {
+            graph.project(vec![FileFactsView::projected(
+                &facts[0],
+                contexts,
+                ResolutionFamily::RustCrates,
+                None,
+            )])
+        };
+        let projected = project(HashSet::from([1]));
+        assert!(Arc::ptr_eq(&graph.indexes, &projected.indexes));
+        assert!(std::ptr::eq(graph.aliases(), projected.aliases()));
+        let id = ProgramSymbolId {
+            file_index: 0,
+            definition_index: 1,
+        };
+        let symbols = projected.symbols_for_file(0).collect::<Vec<_>>();
+        assert_eq!(symbols.len(), 1);
+        assert_eq!(symbols[0].id, id);
+        assert!(std::ptr::eq(
+            projected.definition(id).unwrap(),
+            &facts[0].definitions[1]
+        ));
+        assert!(std::ptr::eq(
+            projected.file(0).definitions().next().unwrap(),
+            &facts[0].definitions[1]
+        ));
+        assert!(
+            projected
+                .symbol(ProgramSymbolId {
+                    file_index: 0,
+                    definition_index: 0
+                })
+                .is_none()
+        );
+        assert_eq!(
+            projected.binding_type(0, "value", 1, 50),
+            Some("First".into())
+        );
+        assert_eq!(projected.binding_type(0, "value", 2, 50), None);
+        assert!(projected.is_local_scope(0, 1, 20, 80, 50));
+        let nearest = projected.scope_at(0, 1, 50).unwrap();
+        assert_eq!(
+            projected.scope(nearest).unwrap().parent,
+            graph.scope(nearest).unwrap().parent
+        );
+
+        // Excluded exact keys must behave as absent, allowing the module
+        // qualification fallback used by Rust resolution to find the view's declaration.
+        let excluded_target = graph
+            .symbol_id(ProgramSymbolId {
+                file_index: 0,
+                definition_index: 0,
+            })
+            .unwrap();
+        assert_eq!(
+            projected.unique_symbol_for_target(excluded_target),
+            Some(id)
+        );
+        let ambiguous = project(HashSet::from([1, 2]));
+        assert_eq!(ambiguous.unique_symbol_for_target(excluded_target), None);
+        assert_eq!(
+            ambiguous.unique_symbol_for_target(graph.symbol_id(id).unwrap()),
+            None
+        );
+    }
+
+    #[test]
+    fn projections_preserve_conflicting_binding_evidence_within_an_eligible_context() {
+        let mut facts = [fixture()];
+        facts[0].semantic[1].context_id = 1;
+        let graph = ProgramGraph::new(&facts);
+        let projected = graph.project(vec![FileFactsView::projected(
+            &facts[0],
+            HashSet::from([1]),
+            ResolutionFamily::RustCrates,
+            None,
+        )]);
+        assert!(projected.has_local_binding(0, "value", 1, 50));
+        assert_eq!(projected.binding_type(0, "value", 1, 50), None);
+    }
 }
