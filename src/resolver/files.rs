@@ -1,9 +1,11 @@
 //! Resolve imports between files using language-neutral file-module facts.
 
+use crate::graph::FileFactsView;
+
 use rayon::prelude::*;
 
 use crate::graph::ProgramGraph;
-use crate::model::{FileFacts, ReferenceAnalysis, Resolution};
+use crate::model::{ReferenceAnalysis, Resolution};
 
 mod bindings;
 mod exports;
@@ -16,7 +18,7 @@ use indexing::Index;
 
 /// Build results for file-module languages without exposing another syntax parser.
 pub(super) fn resolve(
-    facts: &[FileFacts],
+    facts: &[FileFactsView<'_>],
     graph: &ProgramGraph<'_>,
 ) -> Vec<Option<Vec<ReferenceAnalysis>>> {
     let index = Index::new(facts, graph);

@@ -3,8 +3,10 @@
 //! This module reads only static Gradle literals and source layout. It does
 //! not evaluate Gradle or infer dynamic build variants.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
+use std::rc::Rc;
 
 mod arguments;
 mod build;
@@ -19,8 +21,8 @@ mod symbols;
 mod visibility;
 
 use arguments::{
-    arguments_match, function_type_parameters, function_type_receiver, generic_type_substitutions,
-    lambda_parameter_for_argument, normalize_type, substitute_type_name,
+    CallArgumentEvidence, CallArguments, function_type_parameters, function_type_receiver,
+    normalize_type, substitute_type_name,
 };
 pub(super) use context::ProjectCache;
 use context::{SourceContext, conventional_source_edge, source_set_reaches};
@@ -28,13 +30,13 @@ use symbols::*;
 
 use crate::graph::{
     CallArgumentFact, CallConvention, CallDispatch, CallFacts, CallableSignature,
-    DeclarationExecutionFacts, DeclarationFacts, DeclarationKind, ProgramGraph, ProgramSymbolId,
-    ReceiverScope, SemanticVisibility,
+    DeclarationExecutionFacts, DeclarationFacts, DeclarationKind, FileFactsView, ProgramGraph,
+    ProgramSymbolId, ReceiverScope, SemanticVisibility,
 };
 use crate::languages::ResolutionFamily;
 use crate::model::{
-    DefinitionKind, ExecutionTarget, FileFacts, Import, Reference, ReferenceAccess,
-    ReferenceAnalysis, ReferenceKind, Resolution, SourceRange, SymbolId,
+    DefinitionKind, ExecutionTarget, Import, Reference, ReferenceAccess, ReferenceAnalysis,
+    ReferenceKind, Resolution, SourceRange, SymbolId,
 };
 use crate::snapshot::Snapshot;
 
@@ -71,10 +73,11 @@ struct Index<'a> {
     by_name: HashMap<String, Vec<usize>>,
     visible_modules: HashMap<String, HashMap<Option<String>, BTreeSet<String>>>,
     source_edges: HashMap<PathBuf, BTreeMap<String, BTreeSet<String>>>,
+    argument_evidence: RefCell<HashMap<(usize, usize, usize), Rc<CallArgumentEvidence>>>,
 }
 
 pub(super) fn resolve(
-    facts: &[FileFacts],
+    facts: &[FileFactsView<'_>],
     snapshot: &Snapshot,
     graph: &ProgramGraph<'_>,
     cache: &mut ProjectCache,
@@ -82,8 +85,7 @@ pub(super) fn resolve(
     let contexts = facts
         .iter()
         .map(|fact| {
-            fact.semantic
-                .iter()
+            fact.semantic()
                 .filter(|semantic| {
                     semantic.resolution_family == Some(ResolutionFamily::KotlinModules)
                 })
@@ -92,8 +94,7 @@ pub(super) fn resolve(
         })
         .collect::<Vec<_>>();
     let active = facts.iter().zip(&contexts).any(|(fact, contexts)| {
-        fact.references
-            .iter()
+        fact.references()
             .any(|reference| contexts.contains(&reference.context_id))
     });
     if !active {
@@ -105,12 +106,10 @@ pub(super) fn resolve(
         .zip(contexts)
         .enumerate()
         .map(|(file, (fact, contexts))| {
-            fact.references
-                .iter()
+            fact.references()
                 .any(|reference| contexts.contains(&reference.context_id))
                 .then(|| {
-                    fact.references
-                        .iter()
+                    fact.references()
                         .map(|reference| {
                             if contexts.contains(&reference.context_id) {
                                 index.resolve_reference(file, reference)

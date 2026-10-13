@@ -1,11 +1,123 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 
-use crate::model::{DefinitionKind, FileFacts, SymbolId};
+use crate::languages::{FileModuleRules, ResolutionFamily};
+use crate::model::{
+    Definition, DefinitionKind, Export, FileAnalysis, FileFacts, Import, LocalBinding, ModulePath,
+    Reference, SymbolId,
+};
+use std::ops::{Deref, DerefMut};
+use std::sync::Arc;
 
 mod execution;
 mod indexing;
 mod lookup;
+
+/// A strategy's borrowed view of one canonical file. Metadata is shared; only
+/// layer eligibility and effective resolution policy belong to the view.
+pub(crate) struct FileFactsView<'a> {
+    canonical: &'a FileFacts,
+    contexts: Option<HashSet<usize>>,
+    pub resolution_family: ResolutionFamily,
+    pub file_module_rules: Option<&'static FileModuleRules>,
+    pub target: &'a PathBuf,
+    pub aliases: &'a [PathBuf],
+    pub module: &'a ModulePath,
+    pub source: &'a Arc<[u8]>,
+    pub analysis: &'a FileAnalysis,
+}
+
+impl<'a> FileFactsView<'a> {
+    pub(crate) fn new(fact: &'a FileFacts) -> Self {
+        Self::with_contexts(fact, None, fact.resolution_family, fact.file_module_rules)
+    }
+
+    pub(crate) fn projected(
+        fact: &'a FileFacts,
+        contexts: HashSet<usize>,
+        family: ResolutionFamily,
+        rules: Option<&'static FileModuleRules>,
+    ) -> Self {
+        let present = !contexts.is_empty();
+        Self::with_contexts(
+            fact,
+            Some(contexts),
+            if present {
+                family
+            } else {
+                ResolutionFamily::None
+            },
+            if present { rules } else { None },
+        )
+    }
+
+    fn with_contexts(
+        fact: &'a FileFacts,
+        contexts: Option<HashSet<usize>>,
+        resolution_family: ResolutionFamily,
+        file_module_rules: Option<&'static FileModuleRules>,
+    ) -> Self {
+        Self {
+            canonical: fact,
+            contexts,
+            resolution_family,
+            file_module_rules,
+            target: &fact.target,
+            aliases: &fact.aliases,
+            module: &fact.module,
+            source: &fact.source,
+            analysis: &fact.analysis,
+        }
+    }
+
+    pub(crate) fn allows(&self, context_id: usize) -> bool {
+        self.contexts
+            .as_ref()
+            .is_none_or(|ids| ids.contains(&context_id))
+    }
+
+    pub(crate) fn definitions(&self) -> impl Iterator<Item = &'a Definition> + '_ {
+        self.canonical
+            .definitions
+            .iter()
+            .filter(|item| self.allows(item.context_id))
+    }
+
+    pub(crate) fn imports(&self) -> impl Iterator<Item = &'a Import> + '_ {
+        self.canonical
+            .imports
+            .iter()
+            .filter(|item| self.allows(item.context_id))
+    }
+
+    pub(crate) fn exports(&self) -> impl Iterator<Item = &'a Export> + '_ {
+        self.canonical
+            .exports
+            .iter()
+            .filter(|item| self.allows(item.context_id))
+    }
+
+    pub(crate) fn references(&self) -> impl Iterator<Item = &'a Reference> + '_ {
+        self.canonical
+            .references
+            .iter()
+            .filter(|item| self.allows(item.context_id))
+    }
+
+    pub(crate) fn locals(&self) -> impl Iterator<Item = &'a LocalBinding> + '_ {
+        self.canonical
+            .locals
+            .iter()
+            .filter(|item| self.allows(item.context_id))
+    }
+
+    pub(crate) fn semantic(&self) -> impl Iterator<Item = &'a super::SemanticFacts> + '_ {
+        self.canonical
+            .semantic
+            .iter()
+            .filter(|item| self.allows(item.context_id))
+    }
+}
 
 /// A stable, graph-local identity for one normalized declaration.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -102,7 +214,11 @@ impl ProgramBinding {
 /// canonical language facts. Resolver families keep their lookup rules, but
 /// share symbol identities, scope selection, path aliases, and call-edge validation.
 pub(crate) struct ProgramGraph<'a> {
-    facts: &'a [FileFacts],
+    facts: Vec<FileFactsView<'a>>,
+    indexes: Arc<ProgramIndexes>,
+}
+
+pub(crate) struct ProgramIndexes {
     symbols: Vec<ProgramSymbol>,
     symbols_by_file: Vec<Vec<usize>>,
     symbols_by_name: Vec<HashMap<String, Vec<usize>>>,
@@ -115,4 +231,17 @@ pub(crate) struct ProgramGraph<'a> {
     bindings: Vec<ProgramBinding>,
     bindings_by_file_name: Vec<HashMap<String, Vec<usize>>>,
     aliases: BTreeMap<PathBuf, BTreeSet<usize>>,
+}
+
+impl Deref for ProgramGraph<'_> {
+    type Target = ProgramIndexes;
+    fn deref(&self) -> &Self::Target {
+        &self.indexes
+    }
+}
+
+impl DerefMut for ProgramGraph<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        Arc::get_mut(&mut self.indexes).expect("only canonical graph construction mutates indexes")
+    }
 }

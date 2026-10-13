@@ -36,7 +36,7 @@ pub(in crate::resolver::files) fn resolve(
     rules: &FileModuleRules,
 ) -> Vec<Target> {
     let mut requests = Vec::new();
-    for alias in &index.facts[file].aliases {
+    for alias in index.facts[file].aliases {
         let Some((scope, target)) = package_target(alias, source) else {
             return vec![Target::Unresolved];
         };

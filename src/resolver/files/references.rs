@@ -1,7 +1,8 @@
+use crate::graph::FileFactsView;
 use std::collections::BTreeSet;
 
 use crate::languages::ResolutionFamily;
-use crate::model::{FileFacts, Import, Reference, ReferenceAnalysis, ReferenceKind, Resolution};
+use crate::model::{Import, Reference, ReferenceAnalysis, ReferenceKind, Resolution};
 
 use super::bindings::{BindingTarget, binding_target};
 use super::layout::resolve_submodule;
@@ -11,11 +12,10 @@ impl Index<'_, '_> {
     pub(super) fn resolve_file(
         &self,
         file: usize,
-        fact: &FileFacts,
+        fact: &FileFactsView<'_>,
     ) -> Option<Vec<ReferenceAnalysis>> {
         (fact.resolution_family == ResolutionFamily::FileModules).then(|| {
-            fact.references
-                .iter()
+            fact.references()
                 .map(|reference| ReferenceAnalysis {
                     path: reference.path.clone(),
                     start_byte: reference.start_byte,
@@ -31,7 +31,7 @@ impl Index<'_, '_> {
     fn resolve_reference(
         &self,
         file: usize,
-        fact: &FileFacts,
+        fact: &FileFactsView<'_>,
         reference: &Reference,
     ) -> Resolution {
         if reference.kind == ReferenceKind::Method || reference.path.is_empty() {

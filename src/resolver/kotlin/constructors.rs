@@ -18,7 +18,9 @@ impl Index<'_> {
         let Some(call) = self.containing_call_facts(file, reference) else {
             return Vec::new();
         };
-        let arguments = self.infer_argument_return_types(file, reference, &call.arguments);
+        let arguments = self.call_arguments(file, reference.context_id, call);
+        let inferred = self.infer_argument_return_types(file, reference, &arguments);
+        let arguments = arguments.with_inferred(&inferred);
         if let Some(range) = constructor_execution.and_then(|execution| {
             self.selected_constructor_range(constructor_class, execution, &arguments)
         }) {
@@ -27,7 +29,7 @@ impl Index<'_> {
         if execution.constructors.is_empty()
             && candidate
                 .signature()
-                .is_some_and(|signature| arguments_match(signature, &arguments))
+                .is_some_and(|signature| arguments.bind(signature).matches())
         {
             execution.initializers.clone()
         } else {
@@ -39,7 +41,7 @@ impl Index<'_> {
         &self,
         class: &Candidate,
         execution: &DeclarationExecutionFacts,
-        arguments: &[CallArgumentFact],
+        arguments: &CallArguments<'_>,
     ) -> Option<SourceRange> {
         let mut matched =
             self.primary_constructor_matches(class, &execution.constructors, arguments);
@@ -61,11 +63,11 @@ impl Index<'_> {
         &self,
         class: &Candidate,
         ranges: &[SourceRange],
-        arguments: &[CallArgumentFact],
+        arguments: &CallArguments<'_>,
     ) -> Vec<SourceRange> {
         let matches_signature = class
             .signature()
-            .is_some_and(|signature| arguments_match(signature, arguments));
+            .is_some_and(|signature| arguments.bind(signature).matches());
         if !matches_signature {
             return Vec::new();
         }
@@ -100,7 +102,7 @@ impl Index<'_> {
         &self,
         class: &Candidate,
         ranges: &[SourceRange],
-        arguments: &[CallArgumentFact],
+        arguments: &CallArguments<'_>,
     ) -> Vec<SourceRange> {
         let owner = extended_owner(class.owner, class.name);
         self.candidates
@@ -116,7 +118,7 @@ impl Index<'_> {
             .filter(|candidate| {
                 candidate
                     .signature()
-                    .is_some_and(|signature| arguments_match(signature, arguments))
+                    .is_some_and(|signature| arguments.bind(signature).matches())
             })
             .filter_map(|candidate| {
                 ranges.iter().copied().find(|range| {
@@ -150,12 +152,12 @@ impl Index<'_> {
     pub(super) fn type_constructor_matches(
         &self,
         candidate: &Candidate,
-        arguments: &[CallArgumentFact],
+        arguments: &CallArguments<'_>,
     ) -> bool {
         let target = self.typealias_target(candidate).unwrap_or(candidate);
         if target
             .signature()
-            .is_some_and(|signature| arguments_match(signature, arguments))
+            .is_some_and(|signature| arguments.bind(signature).matches())
         {
             return true;
         }
@@ -169,7 +171,7 @@ impl Index<'_> {
                         && declaration
                             .signature
                             .as_ref()
-                            .is_some_and(|signature| arguments_match(signature, arguments))
+                            .is_some_and(|signature| arguments.bind(signature).matches())
                 })
         })
     }

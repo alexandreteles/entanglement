@@ -7,19 +7,42 @@ impl Index<'_> {
         context_id: usize,
         call: &CallFacts,
     ) -> Option<&'b Reference> {
-        call_target_reference(&self.graph.file(file).references, context_id, call)
+        call_target_reference(self.graph.file(file).references(), context_id, call)
+    }
+
+    pub(super) fn call_arguments<'a>(
+        &self,
+        file: usize,
+        context_id: usize,
+        call: &'a CallFacts,
+    ) -> CallArguments<'a> {
+        // Calls are immutable canonical graph facts. Context is explicit:
+        // embedded Kotlin contexts may share the same source byte positions.
+        let key = (file, context_id, call as *const CallFacts as usize);
+        let evidence = self
+            .argument_evidence
+            .borrow_mut()
+            .entry(key)
+            .or_default()
+            .clone();
+        CallArguments::new(&call.arguments, evidence)
     }
 
     pub(super) fn infer_argument_return_types(
         &self,
         file: usize,
         reference: &Reference,
-        arguments: &[CallArgumentFact],
-    ) -> Vec<CallArgumentFact> {
-        let mut inferred = arguments.to_vec();
+        arguments: &CallArguments<'_>,
+    ) -> Rc<Vec<CallArgumentFact>> {
+        if let Some(inferred) = arguments.evidence.inferred.get() {
+            return Rc::clone(inferred);
+        }
+        // Publish only completed inference. Recursive lookups never observe
+        // an in-progress sentinel or hold a mutable cache borrow.
+        let mut inferred = arguments.arguments.to_vec();
         let source = self
             .snapshot
-            .read(&self.graph.file(file).target)
+            .read(self.graph.file(file).target)
             .ok()
             .flatten();
         let calls = self.graph.call_facts(
@@ -27,17 +50,16 @@ impl Index<'_> {
             reference.context_id,
             Some(ResolutionFamily::KotlinModules),
         );
-        let references = &self.graph.file(file).references;
         for argument in inferred
             .iter_mut()
             .filter(|argument| !argument.is_lambda && argument.type_name.is_none())
         {
             argument.type_name = self
                 .infer_identifier_argument(file, reference, argument, source.as_deref())
-                .or_else(|| {
-                    self.infer_call_argument_type(file, reference, argument, calls, references)
-                });
+                .or_else(|| self.infer_call_argument_type(file, reference, argument, calls));
         }
+        let inferred = Rc::new(inferred);
+        let _ = arguments.evidence.inferred.set(Rc::clone(&inferred));
         inferred
     }
 
@@ -75,10 +97,13 @@ impl Index<'_> {
         reference: &Reference,
         argument: &CallArgumentFact,
         calls: &[CallFacts],
-        references: &[Reference],
     ) -> Option<String> {
         let call = exact_argument_call(calls, argument)?;
-        let inner = call_target_reference(references, reference.context_id, call)?;
+        let inner = call_target_reference(
+            self.graph.file(file).references(),
+            reference.context_id,
+            call,
+        )?;
         let candidates = self.reference_candidates(file, inner);
         let [candidate] = candidates.as_slice() else {
             return None;
@@ -110,9 +135,12 @@ impl Index<'_> {
             return Some(candidate_type_name(candidate));
         }
         let signature = candidate.signature()?;
-        let inferred_arguments = self.infer_argument_return_types(file, reference, &call.arguments);
-        let substitutions = generic_type_substitutions(signature, &inferred_arguments);
-        let return_type = substitute_type_name(signature.return_type.as_deref()?, &substitutions);
+        let arguments = self.call_arguments(file, reference.context_id, call);
+        let inferred = self.infer_argument_return_types(file, reference, &arguments);
+        let typed = arguments.with_inferred(&inferred);
+        let bound = typed.bind(signature);
+        let substitutions = bound.substitutions();
+        let return_type = substitute_type_name(signature.return_type.as_deref()?, substitutions);
         Some(
             self.canonicalize_type_in_context(candidate.file, candidate.context_id, &return_type)
                 .unwrap_or(return_type),
@@ -146,7 +174,9 @@ impl Index<'_> {
         let Some(call) = self.containing_call_facts(file, reference) else {
             return candidates;
         };
-        let arguments = self.infer_argument_return_types(file, reference, &call.arguments);
+        let arguments = self.call_arguments(file, reference.context_id, call);
+        let inferred = self.infer_argument_return_types(file, reference, &arguments);
+        let arguments = arguments.with_inferred(&inferred);
         candidates
             .iter()
             .copied()
@@ -161,7 +191,7 @@ impl Index<'_> {
                 let Some(signature) = self.candidates[*index].signature() else {
                     return true;
                 };
-                arguments_match(signature, &arguments)
+                arguments.bind(signature).matches()
             })
             .collect::<Vec<_>>()
     }

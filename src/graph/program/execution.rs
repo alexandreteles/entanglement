@@ -17,7 +17,7 @@ impl<'a> ProgramGraph<'a> {
             let Some(analyses) = resolutions.get(file_index) else {
                 continue;
             };
-            for (reference, analysis) in fact.references.iter().zip(analyses) {
+            for (reference, analysis) in fact.references().zip(analyses) {
                 self.append_reference(file_index, reference, analysis, &mut calls);
             }
         }
@@ -178,8 +178,7 @@ impl<'a> ProgramGraph<'a> {
                         .filter_map(|symbol| self.definition(symbol.id))
                         .any(|definition| definition.end_byte == function.end_byte);
                 let declared_execution = self.facts[file_index]
-                    .semantic
-                    .iter()
+                    .semantic()
                     .filter(|semantic| semantic.context_id == context_id)
                     .flat_map(|semantic| semantic.declarations.iter())
                     .filter_map(|declaration| declaration.execution.as_ref())
@@ -293,7 +292,7 @@ impl<'a> ProgramGraph<'a> {
             .iter()
             .enumerate()
             .flat_map(|(file_index, fact)| {
-                fact.semantic.iter().flat_map(move |semantic| {
+                fact.semantic().flat_map(move |semantic| {
                     semantic.declarations.iter().flat_map(move |declaration| {
                         self.declaration_initialization_edges(
                             file_index,

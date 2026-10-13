@@ -159,19 +159,21 @@ impl Index<'_> {
         } else {
             self.callable_candidates(file, outer)
         };
+        let arguments = self.call_arguments(file, outer.context_id, call);
         let mut inferred_arguments = None;
         let mut receivers = candidates
             .into_iter()
             .filter_map(|index| {
                 let signature = self.candidates[index].signature()?;
-                let parameter =
-                    lambda_parameter_for_argument(signature, &call.arguments, argument)?;
+                let parameter = arguments.bind(signature).lambda_parameter(argument)?;
                 let type_name = parameter.type_name.as_deref()?;
                 let inferred_arguments = inferred_arguments.get_or_insert_with(|| {
-                    self.infer_argument_return_types(file, outer, &call.arguments)
+                    self.infer_argument_return_types(file, outer, &arguments)
                 });
-                let substitutions = generic_type_substitutions(signature, inferred_arguments);
-                let type_name = substitute_type_name(type_name, &substitutions);
+                let typed = arguments.with_inferred(inferred_arguments);
+                let bound = typed.bind(signature);
+                let substitutions = bound.substitutions();
+                let type_name = substitute_type_name(type_name, substitutions);
                 self.receiver_from_function_type(
                     self.candidates[index].file,
                     self.candidates[index].context_id,
@@ -305,13 +307,12 @@ impl Index<'_> {
         if candidates.is_empty() {
             return true;
         }
+        let arguments = self.call_arguments(file, outer.context_id, call);
         let all_plain_callbacks = candidates.into_iter().all(|index| {
             let Some(signature) = self.candidates[index].signature() else {
                 return false;
             };
-            let Some(parameter) =
-                lambda_parameter_for_argument(signature, &call.arguments, argument)
-            else {
+            let Some(parameter) = arguments.bind(signature).lambda_parameter(argument) else {
                 return false;
             };
             let Some(type_name) = parameter.type_name.as_deref() else {
@@ -336,17 +337,19 @@ impl Index<'_> {
         let outer = self.callee_reference_for_call(file, reference.context_id, call)?;
         let callback_candidates = self.callable_candidates(file, outer);
         let mut inferred = BTreeSet::new();
+        let arguments = self.call_arguments(file, outer.context_id, call);
         let mut inferred_arguments = None;
         for candidate_index in callback_candidates {
             let candidate = &self.candidates[candidate_index];
             let signature = candidate.signature()?;
-            let parameter = lambda_parameter_for_argument(signature, &call.arguments, argument)?;
+            let parameter = arguments.bind(signature).lambda_parameter(argument)?;
             let type_name = parameter.type_name.as_deref()?;
-            let inferred_arguments = inferred_arguments.get_or_insert_with(|| {
-                self.infer_argument_return_types(file, outer, &call.arguments)
-            });
-            let substitutions = generic_type_substitutions(signature, inferred_arguments);
-            let type_name = substitute_type_name(type_name, &substitutions);
+            let inferred_arguments = inferred_arguments
+                .get_or_insert_with(|| self.infer_argument_return_types(file, outer, &arguments));
+            let typed = arguments.with_inferred(inferred_arguments);
+            let bound = typed.bind(signature);
+            let substitutions = bound.substitutions();
+            let type_name = substitute_type_name(type_name, substitutions);
             let parameters = function_type_parameters(&type_name)?;
             let parameter_index = if !argument.lambda_has_explicit_parameters {
                 if name != "it" || parameters.len() != 1 {

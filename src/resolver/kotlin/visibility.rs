@@ -148,7 +148,6 @@ impl Index<'_> {
     ) -> impl Iterator<Item = &'a crate::model::Import> + 'a {
         self.graph
             .imports(file)
-            .iter()
             .filter(move |item| item.context_id == context_id)
     }
 

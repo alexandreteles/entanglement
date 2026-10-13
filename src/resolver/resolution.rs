@@ -1,10 +1,11 @@
+use crate::graph::FileFactsView;
 mod lookup;
 mod targets;
 
 use lookup::is_external_root;
 use targets::unique_targets;
 
-use crate::model::{FileFacts, Reference, ReferenceKind, Resolution};
+use crate::model::{Reference, ReferenceKind, Resolution};
 
 use super::{FileContext, ImportEntry, Index, ModuleKey, Target, joined_path};
 
@@ -55,7 +56,7 @@ impl Index {
         file: usize,
         context: &FileContext,
         reference: &Reference,
-        fact: &FileFacts,
+        fact: &FileFactsView<'_>,
     ) -> Resolution {
         if reference.kind == ReferenceKind::Method || reference.path.is_empty() {
             return Resolution::Unresolved;
@@ -64,7 +65,7 @@ impl Index {
         let explicit_module_path = reference.path.len() > 1
             && matches!(reference.path[0].as_str(), "crate" | "self" | "super");
         if !explicit_module_path
-            && fact.locals.iter().any(|local| {
+            && fact.locals().any(|local| {
                 local.name == reference.path[0]
                     && local.scope_start <= reference.start_byte
                     && reference.start_byte <= local.scope_end
