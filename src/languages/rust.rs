@@ -123,12 +123,12 @@ impl LanguageHandler for Analyzer {
     fn capture(&self, tree: &Tree, source: &[u8], include_tokens: bool) -> Result<CapturedTree> {
         let syntax = SyntaxGraph::from_tree(tree.root_node(), source);
         let mut facts = CaptureFacts::default();
-        let common =
-            self.query
-                .capture_with_graph(tree, source, false, &syntax, |_, captures, source| {
-                    facts.record_semantics(&self.captures, captures, source);
-                    facts.record_tags(&self.captures, captures, source);
-                });
+        let common = self
+            .query
+            .capture_with(tree, source, false, |_, captures, source| {
+                facts.record_semantics(&self.captures, captures, source);
+                facts.record_tags(&self.captures, captures, source);
+            });
         facts.graph = syntax;
         facts.events = common.events;
         facts.parents = common.parents;

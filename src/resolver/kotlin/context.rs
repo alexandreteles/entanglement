@@ -1,5 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
+
+use super::*;
 
 use super::{Snapshot, build};
 
@@ -16,7 +18,53 @@ pub(super) struct SourceContext {
     pub(super) isolated_source: bool,
 }
 
-pub(super) fn source_context(path: &Path, snapshot: &Snapshot) -> SourceContext {
+/// Project evidence belongs to one resolution snapshot, never to a global cache.
+#[derive(Default)]
+pub(super) struct ProjectCache {
+    modules: HashMap<PathBuf, Vec<(String, PathBuf)>>,
+    scripts: HashMap<PathBuf, build::BuildFacts>,
+}
+
+impl ProjectCache {
+    fn modules(&mut self, root: &Path, snapshot: &Snapshot) -> &[(String, PathBuf)] {
+        self.modules.entry(root.to_path_buf()).or_insert_with(|| {
+            let source = ["settings.gradle.kts", "settings.gradle"]
+                .iter()
+                .find_map(|name| read_text(snapshot, &root.join(name)))
+                .unwrap_or_default();
+            let settings = build::Settings::parse(&source);
+            settings
+                .modules
+                .into_iter()
+                .map(|module| {
+                    let directory =
+                        settings
+                            .directories
+                            .get(&module)
+                            .cloned()
+                            .unwrap_or_else(|| {
+                                PathBuf::from(module.trim_start_matches(':').replace(':', "/"))
+                            });
+                    (module, root.join(directory))
+                })
+                .collect()
+        })
+    }
+
+    pub(super) fn script(&mut self, path: PathBuf, snapshot: &Snapshot) -> &build::BuildFacts {
+        self.scripts.entry(path.clone()).or_insert_with(|| {
+            read_text(snapshot, &path).map_or_else(build::BuildFacts::default, |source| {
+                build::BuildFacts::parse(&source)
+            })
+        })
+    }
+}
+
+pub(super) fn source_context(
+    path: &Path,
+    snapshot: &Snapshot,
+    cache: &mut ProjectCache,
+) -> SourceContext {
     let absolute = path.to_path_buf();
     let settings_root = path
         .ancestors()
@@ -70,7 +118,11 @@ pub(super) fn source_context(path: &Path, snapshot: &Snapshot) -> SourceContext 
     let module_root = build_root
         .or(inferred_module_root)
         .unwrap_or_else(|| project_root.clone());
-    let gradle_module = module_name(&project_root, &module_root, snapshot);
+    let gradle_module = module_name(
+        &project_root,
+        &module_root,
+        cache.modules(&project_root, snapshot),
+    );
     let module = format!("{}{}", project_root.display(), gradle_module);
     SourceContext {
         path: absolute.clone(),
@@ -83,20 +135,12 @@ pub(super) fn source_context(path: &Path, snapshot: &Snapshot) -> SourceContext 
     }
 }
 
-fn module_name(project_root: &Path, module_root: &Path, snapshot: &Snapshot) -> String {
-    let settings = ["settings.gradle.kts", "settings.gradle"]
+fn module_name(project_root: &Path, module_root: &Path, modules: &[(String, PathBuf)]) -> String {
+    if let Some((module, _)) = modules
         .iter()
-        .find_map(|name| read_text(snapshot, &project_root.join(name)))
-        .unwrap_or_default();
-    let configured = build::parse_project_directories(&settings);
-    for module in build::parse_includes(&settings) {
-        let configured_path = configured
-            .get(&module)
-            .cloned()
-            .unwrap_or_else(|| PathBuf::from(module.trim_start_matches(':').replace(':', "/")));
-        if normalize_path(&project_root.join(configured_path)) == normalize_path(module_root) {
-            return module;
-        }
+        .find(|(_, path)| normalize_path(path) == normalize_path(module_root))
+    {
+        return module.clone();
     }
     if normalize_path(project_root) == normalize_path(module_root) {
         return ":".to_owned();
@@ -140,28 +184,21 @@ pub(super) fn read_text(snapshot: &Snapshot, path: &Path) -> Option<String> {
 pub(super) fn project_dependencies(
     root: &Path,
     snapshot: &Snapshot,
+    cache: &mut ProjectCache,
 ) -> BTreeMap<String, BTreeSet<build::ProjectDependency>> {
-    let settings = ["settings.gradle.kts", "settings.gradle"]
-        .iter()
-        .find_map(|name| read_text(snapshot, &root.join(name)))
-        .unwrap_or_default();
-    let modules = build::parse_includes(&settings);
-    let project_directories = build::parse_project_directories(&settings);
     let mut dependencies = BTreeMap::<String, BTreeSet<build::ProjectDependency>>::new();
     let mut module_roots = vec![(":".to_owned(), root.to_path_buf())];
-    module_roots.extend(modules.into_iter().map(|module| {
-        let path = project_directories
-            .get(&module)
-            .map(|relative| root.join(relative))
-            .unwrap_or_else(|| root.join(module.trim_start_matches(':').replace(':', "/")));
-        (module, path)
-    }));
+    module_roots.extend_from_slice(cache.modules(root, snapshot));
     for (module, path) in module_roots {
         let mut deps = BTreeSet::new();
         for name in ["build.gradle.kts", "build.gradle"] {
-            if let Some(source) = read_text(snapshot, &path.join(name)) {
-                deps.extend(build::parse_project_dependency_details(&source));
-            }
+            deps.extend(
+                cache
+                    .script(path.join(name), snapshot)
+                    .dependencies
+                    .iter()
+                    .cloned(),
+            );
         }
         dependencies.insert(module, deps);
     }
@@ -253,4 +290,152 @@ fn dependency_visible_in_source_set(
         build::DependencyScope::Variant(variant) => source_set.is_some_and(|set| set == variant),
         build::DependencyScope::Other => false,
     }
+}
+
+type ProjectIndexes = (
+    HashMap<PathBuf, BTreeMap<String, BTreeSet<build::ProjectDependency>>>,
+    HashMap<PathBuf, BTreeMap<String, BTreeSet<String>>>,
+);
+
+impl<'a> Index<'a> {
+    pub(super) fn new(
+        facts: &'a [FileFacts],
+        snapshot: &'a Snapshot,
+        graph: &'a ProgramGraph<'a>,
+    ) -> Self {
+        let mut cache = ProjectCache::default();
+        let sources = facts
+            .iter()
+            .map(|fact| source_context(&fact.target, snapshot, &mut cache))
+            .collect::<Vec<_>>();
+        let (dependencies, source_edges) = project_indexes(&sources, snapshot, &mut cache);
+        let mut visible_modules =
+            HashMap::<String, HashMap<Option<String>, BTreeSet<String>>>::new();
+        for source in &sources {
+            visible_modules
+                .entry(source.module.clone())
+                .or_default()
+                .entry(source.source_set.clone())
+                .or_insert_with(|| {
+                    dependencies
+                        .get(&source.project_root)
+                        .map_or_else(BTreeSet::new, |graph| {
+                            transitive_closure(
+                                &source.gradle_module,
+                                graph,
+                                source.source_set.as_deref(),
+                            )
+                        })
+                });
+        }
+        let (candidates, by_name) = indexed_candidates(&sources, graph);
+        Self {
+            graph,
+            snapshot,
+            sources,
+            candidates,
+            by_name,
+            visible_modules,
+            source_edges,
+        }
+    }
+}
+
+fn project_indexes(
+    sources: &[SourceContext],
+    snapshot: &Snapshot,
+    cache: &mut ProjectCache,
+) -> ProjectIndexes {
+    let mut dependencies = HashMap::new();
+    let mut source_edges = HashMap::new();
+    for source in sources {
+        dependencies
+            .entry(source.project_root.clone())
+            .or_insert_with(|| project_dependencies(&source.project_root, snapshot, cache));
+        source_edges
+            .entry(source.module_root.clone())
+            .or_insert_with(|| source_set_edges(&source.module_root, snapshot, cache));
+    }
+    (dependencies, source_edges)
+}
+
+fn source_set_edges(
+    module_root: &Path,
+    snapshot: &Snapshot,
+    cache: &mut ProjectCache,
+) -> BTreeMap<String, BTreeSet<String>> {
+    let mut edges = BTreeMap::new();
+    for name in ["build.gradle.kts", "build.gradle"] {
+        for (child, parents) in &cache.script(module_root.join(name), snapshot).source_edges {
+            edges
+                .entry(child.clone())
+                .or_insert_with(BTreeSet::new)
+                .extend(parents.iter().cloned());
+        }
+    }
+    edges
+}
+
+fn indexed_candidates(
+    sources: &[SourceContext],
+    graph: &ProgramGraph<'_>,
+) -> (Vec<Candidate>, HashMap<String, Vec<usize>>) {
+    let mut candidates = Vec::new();
+    let mut by_name = HashMap::<String, Vec<usize>>::new();
+    for file in 0..sources.len().min(graph.file_count()) {
+        for symbol in graph.symbols_for_file(file) {
+            let Some(candidate) = candidate_for_symbol(candidates.len(), file, symbol, graph)
+            else {
+                continue;
+            };
+            by_name
+                .entry(candidate.name.clone())
+                .or_default()
+                .push(candidate.candidate_index);
+            candidates.push(candidate);
+        }
+    }
+    (candidates, by_name)
+}
+
+fn candidate_for_symbol(
+    candidate_index: usize,
+    file: usize,
+    symbol: &crate::graph::ProgramSymbol,
+    graph: &ProgramGraph<'_>,
+) -> Option<Candidate> {
+    let context_id = symbol.scope.context_id;
+    let semantic = graph.semantic(file, context_id, Some(ResolutionFamily::KotlinModules))?;
+    let definition = graph.definition(symbol.id)?;
+    let package = semantic.context.as_ref().map_or_else(
+        || definition.module.0.clone(),
+        |context| context.package.clone(),
+    );
+    let declaration = graph
+        .declaration(
+            file,
+            context_id,
+            definition.start_byte,
+            Some(ResolutionFamily::KotlinModules),
+        )
+        .cloned();
+    Some(Candidate {
+        candidate_index,
+        graph_id: symbol.id,
+        symbol: symbol.semantic_id.clone(),
+        file,
+        context_id,
+        name: symbol.name.clone(),
+        package,
+        owner: declaration
+            .as_ref()
+            .map_or_else(Vec::new, |declaration| declaration.owner.clone()),
+        kind: symbol.kind.clone(),
+        declaration,
+        public: symbol.is_public,
+        start: definition.start_byte,
+        end: definition.end_byte,
+        scope_start: definition.scope_start,
+        scope_end: definition.scope_end,
+    })
 }

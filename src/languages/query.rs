@@ -10,7 +10,6 @@ use std::collections::HashMap;
 use tree_sitter::{Language, Query, QueryCapture, QueryCursor, StreamingIterator, Tree};
 
 use crate::Result;
-use crate::graph::SyntaxGraph;
 use crate::metrics::{SyntaxEvent, SyntaxRole, cyclomatic::FunctionScope, halstead::HalsteadToken};
 
 use super::InjectionRequest;
@@ -165,19 +164,6 @@ impl QueryAnalyzer {
         tree: &'tree Tree,
         source: &'tree [u8],
         include_tokens: bool,
-        on_match: impl FnMut(usize, &[QueryCapture<'tree>], &[u8]),
-    ) -> QueryFacts {
-        let syntax = SyntaxGraph::from_tree(tree.root_node(), source);
-        self.capture_with_graph(tree, source, include_tokens, &syntax, on_match)
-    }
-
-    /// Capture common facts using a per-tree syntax index supplied by an adapter.
-    pub(crate) fn capture_with_graph<'tree>(
-        &self,
-        tree: &'tree Tree,
-        source: &'tree [u8],
-        include_tokens: bool,
-        syntax: &SyntaxGraph<'tree>,
         mut on_match: impl FnMut(usize, &[QueryCapture<'tree>], &[u8]),
     ) -> QueryFacts {
         let mut facts = QueryFacts::default();
@@ -186,8 +172,8 @@ impl QueryAnalyzer {
         let mut matches = cursor.matches(&self.query, tree.root_node(), source);
         while let Some(query_match) = matches.next() {
             let captures = query_match.captures();
-            facts.record_syntax(self, captures, &included, syntax);
-            facts.record_injections(self, query_match.pattern_index, captures, source, syntax);
+            facts.record_syntax(self, captures, &included, source);
+            facts.record_injections(self, query_match.pattern_index, captures, source);
             on_match(query_match.pattern_index, captures, source);
         }
         facts.finish(tree, source, include_tokens, &included);

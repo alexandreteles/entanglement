@@ -3,46 +3,36 @@ use std::ops::Range;
 
 use tree_sitter::Node;
 
-/// An owned index of one tree-sitter tree's generic syntax relationships.
+/// An index from tree-local identities to tree-sitter nodes.
 ///
-/// The index stores nodes and their structural links only. It deliberately
-/// assigns no meaning to grammar-specific kinds; adapters supply the
-/// predicates that identify scopes, owners, declarations, and other roles.
+/// Rust captures retain numeric identities before normalization; nodes provide
+/// their own structural links without duplicating the tree's relationships.
 #[derive(Default)]
 pub(crate) struct SyntaxGraph<'tree> {
     nodes: HashMap<usize, Node<'tree>>,
-    parents: HashMap<usize, Option<usize>>,
-    children: HashMap<usize, Vec<usize>>,
     source: &'tree [u8],
 }
 
 impl<'tree> SyntaxGraph<'tree> {
-    /// Index every node below `root`, retaining generic parent and child links.
+    /// Index every node below `root` for later identity-based lookup.
     pub(crate) fn from_tree(root: Node<'tree>, source: &'tree [u8]) -> Self {
         let mut graph = Self {
             nodes: HashMap::new(),
-            parents: HashMap::new(),
-            children: HashMap::new(),
             source,
         };
-        let mut pending = vec![(root, None)];
-        while let Some((node, parent)) = pending.pop() {
-            let id = node.id();
-            graph.nodes.insert(id, node);
-            graph.parents.insert(id, parent);
-            if let Some(parent) = parent {
-                graph.children.entry(parent).or_default().push(id);
+        let mut cursor = root.walk();
+        loop {
+            let node = cursor.node();
+            graph.nodes.insert(node.id(), node);
+            if cursor.goto_first_child() {
+                continue;
             }
-            let mut cursor = node.walk();
-            pending.extend(
-                node.children(&mut cursor)
-                    .collect::<Vec<_>>()
-                    .into_iter()
-                    .rev()
-                    .map(|child| (child, Some(id))),
-            );
+            while !cursor.goto_next_sibling() {
+                if !cursor.goto_parent() {
+                    return graph;
+                }
+            }
         }
-        graph
     }
 
     /// Return the tree-sitter node with this tree-local identity.
@@ -68,12 +58,7 @@ impl<'tree> SyntaxGraph<'tree> {
 
     /// Return a node's parent identity.
     pub(crate) fn parent(&self, id: usize) -> Option<usize> {
-        self.parents.get(&id).copied().flatten()
-    }
-
-    /// Return child identities in source order.
-    pub(crate) fn children(&self, id: usize) -> &[usize] {
-        self.children.get(&id).map_or(&[], Vec::as_slice)
+        self.node(id)?.parent().map(|node| node.id())
     }
 
     /// Return the child identity assigned to a grammar-provided field name.
@@ -127,7 +112,7 @@ mod tests {
     use super::SyntaxGraph;
 
     #[test]
-    fn indexed_children_keep_tree_order_and_parent_links() {
+    fn indexed_nodes_keep_tree_order_and_parent_links() {
         let mut parser = tree_sitter::Parser::new();
         let language: tree_sitter::Language = tree_sitter_rust::LANGUAGE.into();
         parser.set_language(&language).expect("Rust grammar loads");
@@ -135,24 +120,10 @@ mod tests {
         let tree = parser.parse(source, None).expect("source parses");
         let root = tree.root_node();
         let graph = SyntaxGraph::from_tree(root, source);
-
         let mut cursor = root.walk();
-        let expected = root
-            .children(&mut cursor)
-            .map(|node| node.id())
-            .collect::<Vec<_>>();
-        assert_eq!(graph.children(root.id()), expected);
-        assert!(
-            expected
-                .iter()
-                .all(|child| graph.parent(*child) == Some(root.id()))
-        );
-        assert!(
-            graph
-                .children(root.id())
-                .windows(2)
-                .all(|pair| graph.range(pair[0]).unwrap().start
-                    < graph.range(pair[1]).unwrap().start)
-        );
+        for child in root.children(&mut cursor) {
+            assert_eq!(graph.node(child.id()), Some(child));
+            assert_eq!(graph.parent(child.id()), Some(root.id()));
+        }
     }
 }

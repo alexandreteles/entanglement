@@ -1,5 +1,10 @@
 # Workflow validation
 
+This is a historical validation of the original file-MI gate. The current
+[skill](../SKILL.md) treats file MI as diagnostic and reviews function hotspots,
+production-source growth, and cohesive module boundaries. The comparator retains
+its existing threshold reporting and exit codes for compatibility.
+
 Tested on 2026-10-07 with installed Entanglement 0.1.0 and source revision
 `dd4c89c` of `alexandreteles/entanglement`. GPT-6-Luna at xhigh ran the
 experiments; GPT-6-Astra at medium reviewed the workflow and gate independently.

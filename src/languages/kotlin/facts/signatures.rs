@@ -162,18 +162,10 @@ pub(super) fn append_type_parameters(
         .flat_map(named_children)
         .filter(|child| child.kind() == "type_parameter")
     {
-        let Some(name) = named_children(parameter)
-            .into_iter()
-            .find(|child| child.kind() == "type_identifier")
-            .map(|name| text(name, source).trim_matches('`').to_owned())
-        else {
+        let Some((name, mut bounds)) = type_parameter_parts(parameter, source) else {
             continue;
         };
-        let mut bounds = direct_type_children(parameter)
-            .into_iter()
-            .map(|bound| normalized_type(text(bound, source)))
-            .filter(|bound| !bound.is_empty())
-            .collect::<Vec<_>>();
+        bounds.retain(|bound| !bound.is_empty());
         normalize_bounds(&mut bounds);
         if let Some(existing) = parameters.iter_mut().find(|item| item.name == name) {
             existing.bounds = bounds;
@@ -190,24 +182,29 @@ pub(super) fn append_type_parameters(
         .flat_map(named_children)
         .filter(|child| child.kind() == "type_constraint")
     {
-        let Some(name) = named_children(constraint)
-            .into_iter()
-            .find(|child| child.kind() == "type_identifier")
-            .map(|name| text(name, source).trim_matches('`').to_owned())
-        else {
+        let Some((name, bounds)) = type_parameter_parts(constraint, source) else {
             continue;
         };
         let Some(parameter) = parameters.iter_mut().find(|item| item.name == name) else {
             continue;
         };
-        parameter.bounds.extend(
-            direct_type_children(constraint)
-                .into_iter()
-                .map(|bound| normalized_type(text(bound, source)))
-                .filter(|bound| !bound.is_empty()),
-        );
+        parameter
+            .bounds
+            .extend(bounds.into_iter().filter(|bound| !bound.is_empty()));
         normalize_bounds(&mut parameter.bounds);
     }
+}
+
+pub(super) fn type_parameter_parts(node: Node<'_>, source: &[u8]) -> Option<(String, Vec<String>)> {
+    let name = named_children(node)
+        .into_iter()
+        .find(|child| child.kind() == "type_identifier")
+        .map(|name| text(name, source).trim_matches('`').to_owned())?;
+    let bounds = direct_type_children(node)
+        .into_iter()
+        .map(|bound| normalized_type(text(bound, source)))
+        .collect();
+    Some((name, bounds))
 }
 
 pub(super) fn normalize_bounds(bounds: &mut Vec<String>) {

@@ -26,17 +26,17 @@ impl Index<'_> {
         if candidate.file == file && candidate.context_id != reference.context_id {
             return false;
         }
+        let source = &self.sources[candidate.file];
         match candidate_visibility(candidate) {
             SemanticVisibility::Private => self.private_accessible(file, reference, candidate),
             SemanticVisibility::Protected => self.protected_accessible(file, reference, candidate),
             SemanticVisibility::Internal => {
-                caller.project_root == candidate.source.project_root
-                    && caller.gradle_module == candidate.source.gradle_module
+                caller.project_root == source.project_root
+                    && caller.gradle_module == source.gradle_module
                     && self.visible_in_source_set(file, candidate)
             }
             SemanticVisibility::Public | SemanticVisibility::Unknown => {
-                self.module_visible(caller, &candidate.source)
-                    && self.visible_in_source_set(file, candidate)
+                self.module_visible(caller, source) && self.visible_in_source_set(file, candidate)
             }
         }
     }
@@ -86,18 +86,17 @@ impl Index<'_> {
         if caller.project_root != target.project_root {
             return false;
         }
-        let Some(deps) = self.dependencies.get(&caller.project_root) else {
-            return false;
-        };
-        let reachable =
-            transitive_closure(&caller.gradle_module, deps, caller.source_set.as_deref());
-        reachable.contains(&target.gradle_module)
+        self.visible_modules
+            .get(&caller.module)
+            .and_then(|sets| sets.get(&caller.source_set))
+            .is_some_and(|reachable| reachable.contains(&target.gradle_module))
     }
 
     pub(super) fn visible_in_source_set(&self, file: usize, candidate: &Candidate) -> bool {
         let caller = &self.sources[file];
-        if caller.module != candidate.source.module {
-            let Some(target) = candidate.source.source_set.as_deref() else {
+        let source = &self.sources[candidate.file];
+        if caller.module != source.module {
+            let Some(target) = source.source_set.as_deref() else {
                 return true;
             };
             // A module's test source sets are not on another module's compile
@@ -112,16 +111,13 @@ impl Index<'_> {
             }
             return caller.source_set.as_deref() == Some(target);
         }
-        match (&caller.source_set, &candidate.source.source_set) {
+        match (&caller.source_set, &source.source_set) {
             (None, _) | (_, None) => true,
             (Some(caller), Some(target)) if caller == target => true,
             (Some(caller), Some(target)) => {
-                let edges = self
-                    .source_edges
+                self.source_edges
                     .get(&self.sources[file].module_root)
-                    .cloned()
-                    .unwrap_or_default();
-                source_set_reaches(caller, target, &edges)
+                    .is_some_and(|edges| source_set_reaches(caller, target, edges))
                     || conventional_source_edge(caller, target)
             }
         }

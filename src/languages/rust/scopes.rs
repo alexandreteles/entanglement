@@ -70,9 +70,14 @@ pub(super) fn binding_names(root: usize, graph: &NodeGraph<'_>) -> Vec<(String, 
         {
             names.push((name, node.byte_range()));
         }
-        pending.extend(graph.children(id).iter().copied().filter(|child| {
-            !graph.is_field(*child, "type") && !graph.is_field(*child, "condition")
-        }));
+        let mut cursor = node.walk();
+        pending.extend(
+            node.children(&mut cursor)
+                .map(|child| child.id())
+                .filter(|child| {
+                    !graph.is_field(*child, "type") && !graph.is_field(*child, "condition")
+                }),
+        );
     }
     names
 }
