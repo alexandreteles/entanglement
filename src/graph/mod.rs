@@ -11,8 +11,9 @@ mod syntax;
 pub(crate) use facts::{
     BindingType, CallArgumentFact, CallConvention, CallDispatch, CallFacts, CallableParameter,
     CallableSignature, CallableTypeParameter, DeclarationExecutionFacts, DeclarationFacts,
-    DeclarationKind, DeclarationModifiers, ReceiverScope, SemanticContext, SemanticFacts,
-    SemanticVisibility,
+    DeclarationKind, DeclarationModifiers, PhpDeclaration, PhpFacts, PhpImport, PhpInclude,
+    PhpNamespace, PhpReference, PhpReferenceKind, PhpSymbolKind, PhpTraitAdaptation, PhpTraitUse,
+    ReceiverScope, SemanticContext, SemanticFacts, SemanticVisibility,
 };
 pub(crate) use program::{CallEdge, FileFactsView, ProgramGraph, ProgramSymbol, ProgramSymbolId};
 pub(crate) use syntax::SyntaxGraph;

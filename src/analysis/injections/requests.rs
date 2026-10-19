@@ -79,7 +79,8 @@ pub(super) fn can_analyze_injection(
     active: &HashSet<TreeKey>,
 ) -> bool {
     layer.depth < MAX_INJECTION_DEPTH
-        && is_smaller(layer.owner_range, &request.range)
+        && (is_smaller(layer.owner_range, &request.range)
+            || (key.0 != layer.choice.id && *layer.owner_range == request.range))
         && !active.contains(key)
 }
 
