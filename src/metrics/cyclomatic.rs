@@ -118,28 +118,19 @@ pub fn assign_events(
     functions: &[FunctionScope],
     events: &[SyntaxEvent],
 ) -> BTreeMap<usize, Vec<SyntaxEvent>> {
-    let mut assigned = BTreeMap::<usize, Vec<SyntaxEvent>>::new();
-    for event in events.iter().filter(|event| {
-        matches!(
-            event.role,
-            SyntaxRole::Condition
-                | SyntaxRole::LogicalCondition
-                | SyntaxRole::Multiway
-                | SyntaxRole::Case
-        )
-    }) {
-        if let Some((index, _)) = functions
-            .iter()
-            .enumerate()
-            .filter(|(_, function)| {
-                function.range.start <= event.start_byte && event.end_byte <= function.range.end
-            })
-            .min_by_key(|(_, function)| function.range.end - function.range.start)
-        {
-            assigned.entry(index).or_default().push(*event);
-        }
-    }
-    assigned
+    super::assign_to_functions(
+        functions,
+        events.iter().filter(|event| {
+            matches!(
+                event.role,
+                SyntaxRole::Condition
+                    | SyntaxRole::LogicalCondition
+                    | SyntaxRole::Multiway
+                    | SyntaxRole::Case
+            )
+        }),
+        |event| event.range(),
+    )
 }
 
 #[cfg(test)]

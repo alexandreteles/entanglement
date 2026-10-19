@@ -94,3 +94,27 @@ impl SyntaxEvent {
         self.start_byte..self.end_byte
     }
 }
+
+/// Assign each item to its smallest containing function; first wins equal ranges.
+/// Items outside every function are omitted. Input order is retained per function.
+pub(crate) fn assign_to_functions<'a, T: Clone + 'a>(
+    functions: &[cyclomatic::FunctionScope],
+    items: impl Iterator<Item = &'a T>,
+    range: impl Fn(&T) -> Range<usize>,
+) -> std::collections::BTreeMap<usize, Vec<T>> {
+    let mut assigned = std::collections::BTreeMap::<usize, Vec<T>>::new();
+    for item in items {
+        let range = range(item);
+        if let Some((index, _)) = functions
+            .iter()
+            .enumerate()
+            .filter(|(_, function)| {
+                function.range.start <= range.start && range.end <= function.range.end
+            })
+            .min_by_key(|(_, function)| function.range.len())
+        {
+            assigned.entry(index).or_default().push(item.clone());
+        }
+    }
+    assigned
+}

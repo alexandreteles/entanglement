@@ -60,55 +60,33 @@ pub(super) fn build_facts(
     debug_assert!(summaries.iter().all(summary_context_is_consistent));
     let (resolution_family, file_module_rules) = summary_descriptor(root_choice, &summaries);
     let (file_volume, file_halstead) = metrics::file_halstead(&summaries, selection);
-    let mut file_rows = BTreeSet::new();
-    for item in &summaries {
-        file_rows.extend(nloc::rows(&item.events, 0..source.len(), &item.excluded));
-    }
-
-    let mut by_metric = BTreeMap::<String, Vec<usize>>::new();
-    let mut functions = BTreeMap::<(usize, usize, String, String), FunctionScope>::new();
+    let file_nloc = summary_nloc(summaries.iter(), 0..source.len());
+    type MetricScopes<'a> = (
+        Vec<usize>,
+        BTreeMap<(usize, usize, &'a str), &'a FunctionScope>,
+    );
+    let mut by_metric = BTreeMap::<&str, MetricScopes<'_>>::new();
     for (index, item) in summaries.iter().enumerate() {
-        by_metric
-            .entry(item.metric_id.clone())
-            .or_default()
-            .push(index);
+        let (indexes, scopes) = by_metric.entry(&item.metric_id).or_default();
+        indexes.push(index);
         for function in &item.functions {
-            functions
-                .entry((
-                    function.range.start,
-                    function.range.end,
-                    function.name.clone(),
-                    item.metric_id.clone(),
-                ))
-                .or_insert_with(|| function.clone());
+            scopes
+                .entry((function.range.start, function.range.end, &function.name))
+                .or_insert(function);
         }
-    }
-
-    let mut functions_by_metric = BTreeMap::<String, Vec<FunctionScope>>::new();
-    for ((_, _, _, metric), function) in functions {
-        functions_by_metric
-            .entry(metric)
-            .or_default()
-            .push(function);
     }
 
     let mut analyses = Vec::new();
     let mut file_cyclomatic_complexity = 0;
-    for (metric, scopes) in functions_by_metric {
-        let indexes = &by_metric[&metric];
+    for (indexes, scopes) in by_metric.into_values() {
+        let scopes = scopes.into_values().cloned().collect::<Vec<_>>();
         let language_metrics =
-            metrics::LanguageMetrics::calculate(&scopes, &summaries, indexes, selection);
+            metrics::LanguageMetrics::calculate(&scopes, &summaries, &indexes, selection);
         for (index, function) in scopes.into_iter().enumerate() {
-            let mut rows = BTreeSet::new();
-            for summary_index in indexes {
-                let item = &summaries[*summary_index];
-                rows.extend(nloc::rows(
-                    &item.events,
-                    function.range.clone(),
-                    &item.excluded,
-                ));
-            }
-            let nloc = rows.len();
+            let nloc = summary_nloc(
+                indexes.iter().map(|index| &summaries[*index]),
+                function.range.clone(),
+            );
             let function_metrics = language_metrics.for_function(&function, index, nloc);
             file_cyclomatic_complexity += function_metrics.cyclomatic_for_file;
             analyses.push(FunctionAnalysis {
@@ -179,13 +157,9 @@ pub(super) fn build_facts(
             path: path.display().to_string(),
             hash: blake3::hash(&source).to_hex().to_string(),
             language: root_choice.name.clone(),
-            nloc: file_rows.len(),
+            nloc: file_nloc,
             maintainability_index: selection.needs_mi().then(|| {
-                MaintainabilityIndex::calculate(
-                    file_volume,
-                    file_cyclomatic_complexity,
-                    file_rows.len(),
-                )
+                MaintainabilityIndex::calculate(file_volume, file_cyclomatic_complexity, file_nloc)
             }),
             halstead: file_halstead,
             functions: analyses,
@@ -194,6 +168,16 @@ pub(super) fn build_facts(
         },
         source,
     }
+}
+
+fn summary_nloc<'a>(
+    summaries: impl Iterator<Item = &'a TreeSummary>,
+    range: Range<usize>,
+) -> usize {
+    summaries
+        .flat_map(|item| nloc::rows(&item.events, range.clone(), &item.excluded))
+        .collect::<BTreeSet<_>>()
+        .len()
 }
 
 fn summary_descriptor(

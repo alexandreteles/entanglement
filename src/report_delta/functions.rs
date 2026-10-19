@@ -7,10 +7,7 @@ use crate::model;
 
 mod matching;
 
-use super::{
-    contribution_changes, empty_maintainability_delta, halstead_delta, maintainability_delta,
-    metric_delta,
-};
+use super::{contribution_changes, halstead_delta, maintainability_delta, metric_delta};
 
 /// Compare function scores and contributions before and after source edits.
 pub(crate) fn function_deltas(
@@ -100,7 +97,7 @@ pub(crate) fn function_deltas(
                         new.and_then(|function| function.maintainability_index.as_ref()),
                     )
                 } else {
-                    empty_maintainability_delta()
+                    model::MaintainabilityDelta::default()
                 },
                 halstead: halstead_delta(
                     old.map(|function| &function.halstead),

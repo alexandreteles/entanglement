@@ -2,8 +2,6 @@ use std::collections::BTreeSet;
 
 use serde::Serialize;
 
-use super::cyclomatic::FunctionScope;
-
 /// The two lexical classes used by Halstead's source metrics.
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(rename_all = "snake_case")]
@@ -163,27 +161,6 @@ impl HalsteadMetrics {
         tokens.sort_by_key(|token| (token.start_byte, token.end_byte));
         tokens
     }
-}
-
-/// Assign each occurrence to its smallest containing function scope.
-pub fn assign_tokens(
-    functions: &[FunctionScope],
-    tokens: &[HalsteadToken],
-) -> std::collections::BTreeMap<usize, Vec<HalsteadToken>> {
-    let mut assigned = std::collections::BTreeMap::<usize, Vec<HalsteadToken>>::new();
-    for token in tokens {
-        if let Some((index, _)) = functions
-            .iter()
-            .enumerate()
-            .filter(|(_, function)| {
-                function.range.start <= token.start_byte && token.end_byte <= function.range.end
-            })
-            .min_by_key(|(_, function)| function.range.end - function.range.start)
-        {
-            assigned.entry(index).or_default().push(token.clone());
-        }
-    }
-    assigned
 }
 
 fn log_term(value: usize) -> f64 {

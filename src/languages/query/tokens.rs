@@ -19,33 +19,34 @@ pub(super) fn capture(
         {
             continue;
         }
-        if node.child_count() == 0 {
-            for range in node_segments(node, included) {
-                if let Some(token) = source
-                    .get(range.start_byte..range.end_byte)
-                    .and_then(|text| std::str::from_utf8(text).ok())
-                    .filter(|token| !token.is_empty())
-                {
-                    tokens.push(HalsteadToken {
-                        kind: if node.is_named() || recovered_jsx_attribute(node) {
-                            HalsteadTokenKind::Operand
-                        } else {
-                            HalsteadTokenKind::Operator
-                        },
+        if node.child_count() != 0 {
+            pending.extend(
+                (0..node.child_count())
+                    .rev()
+                    .filter_map(|index| node.child(index)),
+            );
+            continue;
+        }
+        let kind = if node.is_named() || recovered_jsx_attribute(node) {
+            HalsteadTokenKind::Operand
+        } else {
+            HalsteadTokenKind::Operator
+        };
+        tokens.extend(
+            node_segments(node, included)
+                .into_iter()
+                .filter_map(|range| {
+                    let token =
+                        std::str::from_utf8(source.get(range.start_byte..range.end_byte)?).ok()?;
+                    (!token.is_empty()).then(|| HalsteadToken {
+                        kind,
                         token: token.to_owned(),
                         start_byte: range.start_byte,
                         end_byte: range.end_byte,
                         line: range.start_point.row + 1,
-                    });
-                }
-            }
-        } else {
-            for index in (0..node.child_count()).rev() {
-                if let Some(child) = node.child(index) {
-                    pending.push(child);
-                }
-            }
-        }
+                    })
+                }),
+        );
     }
     tokens.sort_by_key(|item| (item.start_byte, item.end_byte));
     tokens
