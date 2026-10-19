@@ -8,99 +8,86 @@ use crate::languages::CapturedTree;
 use super::syntax::*;
 
 pub(super) fn capture(nodes: &[Node<'_>], source: &[u8], captured: &mut CapturedTree) {
-    for node in nodes.iter().copied() {
-        match node.kind() {
-            "simple_parameter" | "variadic_parameter" | "property_promotion_parameter" => {
-                parameter(node, nodes, source, captured)
-            }
-            "assignment_expression" | "reference_assignment_expression" => {
-                assignment(node, nodes, source, captured)
-            }
-            _ => {}
-        }
-    }
+    let mutations = mutations(nodes, source);
+    captured.semantic.bindings.extend(
+        nodes
+            .iter()
+            .copied()
+            .filter(|node| {
+                matches!(
+                    node.kind(),
+                    "simple_parameter"
+                        | "variadic_parameter"
+                        | "property_promotion_parameter"
+                        | "assignment_expression"
+                        | "reference_assignment_expression"
+                )
+            })
+            .filter_map(|node| binding(node, &mutations, source)),
+    );
     for closure in nodes
         .iter()
         .copied()
         .filter(|node| matches!(node.kind(), "anonymous_function" | "arrow_function"))
     {
-        capture_bindings(closure, nodes, source, captured);
+        capture_bindings(closure, nodes, &mutations, source, captured);
     }
 }
 
-fn parameter(node: Node<'_>, nodes: &[Node<'_>], source: &[u8], captured: &mut CapturedTree) {
-    let Some(name) = node.child_by_field_name("name") else {
-        return;
-    };
+fn binding(node: Node<'_>, mutations: &[Mutation<'_>], source: &[u8]) -> Option<BindingType> {
+    let assignment = matches!(
+        node.kind(),
+        "assignment_expression" | "reference_assignment_expression"
+    );
+    let name = node.child_by_field_name(if assignment { "left" } else { "name" })?;
+    if assignment && name.kind() != "variable_name" {
+        return None;
+    }
     let name = if name.kind() == "by_ref" {
         name.named_child(0).unwrap_or(name)
     } else {
         name
     };
     let scope = scope(node);
-    let raw_name = text(name, source).to_owned();
-    let immutable = node.child_by_field_name("reference_modifier").is_none()
-        && stable(&raw_name, scope, nodes, source, None);
-    captured.semantic.bindings.push(BindingType {
-        name: raw_name,
-        name_start_byte: name.start_byte(),
-        name_end_byte: name.end_byte(),
-        scope_start: scope.start_byte(),
-        scope_end: scope.end_byte(),
-        type_name: node
-            .child_by_field_name("type")
-            .map(|kind| text(kind, source).to_owned()),
-        alias_target: None,
-        callable_reference: false,
-        immutable,
-    });
-}
-
-fn assignment(node: Node<'_>, nodes: &[Node<'_>], source: &[u8], captured: &mut CapturedTree) {
-    let Some(left) = node
-        .child_by_field_name("left")
-        .filter(|left| left.kind() == "variable_name")
-    else {
-        return;
+    let raw_name = text(name, source);
+    let (type_name, alias_target, callable_reference) = if assignment {
+        initializer(unwrap(node.child_by_field_name("right")?), source)
+    } else {
+        (
+            node.child_by_field_name("type")
+                .map(|kind| text(kind, source).to_owned()),
+            None,
+            false,
+        )
     };
-    let Some(right) = node.child_by_field_name("right").map(unwrap) else {
-        return;
-    };
-    let scope = scope(node);
-    let name = text(left, source).to_owned();
-    let immutable = node.kind() != "reference_assignment_expression"
-        && !ancestors(node)
+    let conditional = assignment
+        && ancestors(node)
             .take_while(|node| !is_callable(*node))
             .any(|node| {
-                matches!(
-                    node.kind(),
-                    "if_statement"
-                        | "else_if_clause"
-                        | "else_clause"
-                        | "conditional_expression"
-                        | "switch_statement"
-                        | "match_expression"
-                        | "for_statement"
-                        | "foreach_statement"
-                        | "while_statement"
-                        | "do_statement"
-                        | "try_statement"
-                        | "catch_clause"
-                )
-            })
-        && stable(&name, scope, nodes, source, Some(node.id()));
-    let (type_name, alias_target, callable_reference) = initializer(right, source);
-    captured.semantic.bindings.push(BindingType {
-        name,
-        name_start_byte: left.start_byte(),
-        name_end_byte: left.end_byte(),
-        scope_start: node.end_byte(),
+                is_branch(node)
+                    || matches!(
+                        node.kind(),
+                        "conditional_expression" | "match_expression" | "try_statement"
+                    )
+            });
+    Some(BindingType {
+        name: raw_name.to_owned(),
+        name_start_byte: name.start_byte(),
+        name_end_byte: name.end_byte(),
+        scope_start: if assignment {
+            node.end_byte()
+        } else {
+            scope.start_byte()
+        },
         scope_end: scope.end_byte(),
         type_name,
         alias_target,
         callable_reference,
-        immutable,
-    });
+        immutable: !conditional
+            && node.kind() != "reference_assignment_expression"
+            && (assignment || node.child_by_field_name("reference_modifier").is_none())
+            && stable(raw_name, scope, mutations, assignment.then(|| node.id())),
+    })
 }
 
 fn initializer(node: Node<'_>, source: &[u8]) -> (Option<String>, Option<String>, bool) {
@@ -111,10 +98,10 @@ fn initializer(node: Node<'_>, source: &[u8]) -> (Option<String>, Option<String>
         "variable_name" => (None, Some(text(node, source).to_owned()), false),
         "object_creation_expression" => {
             let kind = children(node)
-                .into_iter()
                 .find(|child| is_name(*child))
                 .map(|kind| text(kind, source).to_owned());
-            (kind.clone(), kind.map(|kind| format!("@new:{kind}")), false)
+            let alias = kind.as_ref().map(|_| "@new".to_owned());
+            (kind, alias, false)
         }
         "function_call_expression" if first_class_callable(node) => (
             None,
@@ -157,6 +144,7 @@ fn initializer(node: Node<'_>, source: &[u8]) -> (Option<String>, Option<String>
 fn capture_bindings(
     closure: Node<'_>,
     all_nodes: &[Node<'_>],
+    mutations: &[Mutation<'_>],
     source: &[u8],
     captured: &mut CapturedTree,
 ) {
@@ -167,7 +155,6 @@ fn capture_bindings(
             .collect::<Vec<_>>()
     } else {
         children(closure)
-            .into_iter()
             .filter(|child| child.kind() == "anonymous_function_use_clause")
             .flat_map(nodes)
             .filter(|node| node.kind() == "variable_name")
@@ -205,7 +192,7 @@ fn capture_bindings(
             binding.name_end_byte = variable.end_byte();
             binding.scope_start = closure.start_byte();
             binding.scope_end = closure.end_byte();
-            binding.immutable &= stable(name, closure, all_nodes, source, None);
+            binding.immutable &= stable(name, closure, mutations, None);
             captured.semantic.bindings.push(binding);
         }
     }
@@ -222,108 +209,127 @@ fn owner_at(position: usize, nodes: &[Node<'_>]) -> Option<usize> {
         .or_else(|| nodes.first().map(|node| node.id()))
 }
 
-fn scope(node: Node<'_>) -> Node<'_> {
-    ancestors(node)
-        .find(|node| is_callable(*node))
-        .unwrap_or_else(|| ancestors(node).last().unwrap_or(node))
+struct Mutation<'a> {
+    owners: Vec<usize>,
+    names: Option<Vec<&'a str>>,
+    write: Option<usize>,
 }
 
 fn stable(
     name: &str,
     scope: Node<'_>,
-    nodes: &[Node<'_>],
-    source: &[u8],
+    mutations: &[Mutation<'_>],
     own_write: Option<usize>,
 ) -> bool {
-    !nodes
+    mutations.iter().all(|mutation| {
+        !mutation.owners.contains(&scope.id())
+            || mutation
+                .names
+                .as_ref()
+                .is_some_and(|names| !names.contains(&name))
+            || mutation.write.is_some() && mutation.write == own_write
+    })
+}
+
+fn mutations<'a>(all_nodes: &[Node<'_>], source: &'a [u8]) -> Vec<Mutation<'a>> {
+    let variables = |node| {
+        nodes(node)
+            .into_iter()
+            .filter(|node| node.kind() == "variable_name")
+            .map(|node| text(node, source))
+            .collect::<Vec<_>>()
+    };
+    all_nodes
         .iter()
         .copied()
-        .filter(|node| {
-            scope.start_byte() <= node.start_byte() && node.end_byte() <= scope.end_byte()
-        })
-        .any(|node| invalidates(node, name, scope, source, own_write))
-}
-
-fn invalidates(
-    node: Node<'_>,
-    name: &str,
-    owner: Node<'_>,
-    source: &[u8],
-    own_write: Option<usize>,
-) -> bool {
-    if matches!(node.kind(), "by_ref" | "reference_assignment_expression")
-        && nodes(node).iter().any(|node| text(*node, source) == name)
-    {
-        return true;
-    }
-    if scope(node).id() != owner.id() {
-        return false;
-    }
-    match node.kind() {
-        "dynamic_variable_name"
-        | "eval_intrinsic"
-        | "include_expression"
-        | "include_once_expression"
-        | "require_expression"
-        | "require_once_expression" => true,
-        "global_declaration" => nodes(node)
-            .iter()
-            .any(|node| node.kind() == "variable_name" && text(*node, source) == name),
-        "function_call_expression" => {
-            node.child_by_field_name("function")
-                .is_some_and(|function| {
-                    text(function, source)
-                        .trim_start_matches('\\')
-                        .eq_ignore_ascii_case("extract")
-                        || text(function, source).eq_ignore_ascii_case("eval")
-                })
-        }
-        "assignment_expression"
-        | "augmented_assignment_expression"
-        | "reference_assignment_expression" => {
-            own_write != Some(node.id())
-                && node
-                    .child_by_field_name("left")
-                    .is_some_and(|left| writes(left, name, source))
-        }
-        "update_expression" => node
-            .child_by_field_name("argument")
-            .is_some_and(|argument| writes(argument, name, source)),
-        "catch_clause" => node
-            .child_by_field_name("name")
-            .is_some_and(|target| writes(target, name, source)),
-        "foreach_statement" => children(node)
-            .into_iter()
-            .skip(1)
-            .filter(|child| {
-                node.child_by_field_name("body")
-                    .is_none_or(|body| body.id() != child.id())
+        .filter_map(|node| {
+            let (names, write) = match node.kind() {
+                "by_ref"
+                | "reference_assignment_expression"
+                | "global_declaration"
+                | "argument"
+                | "unset_statement" => (Some(variables(node)), None),
+                "dynamic_variable_name"
+                | "eval_intrinsic"
+                | "include_expression"
+                | "include_once_expression"
+                | "require_expression"
+                | "require_once_expression" => (None, None),
+                "function_call_expression"
+                    if node
+                        .child_by_field_name("function")
+                        .is_some_and(|function| {
+                            text(function, source)
+                                .trim_start_matches('\\')
+                                .eq_ignore_ascii_case("extract")
+                                || text(function, source).eq_ignore_ascii_case("eval")
+                        }) =>
+                {
+                    (None, None)
+                }
+                "assignment_expression"
+                | "augmented_assignment_expression"
+                | "update_expression"
+                | "catch_clause"
+                | "static_variable_declaration" => {
+                    let field = match node.kind() {
+                        "assignment_expression" | "augmented_assignment_expression" => "left",
+                        "update_expression" => "argument",
+                        _ => "name",
+                    };
+                    (
+                        Some(
+                            node.child_by_field_name(field)
+                                .into_iter()
+                                .flat_map(write_targets)
+                                .map(|node| text(node, source))
+                                .collect(),
+                        ),
+                        (field == "left").then(|| node.id()),
+                    )
+                }
+                "foreach_statement" => (
+                    Some(
+                        children(node)
+                            .skip(1)
+                            .filter(|child| {
+                                node.child_by_field_name("body")
+                                    .is_none_or(|body| body.id() != child.id())
+                            })
+                            .flat_map(variables)
+                            .collect(),
+                    ),
+                    None,
+                ),
+                _ => return None,
+            };
+            let owners = if matches!(node.kind(), "by_ref" | "reference_assignment_expression") {
+                ancestors(node)
+                    .filter(|node| is_callable(*node))
+                    .map(|node| node.id())
+                    .chain(all_nodes.first().map(|node| node.id()))
+                    .collect()
+            } else {
+                vec![scope(node).id()]
+            };
+            Some(Mutation {
+                owners,
+                names,
+                write,
             })
-            .any(|target| {
-                nodes(target)
-                    .iter()
-                    .any(|node| node.kind() == "variable_name" && text(*node, source) == name)
-            }),
-        "static_variable_declaration" => children(node)
-            .into_iter()
-            .find(|child| child.kind() == "variable_name")
-            .is_some_and(|target| writes(target, name, source)),
-        "argument" | "unset_statement" => nodes(node)
-            .iter()
-            .any(|node| node.kind() == "variable_name" && text(*node, source) == name),
-        _ => false,
-    }
+        })
+        .collect()
 }
 
-fn writes(node: Node<'_>, name: &str, source: &[u8]) -> bool {
+fn write_targets(node: Node<'_>) -> Vec<Node<'_>> {
     match node.kind() {
-        "variable_name" => text(node, source) == name,
-        "list_literal" | "by_ref" => children(node)
-            .into_iter()
-            .any(|target| writes(target, name, source)),
+        "variable_name" => vec![node],
+        "list_literal" | "by_ref" => children(node).flat_map(write_targets).collect(),
         "subscript_expression" => node
             .named_child(0)
-            .is_some_and(|target| writes(target, name, source)),
-        _ => false,
+            .into_iter()
+            .flat_map(write_targets)
+            .collect(),
+        _ => Vec::new(),
     }
 }

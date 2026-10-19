@@ -6,10 +6,21 @@ use crate::model::SourceRange;
 pub(crate) struct PhpFacts {
     pub namespaces: Vec<PhpNamespace>,
     pub imports: Vec<PhpImport>,
-    pub declarations: Vec<PhpDeclaration>,
     pub references: Vec<PhpReference>,
     pub traits: Vec<PhpTraitUse>,
     pub includes: Vec<PhpInclude>,
+}
+
+impl PhpFacts {
+    /// Select the lexical namespace, independent of injected module prefixes.
+    pub fn namespace_at(&self, position: usize) -> Option<&PhpNamespace> {
+        self.namespaces
+            .iter()
+            .filter(|namespace| {
+                namespace.range.start_byte <= position && position < namespace.range.end_byte
+            })
+            .min_by_key(|namespace| namespace.range.end_byte - namespace.range.start_byte)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -39,8 +50,6 @@ pub(crate) struct PhpImport {
 #[derive(Clone, Debug)]
 pub(crate) struct PhpDeclaration {
     pub setter_visibility: Option<super::SemanticVisibility>,
-    pub start_byte: usize,
-    pub namespace: Vec<String>,
     pub kind: PhpSymbolKind,
     pub is_static: bool,
     pub conditional: bool,
@@ -71,7 +80,6 @@ pub(crate) struct PhpReference {
     pub receiver: Option<String>,
     /// Source start of the receiver's own property or callable reference.
     pub receiver_reference: Option<usize>,
-    pub namespace_start: usize,
     /// Fully qualified lexical class name, without a leading separator.
     pub class: Option<String>,
     /// The syntax invokes the target, rather than creating a callable value.
@@ -102,4 +110,16 @@ pub(crate) struct PhpInclude {
     pub start_byte: usize,
     /// A literal path, optionally prefixed with the source file directory.
     pub path: Option<String>,
+}
+
+impl PhpNamespace {
+    /// Add this namespace to a source declaration name.
+    pub(crate) fn qualify(&self, name: &str) -> String {
+        self.name
+            .iter()
+            .map(String::as_str)
+            .chain(std::iter::once(name))
+            .collect::<Vec<_>>()
+            .join("\\")
+    }
 }

@@ -4,38 +4,52 @@ use std::collections::{HashMap, HashSet};
 
 use crate::graph::{
     CallDispatch, DeclarationFacts, FileFactsView, PhpDeclaration, PhpFacts, PhpReference,
-    PhpReferenceKind, PhpSymbolKind, ProgramGraph, ProgramSymbolId, SemanticVisibility,
+    PhpReferenceKind, PhpSymbolKind, ProgramGraph, SemanticVisibility,
 };
 use crate::languages::ResolutionFamily;
 use crate::model::{Reference, ReferenceAnalysis, Resolution, SymbolId};
 use crate::snapshot::Snapshot;
-
-use super::analysis;
 
 mod execution;
 mod members;
 mod names;
 mod project;
 
+use super::analysis;
 use members::Member;
 use project::Projects;
 
+#[derive(Clone, Copy)]
+struct Site {
+    file: usize,
+    context: usize,
+    position: usize,
+}
+
+impl Site {
+    fn at(file: usize, reference: &Reference) -> Self {
+        Self {
+            file,
+            context: reference.context_id,
+            position: reference.start_byte,
+        }
+    }
+}
+
 struct Candidate<'a> {
-    id: ProgramSymbolId,
+    site: Site,
     symbol: &'a SymbolId,
     php: &'a PhpDeclaration,
-    declaration: Option<&'a DeclarationFacts>,
-    context: usize,
+    declaration: &'a DeclarationFacts,
     name: String,
-    owner: Option<String>,
+    owner: Option<&'a str>,
 }
 
 struct Index<'a> {
     graph: &'a ProgramGraph<'a>,
     projects: Projects,
     candidates: Vec<Candidate<'a>>,
-    names: HashMap<(PhpSymbolKind, String), Vec<usize>>,
-    members: HashMap<(String, PhpSymbolKind, String), Vec<usize>>,
+    symbols: HashMap<(Option<String>, PhpSymbolKind, String), Vec<usize>>,
 }
 
 pub(super) fn resolve(
@@ -65,68 +79,58 @@ pub(super) fn resolve(
 
 impl<'a> Index<'a> {
     fn new(graph: &'a ProgramGraph<'a>, snapshot: &Snapshot) -> Self {
-        let mut index = Self {
-            graph,
-            projects: Projects::new(graph.files(), snapshot),
-            candidates: Vec::new(),
-            names: HashMap::new(),
-            members: HashMap::new(),
-        };
-        for file in 0..graph.file_count() {
-            for symbol in graph.symbols_for_file(file) {
-                let context = symbol.scope.context_id;
-                let Some(facts) = index.facts(file, context) else {
-                    continue;
+        let candidates = (0..graph.file_count())
+            .flat_map(|file| graph.symbols_for_file(file))
+            .filter_map(|symbol| {
+                let site = Site {
+                    file: symbol.id.file_index,
+                    context: symbol.scope.context_id,
+                    position: symbol.semantic_id.start_byte,
                 };
-                let Some(php) = facts
+                let semantic = graph.semantic(
+                    site.file,
+                    site.context,
+                    Some(ResolutionFamily::PhpNamespaces),
+                )?;
+                let facts = semantic.php.as_ref()?;
+                let declaration = semantic
                     .declarations
                     .iter()
-                    .find(|item| item.start_byte == symbol.semantic_id.start_byte)
-                else {
-                    continue;
-                };
-                let declaration = graph.declaration(
-                    file,
-                    context,
-                    php.start_byte,
-                    Some(ResolutionFamily::PhpNamespaces),
-                );
-                let owner = declaration.and_then(|item| item.owner.first()).cloned();
-                let full_name = php
-                    .namespace
-                    .iter()
-                    .map(String::as_str)
-                    .chain(std::iter::once(symbol.name.as_str()))
-                    .collect::<Vec<_>>()
-                    .join("\\");
-                let ordinal = index.candidates.len();
-                if let Some(owner) = &owner {
-                    index
-                        .members
-                        .entry((
-                            owner.to_ascii_lowercase(),
-                            php.kind,
-                            names::key(php.kind, &symbol.name),
-                        ))
-                        .or_default()
-                        .push(ordinal);
-                } else {
-                    index
-                        .names
-                        .entry((php.kind, names::key(php.kind, &full_name)))
-                        .or_default()
-                        .push(ordinal);
-                }
-                index.candidates.push(Candidate {
-                    id: symbol.id,
+                    .find(|item| item.start_byte == site.position)?;
+                let php = declaration.php.as_ref()?;
+                let namespace = facts.namespace_at(site.position)?;
+                let name = namespace.qualify(&symbol.name);
+                Some(Candidate {
+                    site,
                     symbol: &symbol.semantic_id,
                     php,
                     declaration,
-                    context,
-                    name: full_name,
+                    name,
+                    owner: declaration.owner.first().map(String::as_str),
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut index = Self {
+            graph,
+            projects: Projects::new(graph.files(), snapshot),
+            candidates,
+            symbols: HashMap::new(),
+        };
+        for (ordinal, candidate) in index.candidates.iter().enumerate() {
+            let owner = candidate.owner.map(str::to_ascii_lowercase);
+            let name = match candidate.owner {
+                Some(_) => &candidate.symbol.name,
+                None => &candidate.name,
+            };
+            index
+                .symbols
+                .entry((
                     owner,
-                });
-            }
+                    candidate.php.kind,
+                    names::key(candidate.php.kind, name),
+                ))
+                .or_default()
+                .push(ordinal);
         }
         index
     }
@@ -156,10 +160,15 @@ impl<'a> Index<'a> {
                 self.member_reference(file, reference, php, &mut HashSet::new())
             }
             PhpReferenceKind::Variable => {
-                return self.callable_reference(file, reference, php, &mut HashSet::new());
+                return self.callable_reference(file, reference, php);
             }
             _ => self
-                .lookup(file, reference.context_id, php)
+                .lookup(
+                    Site::at(file, reference),
+                    &php.name,
+                    names::reference_kind(php.kind),
+                    php.class.as_deref(),
+                )
                 .into_iter()
                 .map(Member::new)
                 .collect(),
@@ -185,54 +194,43 @@ impl<'a> Index<'a> {
         {
             return analysis(reference, Resolution::Unresolved, None);
         }
-        match members.as_slice() {
-            [] => {
-                let external = self
-                    .expanded_names(file, reference.context_id, php)
-                    .iter()
-                    .any(|name| self.projects.external(file, name));
-                analysis(
-                    reference,
-                    if external {
-                        Resolution::External
-                    } else {
-                        Resolution::Unresolved
-                    },
-                    None,
+        let resolution = match members.as_slice() {
+            [] => match self
+                .expanded_names(
+                    Site::at(file, reference),
+                    &php.name,
+                    names::reference_kind(php.kind),
                 )
-            }
-            [member] => {
-                let candidate = &self.candidates[member.candidate];
-                let executable = php.callable || candidate.php.kind == PhpSymbolKind::Property;
-                let dispatch = executable.then_some(if direct {
-                    CallDispatch::Direct
-                } else {
-                    CallDispatch::Virtual
-                });
-                let mut result = analysis(
-                    reference,
-                    Resolution::Exact(candidate.symbol.clone()),
-                    dispatch,
-                );
-                self.execution_targets(file, reference, php, member, &mut result);
-                result
-            }
-            _ => analysis(
-                reference,
-                Resolution::Ambiguous(
-                    members
-                        .iter()
-                        .map(|member| self.candidates[member.candidate].symbol.clone())
-                        .collect(),
-                ),
-                None,
+                .iter()
+                .any(|name| self.projects.external(file, name))
+            {
+                true => Resolution::External,
+                false => Resolution::Unresolved,
+            },
+            [member] => Resolution::Exact(self.candidates[member.candidate].symbol.clone()),
+            _ => Resolution::Ambiguous(
+                members
+                    .iter()
+                    .map(|member| self.candidates[member.candidate].symbol.clone())
+                    .collect(),
             ),
+        };
+        let mut result = analysis(reference, resolution, None);
+        if let [member] = members.as_slice() {
+            let executable = php.callable
+                || self.candidates[member.candidate].php.kind == PhpSymbolKind::Property;
+            result.dispatch = executable.then_some(match direct {
+                true => CallDispatch::Direct,
+                false => CallDispatch::Virtual,
+            });
+            self.execution_targets(file, reference, php, member, &mut result);
         }
+        result
     }
 
     fn visible(&self, file: usize, context: usize, candidate: &Candidate<'_>) -> bool {
-        let target = candidate.id.file_index;
-        let contexts_agree = file != target || context == candidate.context;
+        let target = candidate.site.file;
+        let contexts_agree = file != target || context == candidate.site.context;
         contexts_agree
             && ((self.projects.reaches(file, target)
                 && self.projects.autoloads(

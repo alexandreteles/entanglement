@@ -98,6 +98,7 @@ pub(in crate::languages::kotlin::facts) fn collect_recovered_type_definitions(
 
         let signature = recovered_signature(error, recovered, source);
         result.semantic.declarations.push(DeclarationFacts {
+            php: None,
             start_byte,
             owner,
             visibility,

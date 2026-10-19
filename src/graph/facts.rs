@@ -36,8 +36,10 @@ pub(crate) struct SemanticContext {
     pub package: Vec<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct DeclarationFacts {
+    /// PHP-specific rules for this declaration, when present.
+    pub php: Option<PhpDeclaration>,
     /// Start byte of the generic definition represented by these facts.
     pub start_byte: usize,
     /// Enclosing type/object names from the outermost owner inward.

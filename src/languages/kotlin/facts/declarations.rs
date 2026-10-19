@@ -74,6 +74,7 @@ pub(super) fn collect_definition(
     // Keep raw annotations so the resolver can establish DslMarker metadata
     // across files, even when the annotation type is declared elsewhere.
     result.semantic.declarations.push(DeclarationFacts {
+        php: None,
         start_byte,
         owner: owner.clone(),
         visibility: visibility_level,
@@ -339,6 +340,7 @@ pub(super) fn emit_constructor_property(
         context_id: 0,
     });
     sinks.result.semantic.declarations.push(DeclarationFacts {
+        php: None,
         start_byte: parameter.start_byte(),
         owner,
         visibility,
