@@ -2,6 +2,9 @@
 
 use super::super::files::indexing::normalize;
 use crate::{graph::FileFactsView, snapshot::Snapshot};
+mod autoload;
+use super::super::only;
+use autoload::{autoload_matches, psr_routes};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -108,8 +111,7 @@ impl Projects {
             .flatten()
             .filter_map(path_url)
             .collect::<Vec<_>>();
-        unique_root(&candidates, caller, &paths)
-            .or_else(|| (candidates.len() == 1).then(|| candidates[0]))
+        unique_root(&candidates, caller, &paths).or_else(|| only(candidates))
     }
 
     /// Keep dependency graphs local to the caller's Composer project.
@@ -218,17 +220,6 @@ fn path_url(value: &Value) -> Option<&str> {
     (value.get("type")?.as_str()? == "path").then_some(value.get("url")?.as_str()?)
 }
 
-fn psr_routes(autoload: &Value) -> impl Iterator<Item = (&str, &str, &Value)> {
-    ["psr-4", "psr-0"].into_iter().flat_map(move |kind| {
-        autoload
-            .get(kind)
-            .and_then(Value::as_object)
-            .into_iter()
-            .flatten()
-            .map(move |(prefix, directories)| (kind, prefix.as_str(), directories))
-    })
-}
-
 /// Read root development requirements only when this is the starting project.
 fn requirements(package: &Value, development: bool) -> impl Iterator<Item = &str> {
     ["require", "require-dev"]
@@ -246,69 +237,13 @@ fn unique_root<'a>(
     caller: &Path,
     paths: &[&str],
 ) -> Option<&'a PathBuf> {
-    let matches = candidates
-        .iter()
-        .copied()
-        .filter(|candidate| {
-            paths
-                .iter()
-                .filter(|path| !path.contains('*'))
-                .any(|path| normalize(candidate) == normalize(&caller.join(path)))
-        })
-        .collect::<Vec<_>>();
-    (matches.len() == 1).then(|| matches[0])
-}
-
-fn autoload_matches(root: &Path, autoload: &Value, path: &Path, name: &str, class: bool) -> bool {
-    if paths(autoload.get("files")).any(|entry| normalize(&root.join(entry)) == normalize(path)) {
-        return true;
-    }
-    if !class {
-        return false;
-    }
-    (paths(autoload.get("classmap")).any(|entry| path_matches(root, entry, path))
-        && !paths(autoload.get("exclude-from-classmap"))
-            .any(|pattern| path_matches(root, pattern, path)))
-        || psr_routes(autoload).any(|(kind, prefix, directories)| {
-            let Some(suffix) = name.strip_prefix(prefix) else {
-                return false;
-            };
-            let relative = if kind == "psr-0" {
-                let (namespace, class) = name.rsplit_once('\\').unwrap_or(("", name));
-                [namespace.replace('\\', "/"), class.replace('_', "/")]
-                    .into_iter()
-                    .filter(|part| !part.is_empty())
-                    .collect::<Vec<_>>()
-                    .join("/")
-            } else {
-                suffix.replace('\\', "/")
-            };
-            paths(Some(directories)).any(|directory| {
-                normalize(&root.join(directory).join(format!("{relative}.php"))) == normalize(path)
-            })
-        })
-}
-
-fn paths(value: Option<&Value>) -> impl Iterator<Item = &str> {
-    value
-        .into_iter()
-        .flat_map(|value| match value {
-            Value::Array(values) => values.as_slice(),
-            _ => std::slice::from_ref(value),
-        })
-        .filter_map(Value::as_str)
-}
-
-fn path_matches(root: &Path, pattern: &str, path: &Path) -> bool {
-    let pattern = pattern.trim_start_matches('/');
-    if !pattern.contains('*') {
-        return normalize(path).starts_with(normalize(&root.join(pattern)));
-    }
-    let mut builder = ignore::gitignore::GitignoreBuilder::new(root);
-    builder.add_line(None, pattern).is_ok()
-        && builder
-            .build()
-            .is_ok_and(|matcher| matcher.matched(path, false).is_ignore())
+    let matches = candidates.iter().copied().filter(|candidate| {
+        paths
+            .iter()
+            .filter(|path| !path.contains('*'))
+            .any(|path| normalize(candidate) == normalize(&caller.join(path)))
+    });
+    only(matches)
 }
 
 fn read_json(snapshot: &Snapshot, path: &Path) -> Option<Value> {
