@@ -71,6 +71,7 @@ Supported manifests include `Cargo.toml`, `package.json`, `tsconfig.json`,
 | Rust | `.rs` |
 | Python | `.py`, `.pyi` |
 | Go | `.go` |
+| PHP 8.2–8.5 | `.php`, `.phtml` |
 | Kotlin | `.kt`, `.kts` |
 | TypeScript | `.ts`, `.mts`, `.cts` |
 | TSX | `.tsx` |
