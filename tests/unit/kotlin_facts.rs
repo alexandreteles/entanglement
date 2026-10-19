@@ -50,8 +50,7 @@ fn call_argument_types_come_from_numeric_literal_cst_wrappers() {
 
 #[test]
 fn binding_argument_types_keep_containing_argument_precedence() {
-    let source =
-        "fun sample(value: Box) { consume(value); consume(inner(value)); consume(1L) }";
+    let source = "fun sample(value: Box) { consume(value); consume(inner(value)); consume(1L) }";
     let mut parser = tree_sitter::Parser::new();
     let language: tree_sitter::Language = tree_sitter_kotlin::LANGUAGE.into();
     parser.set_language(&language).unwrap();

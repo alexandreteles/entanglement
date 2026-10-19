@@ -168,16 +168,6 @@ fn range(node: Node<'_>) -> Range<usize> {
     node.start_byte()..node.end_byte()
 }
 
-struct BindingEvidence<'tree> {
-    name: String,
-    name_node: Node<'tree>,
-    scope: Range<usize>,
-    type_name: Option<String>,
-    alias_target: Option<String>,
-    callable_reference: bool,
-    immutable: bool,
-}
-
 #[cfg(test)]
 #[path = "../../../tests/unit/kotlin_facts.rs"]
 mod tests;

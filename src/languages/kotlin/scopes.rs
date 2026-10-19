@@ -4,6 +4,9 @@ use tree_sitter::Node;
 
 use super::syntax::{self, ContextParameters};
 
+mod names;
+use names::*;
+
 use crate::metrics::cyclomatic::FunctionScope;
 
 pub(super) struct ScopeIndex<'tree> {
@@ -12,28 +15,13 @@ pub(super) struct ScopeIndex<'tree> {
     contexts: &'tree [ContextParameters],
     recovered_types: Vec<syntax::RecoveredType>,
     nodes: Vec<Node<'tree>>,
-    executable: HashMap<usize, ScopeIdentity>,
+    executable: HashMap<usize, Range<usize>>,
     script: Option<ScriptScope>,
 }
 
 struct ScriptScope {
     range: Range<usize>,
     line: usize,
-}
-
-struct ScopeIdentity {
-    kind: ScopeKind,
-    range: Range<usize>,
-}
-
-enum ScopeKind {
-    Declaration(&'static str),
-    Named(&'static str),
-    Anonymous,
-    PrimaryConstructor,
-    SecondaryConstructor,
-    Property,
-    Destructuring,
 }
 
 impl<'tree> ScopeIndex<'tree> {
@@ -47,9 +35,12 @@ impl<'tree> ScopeIndex<'tree> {
         let executable = nodes
             .iter()
             .filter_map(|node| {
-                let kind = executable_scope_kind(*node, &recovered_types)?;
-                let range = syntax::context_start(*node, contexts)..node.end_byte();
-                Some((node.id(), ScopeIdentity { kind, range }))
+                is_executable(*node, &recovered_types).then(|| {
+                    (
+                        node.id(),
+                        syntax::context_start(*node, contexts)..node.end_byte(),
+                    )
+                })
             })
             .collect();
         let mut script_nodes = (0..root.named_child_count())
@@ -112,12 +103,11 @@ pub(in crate::languages::kotlin) fn capture(
         .iter()
         .copied()
         .filter_map(|node| {
-            let identity = index.executable.get(&node.id())?;
-            let name = scope_name(&identity.kind, node, index, &query_functions);
+            let range = index.executable.get(&node.id())?;
             Some(scope(
-                name,
-                identity.range.start,
-                identity.range.end,
+                scope_name(node, index, &query_functions),
+                range.start,
+                range.end,
                 source,
             ))
         })
@@ -148,7 +138,7 @@ pub(super) fn metric_scope_range_for(
     if let Some(identity) =
         super::ancestors(node).find_map(|candidate| index.executable.get(&candidate.id()))
     {
-        return Some(identity.range.clone());
+        return Some(identity.clone());
     }
 
     let mut direct_child = node;
@@ -180,190 +170,25 @@ pub(in crate::languages::kotlin) fn property_initializer_range(
 }
 
 /// Classify executable nodes once, before query-dependent names are available.
-fn executable_scope_kind(
-    node: Node<'_>,
-    recovered_types: &[syntax::RecoveredType],
-) -> Option<ScopeKind> {
+fn is_executable(node: Node<'_>, recovered_types: &[syntax::RecoveredType]) -> bool {
     match node.kind() {
-        "function_declaration" => {
-            has_named_child(node, "function_body").then_some(ScopeKind::Declaration("function"))
+        "function_declaration" | "getter" | "setter" | "anonymous_function" => {
+            has_named_child(node, "function_body")
         }
-        "getter" => has_named_child(node, "function_body").then_some(ScopeKind::Named("get")),
-        "setter" => has_named_child(node, "function_body").then_some(ScopeKind::Named("set")),
-        "lambda_literal" => Some(ScopeKind::Anonymous),
-        "anonymous_function" => {
-            has_named_child(node, "function_body").then_some(ScopeKind::Anonymous)
+        "lambda_literal" | "anonymous_initializer" => true,
+        "primary_constructor" => !has_bodyless_api_primary_constructor(node, recovered_types),
+        "secondary_constructor" => has_direct_child(node, "{"),
+        "property_declaration" => {
+            has_property_initializer(node) && bound_function_value(node).is_none()
         }
-        "primary_constructor" => (!has_bodyless_api_primary_constructor(node, recovered_types))
-            .then_some(ScopeKind::PrimaryConstructor),
-        "secondary_constructor" => {
-            has_direct_child(node, "{").then_some(ScopeKind::SecondaryConstructor)
-        }
-        "property_declaration" => (has_property_initializer(node)
-            && bound_function_value(node).is_none())
-        .then_some(ScopeKind::Property),
-        "destructuring_declaration" => {
-            has_direct_child(node, "=").then_some(ScopeKind::Destructuring)
-        }
-        "anonymous_initializer" => Some(ScopeKind::Named("init")),
-        "enum_entry" => {
-            has_named_child(node, "value_arguments").then_some(ScopeKind::Declaration("enum_entry"))
-        }
-        _ => None,
+        "destructuring_declaration" => has_direct_child(node, "="),
+        "enum_entry" => has_named_child(node, "value_arguments"),
+        _ => false,
     }
 }
 
-fn scope_name(
-    kind: &ScopeKind,
-    node: Node<'_>,
-    index: &ScopeIndex<'_>,
-    query_functions: &[FunctionScope],
-) -> String {
-    let source = index.source();
-    match kind {
-        ScopeKind::Declaration(fallback) => declaration_name(node, source, fallback),
-        ScopeKind::Named(name) => (*name).to_owned(),
-        ScopeKind::Anonymous => bound_lambda_name(node, source)
-            .or_else(|| query_name(query_functions, node))
-            .unwrap_or_else(|| format!("anonymous@{}", node.start_position().row + 1)),
-        ScopeKind::PrimaryConstructor => {
-            primary_constructor_name(node, source, index.recovered_types())
-        }
-        ScopeKind::SecondaryConstructor => format!(
-            "{}.constructor",
-            enclosing_type_name(node, source, index.recovered_types())
-        ),
-        ScopeKind::Property => property_name(node, source),
-        ScopeKind::Destructuring => format!("destructuring@{}", node.start_position().row + 1),
-    }
-}
-pub(super) fn bound_lambda_name(node: Node<'_>, source: &[u8]) -> Option<String> {
-    let mut parent = node.parent()?;
-    if parent.kind() == "annotated_lambda" {
-        parent = parent.parent()?;
-    }
-    (parent.kind() == "property_declaration"
-        && bound_function_value(parent).is_some_and(|value| value.id() == node.id()))
-    .then(|| property_name(parent, source))
-}
-pub(super) fn declaration_name(node: Node<'_>, source: &[u8], fallback: &str) -> String {
-    let candidate = match node.kind() {
-        "enum_entry" => direct_named_child(node, "simple_identifier"),
-        "function_declaration" => direct_named_child(node, "simple_identifier"),
-        _ => node.child_by_field_name("name"),
-    };
-    candidate
-        .map(|name| normalized_identifier(name, source))
-        .unwrap_or_else(|| format!("{fallback}@{}", node.start_position().row + 1))
-}
-pub(super) fn property_name(node: Node<'_>, source: &[u8]) -> String {
-    direct_named_child(node, "variable_declaration")
-        .and_then(|declaration| direct_named_child(declaration, "simple_identifier"))
-        .map(|name| normalized_identifier(name, source))
-        .unwrap_or_else(|| format!("property@{}", node.start_position().row + 1))
-}
-pub(super) fn primary_constructor_name(
-    node: Node<'_>,
-    source: &[u8],
-    recovered_types: &[syntax::RecoveredType],
-) -> String {
-    node.parent()
-        .filter(|parent| parent.kind() == "class_declaration")
-        .and_then(|class| direct_named_child(class, "type_identifier"))
-        .map(|name| normalized_identifier(name, source))
-        .or_else(|| {
-            syntax::recovered_type_for(node, recovered_types)
-                .and_then(|recovered| recovered.name_range.as_ref())
-                .map(|range| normalized_source_identifier(range, source))
-        })
-        .unwrap_or_else(|| format!("constructor@{}", node.start_position().row + 1))
-}
-pub(super) fn has_bodyless_api_primary_constructor(
-    node: Node<'_>,
-    recovered_types: &[syntax::RecoveredType],
-) -> bool {
-    if node
-        .parent()
-        .filter(|parent| matches!(parent.kind(), "class_declaration" | "object_declaration"))
-        .and_then(|declaration| direct_named_child(declaration, "modifiers"))
-        .is_some_and(|modifiers| {
-            has_descendant_kind(modifiers, "expect") || has_descendant_kind(modifiers, "external")
-        })
-    {
-        return true;
-    }
-    let Some(recovered) = syntax::recovered_type_for(node, recovered_types) else {
-        return false;
-    };
-    std::iter::successors(node.parent(), |ancestor| ancestor.parent())
-        .find(|ancestor| {
-            ancestor.kind() == "ERROR" && ancestor.byte_range() == recovered.error_range
-        })
-        .and_then(|error| {
-            (0..error.child_count())
-                .filter_map(|index| error.child(index))
-                .find(|child| {
-                    child.kind() == "modifiers" && child.end_byte() <= recovered.keyword_range.start
-                })
-        })
-        .is_some_and(|modifiers| {
-            has_descendant_kind(modifiers, "expect") || has_descendant_kind(modifiers, "external")
-        })
-}
-pub(super) fn has_descendant_kind(node: Node<'_>, kind: &str) -> bool {
-    super::all_nodes(node)
-        .iter()
-        .any(|candidate| candidate.kind() == kind)
-}
-
-pub(super) fn enclosing_type_name(
-    node: Node<'_>,
-    source: &[u8],
-    recovered_types: &[syntax::RecoveredType],
-) -> String {
-    if let Some(parent) = super::ancestors(node)
-        .skip(1)
-        .find(|parent| matches!(parent.kind(), "class_declaration" | "object_declaration"))
-    {
-        return direct_named_child(parent, "type_identifier")
-            .map(|name| normalized_identifier(name, source))
-            .unwrap_or_else(|| "anonymous".to_owned());
-    }
-    syntax::recovered_type_for(node, recovered_types)
-        .and_then(|recovered| recovered.name_range.as_ref())
-        .map(|range| normalized_source_identifier(range, source))
-        .unwrap_or_else(|| "constructor".to_owned())
-}
-pub(super) fn recovered_error(node: Node<'_>, recovered_types: &[syntax::RecoveredType]) -> bool {
-    recovered_types
-        .iter()
-        .any(|recovered| recovered.error_range == node.byte_range())
-}
-
-pub(super) fn query_name(functions: &[FunctionScope], node: Node<'_>) -> Option<String> {
-    functions
-        .iter()
-        .find(|function| {
-            function.range.start == node.start_byte() && function.range.end == node.end_byte()
-        })
-        .map(|function| function.name.clone())
-}
-pub(super) fn scope(name: String, start: usize, end: usize, source: &[u8]) -> FunctionScope {
-    FunctionScope {
-        name,
-        range: start..end,
-        line: source[..start.min(source.len())]
-            .iter()
-            .filter(|byte| **byte == b'\n')
-            .count()
-            + 1,
-    }
-}
 pub(super) fn has_named_child(node: Node<'_>, kind: &str) -> bool {
-    (0..node.named_child_count()).any(|index| {
-        node.named_child(index as u32)
-            .is_some_and(|child| child.kind() == kind)
-    })
+    direct_named_child(node, kind).is_some()
 }
 pub(super) fn has_direct_child(node: Node<'_>, kind: &str) -> bool {
     (0..node.child_count()).any(|index| node.child(index).is_some_and(|child| child.kind() == kind))
@@ -416,6 +241,30 @@ pub(super) fn is_top_level_executable(kind: &str) -> bool {
             | "type_alias"
             | "enum_entry"
     )
+}
+
+/// Return whether a node is inside a default argument before a callable boundary.
+/// Each caller supplies the executable kinds that terminate its ownership search.
+pub(super) fn is_default_argument(
+    node: Node<'_>,
+    source: &[u8],
+    is_boundary: impl Fn(&str) -> bool,
+) -> bool {
+    for ancestor in super::ancestors(node).skip(1) {
+        if is_boundary(ancestor.kind()) {
+            return false;
+        }
+        if matches!(
+            ancestor.kind(),
+            "parameter" | "function_value_parameter" | "class_parameter"
+        ) && source
+            .get(ancestor.byte_range())
+            .is_some_and(|parameter| parameter.contains(&b'='))
+        {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]
