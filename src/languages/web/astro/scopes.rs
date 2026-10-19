@@ -1,3 +1,4 @@
+pub(super) use crate::languages::syntax::named_children;
 use std::ops::Range;
 
 use tree_sitter::Node;
@@ -24,13 +25,6 @@ pub(super) fn ancestor<'tree>(
         current = item.parent();
     }
     None
-}
-
-pub(super) fn named_children(node: Node<'_>) -> impl Iterator<Item = Node<'_>> {
-    let mut cursor = node.walk();
-    node.named_children(&mut cursor)
-        .collect::<Vec<_>>()
-        .into_iter()
 }
 
 fn is_lexical_scope(node: Node<'_>) -> bool {

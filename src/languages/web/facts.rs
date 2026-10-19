@@ -10,23 +10,14 @@ use std::ops::Range;
 
 use tree_sitter::{Node, QueryCapture};
 
-use crate::model::{
-    Definition, DefinitionKind, Export, Import, LocalBinding, ModulePath, Reference,
-};
+use crate::model::{DefinitionKind, ModulePath, Reference};
 
 use super::{exports::parse_export, imports::parse_import, syntax::named_child};
 
 pub(super) use capture_schema::Captures;
 pub(super) use scope::binding_names;
 
-#[derive(Default)]
-pub(super) struct SemanticFacts {
-    pub definitions: Vec<Definition>,
-    pub imports: Vec<Import>,
-    pub exports: Vec<Export>,
-    pub references: Vec<Reference>,
-    pub locals: Vec<LocalBinding>,
-}
+pub(super) use crate::languages::CapturedSemantics as SemanticFacts;
 
 pub(super) struct CaptureFacts {
     pub(super) semantic: SemanticFacts,

@@ -89,7 +89,7 @@ pub(super) fn subtract(content: Range, exclusions: &[Range]) -> Vec<Range> {
     result
 }
 
-pub(super) fn intersect(left: Range, right: Range) -> Option<Range> {
+pub(crate) fn intersect(left: Range, right: Range) -> Option<Range> {
     let start_byte = left.start_byte.max(right.start_byte);
     let end_byte = left.end_byte.min(right.end_byte);
     (start_byte < end_byte).then_some(Range {

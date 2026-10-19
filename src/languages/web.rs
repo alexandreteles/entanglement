@@ -14,7 +14,7 @@ mod typescript;
 
 use tree_sitter::{Language, Tree};
 
-use super::query::{QueryAnalyzer, QueryFacts};
+use super::query::QueryAnalyzer;
 use super::{
     CapturedTree, FileModuleLayout, FileModuleRules, LanguageHandler, LanguageSpec,
     ResolutionFamily,
@@ -137,7 +137,7 @@ impl LanguageHandler for Analyzer {
                 facts.record(&self.captures, captures, bytes);
             });
         let semantic = facts.finish(tree.root_node());
-        let mut captured = captured(query, semantic);
+        let mut captured = CapturedTree::from(query).with_semantics(semantic);
         angular::inline_templates(tree.root_node(), source, &mut captured);
         Ok(captured)
     }
@@ -145,14 +145,4 @@ impl LanguageHandler for Analyzer {
 
 pub(super) fn build_web(language: &Language, source: &str) -> Result<Box<dyn LanguageHandler>> {
     Ok(Box::new(Analyzer::new(language, source)?))
-}
-
-fn captured(query: QueryFacts, semantic: facts::SemanticFacts) -> CapturedTree {
-    let mut captured = CapturedTree::from(query);
-    captured.definitions = semantic.definitions;
-    captured.imports = semantic.imports;
-    captured.exports = semantic.exports;
-    captured.references = semantic.references;
-    captured.locals = semantic.locals;
-    captured
 }

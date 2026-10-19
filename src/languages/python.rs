@@ -51,14 +51,8 @@ impl LanguageHandler for Analyzer {
             }
         }
 
-        let mut captured = CapturedTree::from(shared);
         let semantic = facts::capture(tree.root_node(), source);
-        captured.definitions = semantic.definitions;
-        captured.imports = semantic.imports;
-        captured.exports = semantic.exports;
-        captured.references = semantic.references;
-        captured.locals = semantic.locals;
-        Ok(captured)
+        Ok(CapturedTree::from(shared).with_semantics(semantic))
     }
 }
 

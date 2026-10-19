@@ -1,3 +1,5 @@
+pub(super) use crate::languages::syntax::contains;
+pub(super) use crate::languages::syntax::text;
 use std::ops::Range;
 
 use tree_sitter::Node;
@@ -151,12 +153,4 @@ pub(super) fn is_function(node: Node<'_>) -> bool {
 
 pub(super) fn enclosing_function(node: Node<'_>) -> Option<usize> {
     nearest_from(node, true, is_function).map(|function| function.start_byte())
-}
-
-pub(super) fn contains(outer: &Range<usize>, inner: &Range<usize>) -> bool {
-    outer.start <= inner.start && inner.end <= outer.end
-}
-
-pub(super) fn text(node: Node<'_>, source: &[u8]) -> String {
-    String::from_utf8_lossy(&source[node.byte_range()]).into_owned()
 }

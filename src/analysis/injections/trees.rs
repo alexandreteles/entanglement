@@ -48,35 +48,11 @@ pub(super) fn injection_ranges(tree: &Tree, request: &InjectionRequest) -> Vec<T
         .flat_map(|range| {
             parent_ranges
                 .iter()
-                .filter_map(move |parent| intersect(range, *parent))
+                .filter_map(move |parent| ranges::intersect(range, *parent))
         })
         .collect::<Vec<_>>();
     ranges::normalize(&mut ranges);
     ranges
-}
-
-fn intersect(left: TsRange, right: TsRange) -> Option<TsRange> {
-    let start_byte = left.start_byte.max(right.start_byte);
-    let end_byte = left.end_byte.min(right.end_byte);
-    if start_byte >= end_byte {
-        return None;
-    }
-    let start_point = if start_byte == left.start_byte {
-        left.start_point
-    } else {
-        right.start_point
-    };
-    let end_point = if end_byte == left.end_byte {
-        left.end_point
-    } else {
-        right.end_point
-    };
-    Some(TsRange {
-        start_byte,
-        start_point,
-        end_byte,
-        end_point,
-    })
 }
 
 pub(super) fn is_smaller(parent: &Range<usize>, child: &Range<usize>) -> bool {

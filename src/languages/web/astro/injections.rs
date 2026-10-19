@@ -1,3 +1,4 @@
+use crate::languages::syntax::text;
 use std::ops::Range;
 
 use tree_sitter::Node;
@@ -136,8 +137,4 @@ fn valid_identifier(value: &str) -> bool {
     (first == '_' || first == '$' || first.is_alphabetic())
         && characters
             .all(|character| character == '_' || character == '$' || character.is_alphanumeric())
-}
-
-fn text(node: Node<'_>, source: &[u8]) -> String {
-    String::from_utf8_lossy(&source[node.byte_range()]).into_owned()
 }

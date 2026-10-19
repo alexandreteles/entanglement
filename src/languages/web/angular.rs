@@ -1,3 +1,4 @@
+use crate::languages::syntax::named_children as children;
 mod inline;
 
 pub(super) use inline::inline_templates;
@@ -63,13 +64,6 @@ impl LanguageHandler for Analyzer {
 
 fn text<'a>(node: tree_sitter::Node<'_>, source: &'a [u8]) -> &'a str {
     std::str::from_utf8(&source[node.byte_range()]).unwrap_or_default()
-}
-
-fn children(node: tree_sitter::Node<'_>) -> impl Iterator<Item = tree_sitter::Node<'_>> {
-    let mut cursor = node.walk();
-    node.named_children(&mut cursor)
-        .collect::<Vec<_>>()
-        .into_iter()
 }
 
 fn link_branches(root: tree_sitter::Node<'_>, captured: &mut CapturedTree) {
