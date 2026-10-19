@@ -1,3 +1,4 @@
+mod angular;
 mod astro;
 mod css;
 mod exports;
@@ -65,6 +66,13 @@ pub(super) const LANGUAGE_SPECS: &[LanguageSpec] = &[
         build,
     },
     LanguageSpec {
+        scope: "source.angular",
+        resolution_family: ResolutionFamily::None,
+        project_manifests: &[],
+        file_module_rules: None,
+        build,
+    },
+    LanguageSpec {
         scope: "source.html",
         resolution_family: ResolutionFamily::None,
         project_manifests: &[],
@@ -98,6 +106,7 @@ fn build(scope: &str, language: &Language) -> Result<Box<dyn LanguageHandler>> {
     match scope {
         "source.js" => javascript::build(language),
         "source.ts" | "source.tsx" => typescript::build(language),
+        "source.angular" => angular::build(language),
         "source.html" => html::build(language),
         "source.svelte" => svelte::build(language),
         "source.astro" => astro::build(language),
@@ -128,7 +137,9 @@ impl LanguageHandler for Analyzer {
                 facts.record(&self.captures, captures, bytes);
             });
         let semantic = facts.finish(tree.root_node());
-        Ok(captured(query, semantic))
+        let mut captured = captured(query, semantic);
+        angular::inline_templates(tree.root_node(), source, &mut captured);
+        Ok(captured)
     }
 }
 
