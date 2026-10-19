@@ -156,9 +156,7 @@ impl Index<'_> {
         let package = self.semantic_package(file, context_id);
         let canonical =
             self.canonical_type_names(file, context_id, package, type_name, &mut BTreeSet::new());
-        (canonical.len() == 1)
-            .then(|| canonical.into_iter().next())
-            .flatten()
+        only(canonical)
     }
     pub(super) fn filter_callable_overloads(
         &self,

@@ -188,3 +188,10 @@ fn analysis(
 fn joined_path(base: &[String], relative: &[String]) -> Vec<String> {
     base.iter().chain(relative).cloned().collect()
 }
+
+/// Return a value only when the input contains exactly one item.
+fn only<T>(items: impl IntoIterator<Item = T>) -> Option<T> {
+    let mut items = items.into_iter();
+    let first = items.next()?;
+    items.next().is_none().then_some(first)
+}
