@@ -25,11 +25,6 @@ pub(in crate::analysis) fn summary(
     semantic.resolution_family = Some(choice.resolution_family);
     semantic.file_module_rules = choice.file_module_rules;
     if let Some(php) = &mut semantic.php {
-        php.declarations.retain(|item| {
-            !excluded
-                .iter()
-                .any(|range| range.contains(&item.start_byte))
-        });
         php.references.retain(|item| {
             !excluded
                 .iter()

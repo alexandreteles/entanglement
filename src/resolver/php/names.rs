@@ -7,55 +7,47 @@ pub(super) fn key(kind: PhpSymbolKind, name: &str) -> String {
         PhpSymbolKind::Class | PhpSymbolKind::Function | PhpSymbolKind::Method => {
             name.to_ascii_lowercase()
         }
-        PhpSymbolKind::Constant | PhpSymbolKind::Property => name.to_owned(),
+        _ => name.to_owned(),
     }
 }
 
 impl Index<'_> {
     pub(super) fn expanded_names(
         &self,
-        file: usize,
-        context: usize,
-        reference: &PhpReference,
+        site: Site,
+        name: &str,
+        kind: PhpSymbolKind,
     ) -> Vec<String> {
-        let Some(facts) = self.facts(file, context) else {
+        let Some(facts) = self.facts(site.file, site.context) else {
             return Vec::new();
         };
-        let namespace = facts
-            .namespaces
-            .iter()
-            .find(|namespace| namespace.range.start_byte == reference.namespace_start)
-            .map_or(String::new(), |namespace| namespace.name.join("\\"));
-        let qualify = |name: &str| {
-            if namespace.is_empty() {
-                name.to_owned()
-            } else {
-                format!("{namespace}\\{name}")
-            }
-        };
-        let name = &reference.name;
         if let Some(name) = name.strip_prefix('\\') {
             return vec![name.to_owned()];
         }
-        if let Some((prefix, suffix)) = name.split_once('\\')
-            && prefix.eq_ignore_ascii_case("namespace")
+        let region = facts.namespace_at(site.position);
+        let namespace = region.map_or(String::new(), |namespace| namespace.name.join("\\"));
+        let qualify = |name: &str| match namespace.is_empty() {
+            true => name.to_owned(),
+            false => format!("{namespace}\\{name}"),
+        };
+        let (first, suffix) = name
+            .split_once('\\')
+            .map_or((name, None), |(first, rest)| (first, Some(rest)));
+        if first.eq_ignore_ascii_case("namespace")
+            && let Some(suffix) = suffix
         {
             return vec![qualify(suffix)];
         }
-        let kind = reference_kind(reference.kind);
-        let (first, suffix) = name
-            .split_once('\\')
-            .map_or((name.as_str(), None), |(first, rest)| (first, Some(rest)));
-        let import_kind = if suffix.is_some() {
-            PhpSymbolKind::Class
-        } else {
-            kind
+        let import_kind = match suffix {
+            Some(_) => PhpSymbolKind::Class,
+            None => kind,
         };
+        let namespace_start = region.map_or(0, |namespace| namespace.range.start_byte);
         let imports = facts
             .imports
             .iter()
             .filter(|import| {
-                import.namespace_start == reference.namespace_start
+                import.namespace_start == namespace_start
                     && import.kind == import_kind
                     && key(import_kind, &import.alias) == key(import_kind, first)
             })
@@ -64,101 +56,70 @@ impl Index<'_> {
                 None => import.path.join("\\"),
             })
             .collect::<Vec<_>>();
-        if !imports.is_empty() {
-            return imports;
+        match imports.is_empty() {
+            false => imports,
+            true if suffix.is_none()
+                && !namespace.is_empty()
+                && matches!(kind, PhpSymbolKind::Function | PhpSymbolKind::Constant) =>
+            {
+                vec![qualify(name), name.to_owned()]
+            }
+            true => vec![qualify(name)],
         }
-        let mut names = vec![qualify(name)];
-        if suffix.is_none()
-            && !namespace.is_empty()
-            && matches!(kind, PhpSymbolKind::Function | PhpSymbolKind::Constant)
-        {
-            names.push(name.clone());
-        }
-        names
     }
 
     pub(super) fn lookup(
         &self,
-        file: usize,
-        context: usize,
-        reference: &PhpReference,
-    ) -> Vec<usize> {
-        if reference.kind == PhpReferenceKind::Class
-            && matches!(
-                reference.name.to_ascii_lowercase().as_str(),
-                "self" | "parent" | "static"
-            )
-        {
-            let Some(class) = reference.class.as_deref() else {
-                return Vec::new();
-            };
-            let classes = self.classes(file, context, reference.start_byte, &format!("\\{class}"));
-            let classes = classes
-                .into_iter()
-                .flat_map(|class| self.consumers(class, &mut HashSet::new()))
-                .collect::<Vec<_>>();
-            return if reference.name.eq_ignore_ascii_case("parent") {
-                classes
-                    .into_iter()
-                    .flat_map(|class| self.parents(class))
-                    .filter(|parent| !self.candidates[*parent].php.is_interface)
-                    .collect()
-            } else {
-                classes
-            };
-        }
-        let kind = reference_kind(reference.kind);
-        let names = self.expanded_names(file, context, reference);
-        for name in names {
-            let candidates = self
-                .names
-                .get(&(kind, key(kind, &name)))
-                .into_iter()
-                .flatten()
-                .filter(|index| self.visible(file, context, &self.candidates[**index]))
-                .copied()
-                .collect::<Vec<_>>();
-            if !candidates.is_empty() {
-                return candidates;
-            }
-        }
-        Vec::new()
-    }
-
-    pub(super) fn classes(
-        &self,
-        file: usize,
-        context: usize,
-        position: usize,
+        site: Site,
         name: &str,
+        kind: PhpSymbolKind,
+        lexical: Option<&str>,
     ) -> Vec<usize> {
-        let namespace_start = self
-            .facts(file, context)
-            .into_iter()
-            .flat_map(|facts| &facts.namespaces)
-            .filter(|namespace| {
-                namespace.range.start_byte <= position && position < namespace.range.end_byte
-            })
-            .min_by_key(|namespace| namespace.range.end_byte - namespace.range.start_byte)
-            .map_or(0, |namespace| namespace.range.start_byte);
-        self.lookup(
-            file,
-            context,
-            &PhpReference {
-                start_byte: position,
-                name: name.to_owned(),
-                kind: PhpReferenceKind::Class,
-                receiver: None,
-                receiver_reference: None,
-                namespace_start,
-                class: None,
-                callable: false,
-            },
-        )
+        match kind == PhpSymbolKind::Class
+            && ["self", "parent", "static"]
+                .iter()
+                .any(|keyword| name.eq_ignore_ascii_case(keyword))
+        {
+            true => {
+                let Some(class) = lexical else {
+                    return Vec::new();
+                };
+                let classes = self
+                    .lookup(site, &format!("\\{class}"), kind, None)
+                    .into_iter()
+                    .flat_map(|class| self.consumers(class, &mut HashSet::new()))
+                    .collect::<Vec<_>>();
+                match name.eq_ignore_ascii_case("parent") {
+                    false => classes,
+                    true => classes
+                        .into_iter()
+                        .flat_map(|class| self.parents(class))
+                        .filter(|parent| !self.candidates[*parent].php.is_interface)
+                        .collect(),
+                }
+            }
+            false => self
+                .expanded_names(site, name, kind)
+                .into_iter()
+                .find_map(|name| {
+                    let candidates = self
+                        .symbols
+                        .get(&(None, kind, key(kind, &name)))
+                        .into_iter()
+                        .flatten()
+                        .filter(|index| {
+                            self.visible(site.file, site.context, &self.candidates[**index])
+                        })
+                        .copied()
+                        .collect::<Vec<_>>();
+                    (!candidates.is_empty()).then_some(candidates)
+                })
+                .unwrap_or_default(),
+        }
     }
 }
 
-fn reference_kind(kind: PhpReferenceKind) -> PhpSymbolKind {
+pub(super) fn reference_kind(kind: PhpReferenceKind) -> PhpSymbolKind {
     match kind {
         PhpReferenceKind::Function => PhpSymbolKind::Function,
         PhpReferenceKind::Constant | PhpReferenceKind::ClassConstant => PhpSymbolKind::Constant,

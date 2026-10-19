@@ -10,14 +10,13 @@ pub(super) fn nodes(root: Node<'_>) -> Vec<Node<'_>> {
     let mut pending = vec![root];
     while let Some(node) = pending.pop() {
         nodes.push(node);
-        pending.extend(children(node).into_iter().rev());
+        pending.extend(children(node).rev());
     }
     nodes
 }
 
-pub(super) fn children(node: Node<'_>) -> Vec<Node<'_>> {
-    let mut cursor = node.walk();
-    node.named_children(&mut cursor).collect()
+pub(super) fn children(node: Node<'_>) -> impl DoubleEndedIterator<Item = Node<'_>> {
+    (0..node.named_child_count()).filter_map(move |index| node.named_child(index as u32))
 }
 
 pub(super) fn text<'a>(node: Node<'_>, source: &'a [u8]) -> &'a str {
@@ -83,24 +82,11 @@ pub(super) fn class_name(
     let class = ancestors(node)
         .find(|node| is_class(*node) || node.kind() == "function_definition")
         .filter(|node| is_class(*node))?;
-    let name = class
-        .child_by_field_name("name")
-        .map(|name| text(name, source).to_owned())
-        .unwrap_or_else(|| format!("anonymous-class@{}", class.start_byte()));
-    Some(
-        namespace(namespaces, class)
-            .name
-            .iter()
-            .map(String::as_str)
-            .chain(std::iter::once(name.as_str()))
-            .collect::<Vec<_>>()
-            .join("\\"),
-    )
+    Some(namespace(namespaces, class).qualify(&declaration_name(class, source)))
 }
 
 pub(super) fn visibility(node: Node<'_>, source: &[u8]) -> SemanticVisibility {
     match children(node)
-        .into_iter()
         .find(|child| {
             child.kind() == "visibility_modifier" && !text(*child, source).contains("set")
         })
@@ -113,27 +99,13 @@ pub(super) fn visibility(node: Node<'_>, source: &[u8]) -> SemanticVisibility {
 }
 
 pub(super) fn modifier(node: Node<'_>, kind: &str) -> bool {
-    children(node).iter().any(|child| child.kind() == kind)
+    children(node).any(|child| child.kind() == kind)
 }
 
 pub(super) fn conditional(node: Node<'_>) -> bool {
     ancestors(node)
         .take_while(|node| node.kind() != "anonymous_class")
-        .any(|node| {
-            is_callable(node)
-                || matches!(
-                    node.kind(),
-                    "if_statement"
-                        | "else_if_clause"
-                        | "else_clause"
-                        | "switch_statement"
-                        | "for_statement"
-                        | "foreach_statement"
-                        | "while_statement"
-                        | "do_statement"
-                        | "catch_clause"
-                )
-        })
+        .any(|node| is_callable(node) || is_branch(node))
 }
 
 pub(super) fn name_parts(name: &str) -> Vec<String> {
@@ -144,10 +116,7 @@ pub(super) fn name_parts(name: &str) -> Vec<String> {
 }
 
 pub(super) fn unwrap(mut node: Node<'_>) -> Node<'_> {
-    while node.kind() == "parenthesized_expression" {
-        let Some(inner) = node.named_child(0) else {
-            break;
-        };
+    while let ("parenthesized_expression", Some(inner)) = (node.kind(), node.named_child(0)) {
         node = inner;
     }
     node
@@ -178,8 +147,39 @@ pub(super) fn literal(node: Node<'_>, source: &[u8]) -> Option<String> {
 pub(super) fn first_class_callable(node: Node<'_>) -> bool {
     node.child_by_field_name("arguments")
         .is_some_and(|arguments| {
-            children(arguments)
-                .iter()
-                .any(|child| child.kind() == "variadic_placeholder")
+            children(arguments).any(|child| child.kind() == "variadic_placeholder")
         })
+}
+
+pub(super) fn declaration_name(node: Node<'_>, source: &[u8]) -> String {
+    match node.child_by_field_name("name") {
+        Some(name) => text(name, source).to_owned(),
+        None if is_class(node) => format!("anonymous-class@{}", node.start_byte()),
+        None => format!(
+            "anonymous@{}:{}",
+            node.start_position().row + 1,
+            node.start_byte()
+        ),
+    }
+}
+
+pub(super) fn scope(node: Node<'_>) -> Node<'_> {
+    ancestors(node)
+        .find(|node| is_callable(*node))
+        .unwrap_or_else(|| ancestors(node).last().unwrap_or(node))
+}
+
+pub(super) fn is_branch(node: Node<'_>) -> bool {
+    matches!(
+        node.kind(),
+        "if_statement"
+            | "else_if_clause"
+            | "else_clause"
+            | "switch_statement"
+            | "for_statement"
+            | "foreach_statement"
+            | "while_statement"
+            | "do_statement"
+            | "catch_clause"
+    )
 }

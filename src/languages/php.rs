@@ -36,3 +36,10 @@ impl LanguageHandler for Analyzer {
         Ok(captured)
     }
 }
+
+/// Shared source and output state for one PHP syntax traversal.
+struct Capture<'a> {
+    source: &'a [u8],
+    php: &'a mut crate::graph::PhpFacts,
+    captured: &'a mut CapturedTree,
+}

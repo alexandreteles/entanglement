@@ -1,7 +1,12 @@
 //! Connect proven PHP invocations to reported executable ranges.
 
 use super::*;
-use crate::model::{ExecutionTarget, ReferenceAccess, SourceRange};
+use crate::model::{
+    ExecutionTarget,
+    ReferenceAccess::{Read, ReadWrite, Write},
+};
+use PhpReferenceKind as RefKind;
+use PhpSymbolKind as SymbolKind;
 
 impl Index<'_> {
     pub(super) fn callable_reference(
@@ -9,63 +14,40 @@ impl Index<'_> {
         file: usize,
         reference: &Reference,
         php: &PhpReference,
-        seen: &mut HashSet<String>,
     ) -> ReferenceAnalysis {
-        if !php.callable || !seen.insert(php.name.clone()) {
-            return analysis(reference, Resolution::Unresolved, None);
-        }
-        let Some(binding) = self
-            .receiver_binding(file, reference, &php.name)
-            .filter(|binding| binding.immutable)
-        else {
-            return analysis(reference, Resolution::Unresolved, None);
+        let alias = match self.callable_alias(file, reference, &php.name) {
+            Some(alias) if php.callable => alias,
+            _ => return analysis(reference, Resolution::Unresolved, None),
         };
-        let Some(alias) = binding.alias_target.as_deref() else {
-            return analysis(reference, Resolution::Unresolved, None);
-        };
-        if let Some((receiver, name)) = alias
-            .strip_prefix("@method:")
-            .and_then(|alias| alias.rsplit_once("::"))
-        {
-            return self.method_callable(file, reference, php, receiver, name);
-        }
-        if alias.starts_with('$') {
-            return self.callable_reference(
-                file,
-                reference,
-                &PhpReference {
-                    name: alias.to_owned(),
-                    ..php.clone()
-                },
-                seen,
-            );
-        }
-        let candidates = if let Some(start) = alias
-            .strip_prefix("@closure:")
-            .and_then(|start| start.parse::<usize>().ok())
-        {
-            self.candidates
-                .iter()
-                .enumerate()
-                .filter(|(_, candidate)| {
-                    candidate.id.file_index == file
-                        && candidate.context == reference.context_id
-                        && candidate.php.start_byte == start
-                })
-                .map(|(index, _)| index)
-                .collect()
-        } else if !alias.starts_with('@') {
-            self.lookup(
-                file,
-                reference.context_id,
-                &PhpReference {
-                    name: alias.to_owned(),
-                    kind: PhpReferenceKind::Function,
-                    ..php.clone()
-                },
-            )
-        } else {
-            Vec::new()
+        let candidates = match alias {
+            alias if alias.starts_with("@method:") => {
+                return match alias[8..].rsplit_once("::") {
+                    Some((receiver, name)) => {
+                        self.method_callable(file, reference, php, receiver, name)
+                    }
+                    None => self.finish(file, reference, php, Vec::new()),
+                };
+            }
+            alias if alias.starts_with("@closure:") => {
+                let start = alias[9..].parse::<usize>().ok();
+                self.candidates
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, candidate)| {
+                        candidate.site.file == file
+                            && candidate.site.context == reference.context_id
+                            && Some(candidate.site.position) == start
+                    })
+                    .map(|(index, _)| index)
+                    .collect()
+            }
+            alias if !alias.starts_with('@') => self.lookup(
+                Site::at(file, reference),
+                alias,
+                SymbolKind::Function,
+                php.class.as_deref(),
+            ),
+            _ => Vec::new(),
         };
         self.finish(
             file,
@@ -73,6 +55,28 @@ impl Index<'_> {
             php,
             candidates.into_iter().map(Member::new).collect(),
         )
+    }
+
+    fn callable_alias<'a>(
+        &'a self,
+        file: usize,
+        reference: &Reference,
+        mut name: &'a str,
+    ) -> Option<&'a str> {
+        let mut seen = HashSet::new();
+        loop {
+            if !seen.insert(name) {
+                return None;
+            }
+            name = self
+                .receiver_binding(file, reference, name)
+                .filter(|binding| binding.immutable)?
+                .alias_target
+                .as_deref()?;
+            if !name.starts_with('$') {
+                return Some(name);
+            }
+        }
     }
 
     fn method_callable(
@@ -94,19 +98,18 @@ impl Index<'_> {
         let php = PhpReference {
             name: name.to_owned(),
             receiver: Some(receiver.to_owned()),
-            kind: if receiver.starts_with('$') || receiver.starts_with("new ") {
-                PhpReferenceKind::Method
-            } else {
-                PhpReferenceKind::StaticMethod
+            kind: match receiver.starts_with('$') || receiver.starts_with("new ") {
+                true => RefKind::Method,
+                false => RefKind::StaticMethod,
             },
             ..php.clone()
         };
-        return self.finish(
+        self.finish(
             file,
             reference,
             &php,
             self.member_reference(file, reference, &php, &mut HashSet::new()),
-        );
+        )
     }
 
     pub(super) fn execution_targets(
@@ -118,48 +121,44 @@ impl Index<'_> {
         result: &mut ReferenceAnalysis,
     ) {
         let candidate = &self.candidates[member.candidate];
-        if php.kind == PhpReferenceKind::Class && php.callable {
+        if php.kind == RefKind::Class && php.callable {
             self.constructor(file, reference, php, member.candidate, result);
             return;
         }
-        if result.dispatch != Some(CallDispatch::Direct) {
+        let execution = match (
+            result.dispatch,
+            candidate.php.kind,
+            candidate.declaration.execution.as_ref(),
+        ) {
+            (Some(CallDispatch::Direct), SymbolKind::Property, Some(execution)) => execution,
+            _ => return,
+        };
+        // An access from either hook uses this property's backing storage.
+        if php.receiver.as_deref() == Some("$this")
+            && reference.execution_owner.is_some_and(|owner| {
+                [execution.getter, execution.setter]
+                    .into_iter()
+                    .flatten()
+                    .any(|hook| hook.start_byte == owner)
+            })
+        {
             return;
         }
-        let Some(execution) = candidate
-            .declaration
-            .and_then(|declaration| declaration.execution.as_ref())
-        else {
-            return;
+        let ranges = match reference.access {
+            Some(Read) => [execution.getter, None],
+            Some(Write) => [execution.setter, None],
+            Some(ReadWrite) => [execution.getter, execution.setter],
+            _ => [None, None],
         };
-        let ranges = if candidate.php.kind == PhpSymbolKind::Property {
-            match reference.access {
-                Some(ReferenceAccess::Read) => execution.getter.into_iter().collect::<Vec<_>>(),
-                Some(ReferenceAccess::Write) => execution.setter.into_iter().collect(),
-                Some(ReferenceAccess::ReadWrite) => execution
-                    .getter
-                    .into_iter()
-                    .chain(execution.setter)
-                    .collect(),
-                None => Vec::new(),
-            }
-        } else if php.callable {
-            execution.callable_value.into_iter().collect()
-        } else {
-            Vec::new()
-        };
-        for range in ranges {
-            // PHP uses the backing property when its own hook accesses $this.
-            if php.receiver.as_deref() == Some("$this")
-                && reference.execution_owner.is_some_and(|owner| {
-                    [execution.getter, execution.setter]
-                        .into_iter()
-                        .flatten()
-                        .any(|hook| hook.start_byte == owner)
-                })
-            {
-                continue;
-            }
-            append_target(reference, candidate, range, result);
+        if let Some(caller_start_byte) = reference.execution_owner.or(reference.call_owner) {
+            result
+                .execution_targets
+                .extend(ranges.into_iter().flatten().map(|range| ExecutionTarget {
+                    caller_start_byte,
+                    file_index: candidate.site.file,
+                    context_id: candidate.site.context,
+                    range,
+                }));
         }
     }
 
@@ -172,78 +171,40 @@ impl Index<'_> {
         result: &mut ReferenceAnalysis,
     ) {
         let candidate = &self.candidates[class];
-        if php.name.eq_ignore_ascii_case("static")
-            && !candidate
-                .declaration
-                .is_some_and(|declaration| declaration.modifiers.is_final)
-        {
+        if php.name.eq_ignore_ascii_case("static") && !candidate.declaration.modifiers.is_final {
             result.dispatch = Some(CallDispatch::Virtual);
-            return;
-        }
-        if candidate.php.conditional
-            || candidate.php.is_interface
-            || candidate.php.is_trait
-            || candidate
-                .declaration
-                .is_some_and(|declaration| declaration.modifiers.is_abstract)
-        {
-            result.resolution = Resolution::Unresolved;
-            result.dispatch = None;
             return;
         }
         let constructors = self.type_members(
             class,
-            PhpSymbolKind::Method,
+            SymbolKind::Method,
             "__construct",
             &mut HashSet::new(),
         );
-        match constructors.as_slice() {
-            [] => {}
-            [constructor] => {
-                let constructor_candidate = &self.candidates[constructor.candidate];
-                if !self.accessible(file, reference, php, constructor) {
-                    result.resolution = Resolution::Unresolved;
-                    result.dispatch = None;
-                    return;
-                }
-                // The constructor symbol identifies inherited executable bodies
-                // as well as constructors declared in the allocated class.
-                result.resolution = Resolution::Exact(constructor_candidate.symbol.clone());
+        let resolution = match constructors.as_slice() {
+            _ if candidate.php.conditional
+                || candidate.php.is_interface
+                || candidate.php.is_trait
+                || candidate.declaration.modifiers.is_abstract =>
+            {
+                Resolution::Unresolved
+            }
+            [] => return,
+            [constructor] if self.accessible(file, reference, php, constructor) => {
+                let target = &self.candidates[constructor.candidate];
+                result.resolution = Resolution::Exact(target.symbol.clone());
                 result.dispatch = Some(CallDispatch::Direct);
-                if let Some(execution) = constructor_candidate
-                    .declaration
-                    .and_then(|declaration| declaration.execution.as_ref())
-                {
-                    for range in &execution.constructors {
-                        append_target(reference, constructor_candidate, *range, result);
-                    }
-                }
+                return;
             }
-            _ => {
-                result.resolution = Resolution::Ambiguous(
-                    constructors
-                        .iter()
-                        .map(|member| self.candidates[member.candidate].symbol.clone())
-                        .collect(),
-                );
-                result.dispatch = None;
-            }
-        }
-    }
-}
-
-fn append_target(
-    reference: &Reference,
-    candidate: &Candidate<'_>,
-    range: SourceRange,
-    result: &mut ReferenceAnalysis,
-) {
-    if let Some(caller_start_byte) = reference.execution_owner.or(reference.call_owner) {
-        result.execution_targets.push(ExecutionTarget {
-            caller_start_byte,
-            file_index: candidate.id.file_index,
-            context_id: candidate.context,
-            range,
-        });
+            [_] => Resolution::Unresolved,
+            _ => Resolution::Ambiguous(
+                constructors
+                    .iter()
+                    .map(|member| self.candidates[member.candidate].symbol.clone())
+                    .collect(),
+            ),
+        };
+        result.resolution = resolution;
+        result.dispatch = None;
     }
 }
