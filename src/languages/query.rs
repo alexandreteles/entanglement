@@ -170,8 +170,23 @@ impl QueryAnalyzer {
         let included = ranges::included(tree);
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&self.query, tree.root_node(), source);
+        let has_errors = tree.root_node().has_error();
         while let Some(query_match) = matches.next() {
             let captures = query_match.captures();
+            let retained;
+            let captures = if has_errors {
+                retained = captures
+                    .iter()
+                    .copied()
+                    .filter(|capture| {
+                        Some(capture.index) == self.syntax_node
+                            || !tokens::recovered_jsx_prose(capture.node, source)
+                    })
+                    .collect::<Vec<_>>();
+                retained.as_slice()
+            } else {
+                captures
+            };
             facts.record_syntax(self, captures, &included, source);
             facts.record_injections(self, query_match.pattern_index, captures, source);
             on_match(query_match.pattern_index, captures, source);

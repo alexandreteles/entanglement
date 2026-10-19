@@ -1,6 +1,72 @@
 use super::*;
 
 #[test]
+fn recovered_jsx_prose_keeps_real_expressions_and_attribute_operands() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = r#"
+function fn() { return true; }
+export function Panel(flag) {
+  return <Fade in={flag && fn()}>Shipping ? function-like Word() & Fake Other
+    {flag ? fn() : (() => flag && fn())()}
+  </Fade>;
+}
+"#;
+    let clean = source
+        .replace("in=", "ok=")
+        .replace("Shipping ? function-like Word() & Fake Other", "Shipping");
+    for extension in ["jsx", "tsx"] {
+        let recovered = analyze_source(temp.path(), &format!("Recovered.{extension}"), source);
+        let clean = analyze_source(temp.path(), &format!("Clean.{extension}"), &clean);
+        let recovered = &recovered["files"][0];
+        let clean = &clean["files"][0];
+        assert_eq!(recovered["nloc"], clean["nloc"]);
+        for name in ["Fake", "Other", "Word"] {
+            assert!(
+                !recovered["resolution"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|item| item["path"] == serde_json::json!([name]))
+            );
+        }
+        assert_eq!(
+            recovered["functions"].as_array().unwrap().len(),
+            clean["functions"].as_array().unwrap().len()
+        );
+        for name in ["fn", "Panel"] {
+            for metric in ["nloc", "cyclomatic_complexity", "cognitive_complexity"] {
+                assert_eq!(
+                    function(recovered, name)[metric],
+                    function(clean, name)[metric],
+                    "{extension}: {name}: {metric}"
+                );
+            }
+        }
+        for metric in [
+            "distinct_operators",
+            "distinct_operands",
+            "total_operators",
+            "total_operands",
+            "volume",
+        ] {
+            assert_eq!(
+                recovered["halstead"][metric], clean["halstead"][metric],
+                "{extension}: {metric}"
+            );
+        }
+        assert_eq!(
+            recovered["resolution"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|item| item["path"] == serde_json::json!(["fn"]))
+                .count(),
+            3
+        );
+    }
+}
+
+#[test]
 fn file_mode_selects_each_typescript_and_javascript_family_extension() {
     let temp = tempfile::tempdir().unwrap();
     for (extension, language) in [
