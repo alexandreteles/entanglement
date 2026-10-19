@@ -435,12 +435,7 @@ impl Index<'_> {
     }
     pub(super) fn same_package_type(&self, package: &[String], receiver: &str) -> Option<String> {
         let candidates = self
-            .named(receiver)
-            .filter(|candidate| {
-                candidate.package == package
-                    && candidate.owner.is_empty()
-                    && is_type_declaration(candidate)
-            })
+            .package_types(receiver, package)
             .map(candidate_type_name)
             .collect::<BTreeSet<_>>();
         (candidates.len() == 1)

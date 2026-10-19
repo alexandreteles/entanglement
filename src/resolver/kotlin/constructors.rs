@@ -71,31 +71,24 @@ impl Index<'_> {
         if !matches_signature {
             return Vec::new();
         }
-        let owner = extended_owner(class.owner, class.name);
+        let secondary_constructors = self
+            .candidates_owned_by(class)
+            .filter(|candidate| {
+                candidate
+                    .declaration
+                    .is_some_and(|declaration| declaration.kind == DeclarationKind::Constructor)
+            })
+            .collect::<Vec<_>>();
         ranges
             .iter()
             .copied()
-            .filter(|range| !self.is_secondary_constructor_range(class, &owner, *range))
+            .filter(|range| {
+                !secondary_constructors.iter().any(|candidate| {
+                    candidate.start == range.start_byte && candidate.end == range.end_byte
+                })
+            })
             .take(1)
             .collect()
-    }
-
-    pub(super) fn is_secondary_constructor_range(
-        &self,
-        class: &Candidate,
-        owner: &[String],
-        range: SourceRange,
-    ) -> bool {
-        self.candidates.iter().any(|candidate| {
-            candidate.file == class.file
-                && candidate.context_id == class.context_id
-                && candidate.owner == owner
-                && candidate.start == range.start_byte
-                && candidate.end == range.end_byte
-                && candidate
-                    .declaration
-                    .is_some_and(|declaration| declaration.kind == DeclarationKind::Constructor)
-        })
     }
 
     pub(super) fn secondary_constructor_matches(
@@ -104,16 +97,11 @@ impl Index<'_> {
         ranges: &[SourceRange],
         arguments: &CallArguments<'_>,
     ) -> Vec<SourceRange> {
-        let owner = extended_owner(class.owner, class.name);
-        self.candidates
-            .iter()
+        self.candidates_owned_by(class)
             .filter(|candidate| {
-                candidate.file == class.file
-                    && candidate.context_id == class.context_id
-                    && candidate.owner == owner
-                    && candidate
-                        .declaration
-                        .is_some_and(|declaration| declaration.kind == DeclarationKind::Constructor)
+                candidate
+                    .declaration
+                    .is_some_and(|declaration| declaration.kind == DeclarationKind::Constructor)
             })
             .filter(|candidate| {
                 candidate
@@ -161,18 +149,14 @@ impl Index<'_> {
         {
             return true;
         }
-        let owner = extended_owner(target.owner, target.name);
-        self.candidates.iter().any(|constructor| {
-            constructor.file == target.file
-                && constructor.context_id == target.context_id
-                && constructor.owner == owner
-                && constructor.declaration.is_some_and(|declaration| {
-                    declaration.kind == DeclarationKind::Constructor
-                        && declaration
-                            .signature
-                            .as_ref()
-                            .is_some_and(|signature| arguments.bind(signature).matches())
-                })
+        self.candidates_owned_by(target).any(|constructor| {
+            constructor.declaration.is_some_and(|declaration| {
+                declaration.kind == DeclarationKind::Constructor
+                    && declaration
+                        .signature
+                        .as_ref()
+                        .is_some_and(|signature| arguments.bind(signature).matches())
+            })
         })
     }
 }
