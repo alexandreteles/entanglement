@@ -1,6 +1,49 @@
 use super::*;
 
 #[test]
+fn html_react_script_labels_select_jsx_and_tsx_grammars() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut source = String::new();
+    for (index, attributes) in [
+        "type=\"text/babel\"",
+        "type=text/jsx",
+        "lang=jsx",
+        "lang=\"tsx\"",
+        "type=text/tsx",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let parameter = if index >= 3 { "flag: boolean" } else { "flag" };
+        source.push_str(&format!("<script {attributes}>function Panel{index}({parameter}) {{ return flag ? <div>prose</div> : null; }}</script>\n"));
+    }
+    source.push_str("<script type=\"application/json\">{\"value\": 1}</script>\n");
+    let report = analyze_source(temp.path(), "react.html", &source);
+    let file = &report["files"][0];
+    let injections = file["injections"].as_array().unwrap();
+    for (index, language) in [
+        "javascript",
+        "javascript",
+        "javascript",
+        "tsx",
+        "tsx",
+        "application/json",
+    ]
+    .iter()
+    .enumerate()
+    {
+        assert_eq!(injections[index]["language"], *language);
+        assert_eq!(injections[index]["analyzed"], index < 5);
+        if index < 5 {
+            assert_eq!(
+                function(file, &format!("Panel{index}"))["cyclomatic_complexity"],
+                2
+            );
+        }
+    }
+}
+
+#[test]
 fn html_scripts_styles_and_tagged_templates_keep_host_expressions() {
     let temp = tempfile::tempdir().unwrap();
     let html = temp.path().join("page.html");
