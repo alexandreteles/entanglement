@@ -1,23 +1,7 @@
-use std::process::Command;
+mod support;
+use support::source_report as analyze;
 
 use serde_json::Value;
-
-fn analyze(source: &str) -> Value {
-    let directory = tempfile::tempdir().expect("create temporary directory");
-    let path = directory.path().join("scope.rs");
-    std::fs::write(&path, source).expect("write Rust source");
-    let output = Command::new(env!("CARGO_BIN_EXE_entanglement"))
-        .args(["--format", "json", "file"])
-        .arg(path)
-        .output()
-        .expect("run entanglement");
-    assert!(
-        output.status.success(),
-        "analysis failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    serde_json::from_slice(&output.stdout).expect("parse JSON report")
-}
 
 #[test]
 fn nested_function_tokens_belong_to_the_smallest_scope() {

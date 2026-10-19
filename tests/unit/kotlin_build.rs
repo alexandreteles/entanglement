@@ -1,8 +1,24 @@
-use super::{
-    DependencyExposure, DependencyScope, parse_includes, parse_project_dependency_details,
-    parse_project_directories, parse_source_edges,
-};
+use super::{BuildFacts, DependencyExposure, DependencyScope, ProjectDependency, Settings};
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
+
+fn parse_includes(source: &str) -> BTreeSet<String> {
+    Settings::parse(source).modules
+}
+
+fn parse_project_directories(source: &str) -> BTreeMap<String, PathBuf> {
+    Settings::parse(source).directories
+}
+
+fn parse_project_dependency_details(source: &str) -> BTreeSet<ProjectDependency> {
+    BuildFacts::parse(source).dependencies
+}
+
+fn parse_source_edges(source: &str, edges: &mut BTreeMap<String, BTreeSet<String>>) {
+    for (child, parents) in BuildFacts::parse(source).source_edges {
+        edges.entry(child).or_default().extend(parents);
+    }
+}
 
 #[test]
 fn includes_ignore_comments_strings_dynamic_paths_and_nested_calls() {

@@ -1,56 +1,7 @@
-use std::path::Path;
-use std::process::{Command, Output};
+mod support;
+use support::{file, function, report, run, write};
 
 use serde_json::Value;
-
-fn run(mode: &str, path: &Path, diff: Option<&Path>, metrics: Option<&str>) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_entanglement"));
-    command.args(["--format", "json"]);
-    if let Some(metrics) = metrics {
-        command.args(["--metrics", metrics]);
-    }
-    command.arg(mode).arg(path);
-    if let Some(diff) = diff {
-        command.arg("--diff").arg(diff);
-    }
-    command.output().expect("run entanglement")
-}
-
-fn report(output: &Output) -> Value {
-    assert!(
-        output.status.success(),
-        "entanglement failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    serde_json::from_slice(&output.stdout).expect("parse JSON report")
-}
-
-fn write(path: &Path, source: impl AsRef<[u8]>) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, source).unwrap();
-}
-
-fn file<'a>(report: &'a Value, suffix: &str) -> &'a Value {
-    report["files"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|item| {
-            item["path"]
-                .as_str()
-                .is_some_and(|path| path.ends_with(suffix))
-        })
-        .unwrap_or_else(|| panic!("missing file {suffix}"))
-}
-
-fn function<'a>(file: &'a Value, name: &str) -> &'a Value {
-    file["functions"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|item| item["name"] == name)
-        .unwrap_or_else(|| panic!("missing function {name}"))
-}
 
 fn recursive(function: &Value) -> bool {
     function["cognitive_contributions"]

@@ -1,13 +1,10 @@
+mod support;
+use support::{file, function, write};
+
 use std::path::Path;
 use std::process::Command;
 
 use serde_json::Value;
-
-fn write(root: &Path, path: &str, source: &str) {
-    let path = root.join(path);
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, source).unwrap();
-}
 
 fn repo(root: &Path) -> Value {
     let output = Command::new(env!("CARGO_BIN_EXE_entanglement"))
@@ -21,19 +18,6 @@ fn repo(root: &Path) -> Value {
         String::from_utf8_lossy(&output.stderr)
     );
     serde_json::from_slice(&output.stdout).expect("parse report")
-}
-
-fn file<'a>(report: &'a Value, suffix: &str) -> &'a Value {
-    report["files"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|item| {
-            item["path"]
-                .as_str()
-                .is_some_and(|path| path.ends_with(suffix))
-        })
-        .unwrap_or_else(|| panic!("missing file {suffix}"))
 }
 
 fn default_target<'a>(file: &'a Value, local: &str, suffix: &str) -> &'a Value {
@@ -52,15 +36,6 @@ fn default_target<'a>(file: &'a Value, local: &str, suffix: &str) -> &'a Value {
     assert_eq!(target["name"], "default");
     assert!(target["file"].as_str().unwrap().ends_with(suffix));
     target
-}
-
-fn function<'a>(file: &'a Value, name: &str) -> &'a Value {
-    file["functions"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|item| item["name"] == name)
-        .unwrap_or_else(|| panic!("missing function {name}"))
 }
 
 fn recursive(function: &Value) -> bool {
@@ -136,7 +111,7 @@ export default wrap(() => { function helper() { return 1; } });
 "#,
         ),
     ] {
-        write(temp.path(), path, source);
+        write(&temp.path().join(path), source);
     }
 
     let report = repo(temp.path());
@@ -188,8 +163,7 @@ fn injection_count(file: &Value, language: &str, analyzed: bool) -> usize {
 fn html_selector_case_normalization_keeps_unknown_injections_visible() {
     let temp = tempfile::tempdir().unwrap();
     write(
-        temp.path(),
-        "page.html",
+        &temp.path().join("page.html"),
         r#"<script LaNg=TyPeScRiPt>
 function langTs(flag: boolean): boolean { return flag ? langTs(false) : false; }
 </script>

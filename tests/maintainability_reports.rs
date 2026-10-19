@@ -1,3 +1,6 @@
+mod support;
+use support::{function, only_file, report};
+
 use std::fmt::Write as FmtWrite;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -26,31 +29,6 @@ fn run(arguments: &[&str], target: &Path, diff: Option<&Path>) -> Output {
         command.arg("--diff").arg(diff);
     }
     command.arg(target).output().expect("run entanglement")
-}
-
-fn report(output: &Output) -> Value {
-    assert!(
-        output.status.success(),
-        "entanglement failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    serde_json::from_slice(&output.stdout).expect("parse JSON report")
-}
-
-fn only_file(report: &Value) -> &Value {
-    report["files"]
-        .as_array()
-        .and_then(|files| (files.len() == 1).then(|| &files[0]))
-        .expect("one source file report")
-}
-
-fn function<'a>(file: &'a Value, name: &str) -> &'a Value {
-    file["functions"]
-        .as_array()
-        .expect("function reports")
-        .iter()
-        .find(|function| function["name"] == name)
-        .unwrap_or_else(|| panic!("missing function {name}"))
 }
 
 fn expected_score(volume: f64, cc: usize, nloc: usize) -> f64 {

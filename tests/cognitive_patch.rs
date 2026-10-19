@@ -1,3 +1,6 @@
+mod support;
+use support::report;
+
 use std::path::Path;
 use std::process::{Command, Output};
 
@@ -11,15 +14,6 @@ fn run(arguments: &[&str], path: &Path, diff: &Path) -> Output {
         .arg(path)
         .output()
         .expect("run patch analysis")
-}
-
-fn report(output: &Output) -> Value {
-    assert!(
-        output.status.success(),
-        "entanglement failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    serde_json::from_slice(&output.stdout).expect("parse JSON report")
 }
 
 fn function_delta<'a>(report: &'a Value, name: &str) -> &'a Value {

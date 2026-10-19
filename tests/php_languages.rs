@@ -1,7 +1,24 @@
+mod support;
+use support::function;
+
 use std::path::Path;
 use std::process::Command;
 
 use serde_json::Value;
+
+fn write(path: &Path, source: &str) {
+    let mut parser = tree_sitter::Parser::new();
+    parser
+        .set_language(&tree_sitter_php::LANGUAGE_PHP.into())
+        .unwrap();
+    let tree = parser.parse(source, None).unwrap();
+    assert!(
+        !tree.root_node().has_error(),
+        "invalid PHP fixture: {}",
+        tree.root_node().to_sexp()
+    );
+    std::fs::write(path, source).unwrap();
+}
 
 fn report(mode: &str, path: &Path, diff: Option<&Path>, metrics: Option<&str>) -> Value {
     let mut command = Command::new(env!("CARGO_BIN_EXE_entanglement"));
@@ -19,29 +36,6 @@ fn report(mode: &str, path: &Path, diff: Option<&Path>, metrics: Option<&str>) -
         String::from_utf8_lossy(&output.stderr)
     );
     serde_json::from_slice(&output.stdout).expect("read report")
-}
-
-fn function<'a>(file: &'a Value, name: &str) -> &'a Value {
-    file["functions"]
-        .as_array()
-        .expect("function reports")
-        .iter()
-        .find(|function| function["name"] == name)
-        .unwrap_or_else(|| panic!("missing function {name}"))
-}
-
-fn write(path: &Path, source: &str) {
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&tree_sitter_php::LANGUAGE_PHP.into())
-        .unwrap();
-    let tree = parser.parse(source, None).unwrap();
-    assert!(
-        !tree.root_node().has_error(),
-        "invalid PHP fixture: {}",
-        tree.root_node().to_sexp()
-    );
-    std::fs::write(path, source).unwrap();
 }
 
 #[test]

@@ -1,3 +1,6 @@
+mod support;
+use support::{file, function};
+
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -29,28 +32,6 @@ fn assert_success(output: &Output) {
         "entanglement failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-}
-
-fn file<'a>(report: &'a Value, suffix: &str) -> &'a Value {
-    report["files"]
-        .as_array()
-        .expect("files array")
-        .iter()
-        .find(|file| {
-            file["path"]
-                .as_str()
-                .is_some_and(|path| path.ends_with(suffix))
-        })
-        .unwrap_or_else(|| panic!("report has no file ending in {suffix}"))
-}
-
-fn function<'a>(file: &'a Value, name: &str) -> &'a Value {
-    file["functions"]
-        .as_array()
-        .expect("functions array")
-        .iter()
-        .find(|function| function["name"] == name)
-        .unwrap_or_else(|| panic!("file has no function named {name}"))
 }
 
 fn resolution(reference: &Value) -> &Value {

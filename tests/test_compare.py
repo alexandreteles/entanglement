@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 
-SKILL_ROOT = Path(__file__).resolve().parents[1]
+SKILL_ROOT = Path(__file__).resolve().parents[1] / '.agents' / 'skills' / 'entanglement'
 COMPARATOR = SKILL_ROOT / 'scripts' / 'compare.py'
 
 

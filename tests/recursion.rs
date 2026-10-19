@@ -1,3 +1,6 @@
+mod support;
+use support::report;
+
 use std::path::Path;
 use std::process::{Command, Output};
 
@@ -28,15 +31,6 @@ fn write_crate(root: &Path, source: &str) {
     )
     .expect("write manifest");
     std::fs::write(root.join("src/lib.rs"), source).expect("write crate root");
-}
-
-fn report(output: &Output) -> Value {
-    assert!(
-        output.status.success(),
-        "entanglement failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    serde_json::from_slice(&output.stdout).expect("parse JSON report")
 }
 
 fn function<'a>(report: &'a Value, name: &str) -> &'a Value {

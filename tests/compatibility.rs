@@ -1,7 +1,8 @@
+mod support;
+use support::report;
+
 use std::path::Path;
 use std::process::{Command, Output};
-
-use serde_json::Value;
 
 fn run(arguments: &[&str], path: &Path) -> Output {
     Command::new(env!("CARGO_BIN_EXE_entanglement"))
@@ -10,15 +11,6 @@ fn run(arguments: &[&str], path: &Path) -> Output {
         .arg(path)
         .output()
         .expect("run entanglement")
-}
-
-fn report(output: &Output) -> Value {
-    assert!(
-        output.status.success(),
-        "entanglement failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    serde_json::from_slice(&output.stdout).expect("parse JSON report")
 }
 
 #[test]
