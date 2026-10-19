@@ -1,3 +1,5 @@
+use crate::languages::syntax::named_children;
+use crate::languages::syntax::text;
 use std::ops::Range;
 
 use tree_sitter::{Language, Node, QueryCapture, Tree};
@@ -265,17 +267,6 @@ fn ancestor_or_self<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>>
     (node.kind() == kind)
         .then_some(node)
         .or_else(|| ancestor(node, kind))
-}
-
-fn named_children(node: Node<'_>) -> impl Iterator<Item = Node<'_>> {
-    let mut cursor = node.walk();
-    node.named_children(&mut cursor)
-        .collect::<Vec<_>>()
-        .into_iter()
-}
-
-fn text(node: Node<'_>, source: &[u8]) -> String {
-    String::from_utf8_lossy(&source[node.byte_range()]).into_owned()
 }
 
 fn classify_tokens(captured: &mut CapturedTree) {

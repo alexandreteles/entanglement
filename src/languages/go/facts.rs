@@ -6,16 +6,10 @@ use super::captures::{Captures, Role};
 use super::scopes;
 use super::syntax::{contains, import, is_exported, reference_path, text, type_kind};
 use crate::model::{
-    Definition, DefinitionKind, Import, LocalBinding, ModulePath, Reference, ReferenceKind,
+    Definition, DefinitionKind, LocalBinding, ModulePath, Reference, ReferenceKind,
 };
 
-#[derive(Default)]
-pub(super) struct SemanticFacts {
-    pub definitions: Vec<Definition>,
-    pub imports: Vec<Import>,
-    pub references: Vec<Reference>,
-    pub locals: Vec<LocalBinding>,
-}
+pub(super) use crate::languages::CapturedSemantics as SemanticFacts;
 
 pub(super) struct CaptureFacts {
     root: Range<usize>,

@@ -1,3 +1,4 @@
+pub(super) use crate::languages::syntax::ancestors;
 use std::ops::Range;
 
 use tree_sitter::Node;
@@ -80,8 +81,4 @@ pub(super) fn declaration_scope(name: Node<'_>) -> Option<Range<usize>> {
     };
     let block = ancestors(declaration).find(|item| BLOCKS.contains(&item.kind()))?;
     Some(start..block.end_byte())
-}
-
-pub(super) fn ancestors(node: Node<'_>) -> impl Iterator<Item = Node<'_>> {
-    std::iter::successors(Some(node), Node::parent)
 }

@@ -7,7 +7,6 @@ mod references;
 mod syntax;
 
 use crate::languages::{FileModuleLayout, FileModuleRules};
-use crate::model::{Definition, Export, Import, LocalBinding, Reference};
 
 const PYTHON_EXTENSIONS: &[&str] = &["py", "pyi"];
 const PYTHON_INDEX_STEMS: &[&str] = &["__init__"];
@@ -28,14 +27,7 @@ pub(super) const PYTHON_FILE_MODULE_RULES: FileModuleRules = FileModuleRules {
     wildcard_imports_shadow: true,
 };
 
-#[derive(Default)]
-pub(super) struct SemanticFacts {
-    pub definitions: Vec<Definition>,
-    pub imports: Vec<Import>,
-    pub exports: Vec<Export>,
-    pub references: Vec<Reference>,
-    pub locals: Vec<LocalBinding>,
-}
+pub(super) use crate::languages::CapturedSemantics as SemanticFacts;
 
 pub(super) fn capture(root: Node<'_>, source: &[u8]) -> SemanticFacts {
     let mut facts = SemanticFacts::default();

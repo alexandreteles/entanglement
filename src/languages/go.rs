@@ -37,13 +37,6 @@ impl LanguageHandler for Analyzer {
                 .capture_with(tree, source, include_tokens, |_, captures, source| {
                     semantic.record(&self.captures, captures, source);
                 });
-        let semantic = semantic.finish();
-        Ok(CapturedTree {
-            definitions: semantic.definitions,
-            imports: semantic.imports,
-            references: semantic.references,
-            locals: semantic.locals,
-            ..CapturedTree::from(shared)
-        })
+        Ok(CapturedTree::from(shared).with_semantics(semantic.finish()))
     }
 }

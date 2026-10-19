@@ -1,5 +1,7 @@
 //! Small PHP syntax operations used by fact capture.
 
+pub(super) use crate::languages::syntax::named_children as children;
+
 use tree_sitter::Node;
 
 use crate::graph::{PhpNamespace, SemanticVisibility};
@@ -13,10 +15,6 @@ pub(super) fn nodes(root: Node<'_>) -> Vec<Node<'_>> {
         pending.extend(children(node).rev());
     }
     nodes
-}
-
-pub(super) fn children(node: Node<'_>) -> impl DoubleEndedIterator<Item = Node<'_>> {
-    (0..node.named_child_count()).filter_map(move |index| node.named_child(index as u32))
 }
 
 pub(super) fn text<'a>(node: Node<'_>, source: &'a [u8]) -> &'a str {

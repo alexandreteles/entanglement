@@ -1,4 +1,5 @@
-use std::ops::Range;
+pub(super) use crate::languages::syntax::contains;
+pub(super) use crate::languages::syntax::text;
 
 use tree_sitter::Node;
 
@@ -80,12 +81,4 @@ pub(super) fn reference_path(node: Node<'_>, source: &[u8]) -> Vec<String> {
         .filter_map(|field| node.child_by_field_name(field))
         .map(|child| text(child, source))
         .collect()
-}
-
-pub(super) fn text(node: Node<'_>, source: &[u8]) -> String {
-    String::from_utf8_lossy(&source[node.byte_range()]).into_owned()
-}
-
-pub(super) fn contains(outer: &Range<usize>, inner: &Range<usize>) -> bool {
-    outer.start <= inner.start && inner.end <= outer.end
 }

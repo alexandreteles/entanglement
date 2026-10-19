@@ -1,3 +1,5 @@
+use crate::languages::syntax::ancestors;
+use crate::languages::syntax::children as named_children;
 mod conventions;
 mod facts;
 mod scopes;
@@ -125,12 +127,7 @@ impl LanguageHandler for Analyzer {
         }
 
         let semantic = facts::capture(&scope_index);
-        let mut captured = CapturedTree::from(shared);
-        captured.definitions = semantic.definitions;
-        captured.imports = semantic.imports;
-        captured.references = semantic.references;
-        captured.locals = semantic.locals;
-        captured.semantic = semantic.semantic;
+        let mut captured = CapturedTree::from(shared).with_semantics(semantic);
         captured.semantic.resolution_family = Some(ResolutionFamily::KotlinModules);
         captured.semantic.file_module_rules = LANGUAGE_SPEC.file_module_rules;
         Ok(captured)
@@ -150,13 +147,4 @@ fn all_nodes(root: Node<'_>) -> Vec<Node<'_>> {
     }
     nodes.sort_by_key(|node| (node.start_byte(), node.end_byte()));
     nodes
-}
-
-fn named_children(node: Node<'_>) -> Vec<Node<'_>> {
-    let mut cursor = node.walk();
-    node.named_children(&mut cursor).collect()
-}
-
-fn ancestors(node: Node<'_>) -> impl Iterator<Item = Node<'_>> {
-    std::iter::successors(Some(node), |node| node.parent())
 }

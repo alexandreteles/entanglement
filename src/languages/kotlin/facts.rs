@@ -10,7 +10,7 @@ use super::{all_nodes, named_children};
 use crate::graph::{
     BindingType, CallArgumentFact, CallFacts, CallableParameter, CallableSignature,
     CallableTypeParameter, DeclarationExecutionFacts, DeclarationFacts, DeclarationKind,
-    DeclarationModifiers, ReceiverScope, SemanticContext, SemanticFacts, SemanticVisibility,
+    DeclarationModifiers, ReceiverScope, SemanticContext, SemanticVisibility,
 };
 use crate::model::{
     Definition, DefinitionKind, Import, LocalBinding, ModulePath, Reference, ReferenceAccess,
@@ -33,14 +33,7 @@ use recovered::*;
 use references::*;
 use signatures::*;
 
-#[derive(Default)]
-pub(super) struct Capture {
-    pub definitions: Vec<Definition>,
-    pub imports: Vec<Import>,
-    pub references: Vec<Reference>,
-    pub locals: Vec<LocalBinding>,
-    pub semantic: SemanticFacts,
-}
+pub(super) use crate::languages::CapturedSemantics as Capture;
 
 struct DefinitionContext<'tree, 'source> {
     root: Node<'tree>,

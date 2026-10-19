@@ -50,7 +50,7 @@ impl LanguageHandler for Analyzer {
             });
         let cutoff = extras.frontmatter_start.unwrap_or(root_range.start);
         let semantic = facts.finish(root);
-        let mut captured = super::captured(query, semantic);
+        let mut captured = CapturedTree::from(query).with_semantics(semantic);
 
         semantics::finish(&mut extras, cutoff, &mut captured);
         injections::configure(root, source, cutoff, &mut captured.injections);
