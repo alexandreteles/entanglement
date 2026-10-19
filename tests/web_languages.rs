@@ -107,6 +107,8 @@ fn resolution_at<'a>(file: &'a Value, source: &str, needle: &str, occurrence: us
         .unwrap_or_else(|| panic!("missing reference at byte {reference_start} for {needle:?}"))
 }
 
+#[path = "web_languages/angular.rs"]
+mod angular;
 #[path = "web_languages/html.rs"]
 mod html;
 #[path = "web_languages/javascript.rs"]
