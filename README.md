@@ -75,8 +75,10 @@ Supported manifests include `Cargo.toml`, `package.json`, `tsconfig.json`,
 | TypeScript | `.ts`, `.mts`, `.cts` |
 | TSX | `.tsx` |
 | JavaScript | `.js`, `.jsx`, `.mjs`, `.cjs` |
+| React | `.jsx`, `.tsx` |
 | Astro | `.astro` |
 | Svelte | `.svelte` |
+| Angular templates | `.component.html` |
 | HTML | `.html` |
 | CSS | `.css` |
 
