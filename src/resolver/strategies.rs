@@ -1,5 +1,6 @@
 //! Dispatch semantic contexts independently, including mixed-language files.
 
+use super::analysis;
 use crate::graph::{FileFactsView, ProgramGraph};
 use crate::languages::{FileModuleRules, ResolutionFamily};
 use crate::model::{FileFacts, ReferenceAnalysis, Resolution};
@@ -83,14 +84,7 @@ pub(super) fn resolve(
         .map(|fact| {
             fact.references
                 .iter()
-                .map(|reference| ReferenceAnalysis {
-                    path: reference.path.clone(),
-                    start_byte: reference.start_byte,
-                    end_byte: reference.end_byte,
-                    resolution: Resolution::Unresolved,
-                    dispatch: None,
-                    execution_targets: Vec::new(),
-                })
+                .map(|reference| analysis(reference, Resolution::Unresolved, None))
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();

@@ -8,8 +8,8 @@ use std::path::PathBuf;
 
 use rayon::prelude::*;
 
-use crate::graph::{FileFactsView, ProgramGraph};
-use crate::model::{FileFacts, ReferenceAnalysis, Resolution, SymbolId};
+use crate::graph::{CallDispatch, FileFactsView, ProgramGraph};
+use crate::model::{FileFacts, Reference, ReferenceAnalysis, Resolution, SymbolId};
 
 mod files;
 mod indexing;
@@ -147,27 +147,42 @@ fn resolve_fact(
     }
     let context = &index.contexts[file_index];
     fact.references()
-        .map(|reference| ReferenceAnalysis {
-            path: reference.path.clone(),
-            start_byte: reference.start_byte,
-            end_byte: reference.end_byte,
-            resolution: index.to_resolution(
-                context
-                    .iter()
-                    .map(|context| {
-                        match index.resolve_reference(file_index, context, reference, fact) {
-                            Resolution::Exact(symbol) => Target::Symbol(symbol),
-                            Resolution::Ambiguous(symbols) => Target::Ambiguous(symbols),
-                            Resolution::External => Target::External,
-                            Resolution::Unresolved => Target::Unresolved,
-                        }
-                    })
-                    .collect(),
-            ),
-            dispatch: None,
-            execution_targets: Vec::new(),
+        .map(|reference| {
+            analysis(
+                reference,
+                index.to_resolution(
+                    context
+                        .iter()
+                        .map(|context| {
+                            match index.resolve_reference(file_index, context, reference, fact) {
+                                Resolution::Exact(symbol) => Target::Symbol(symbol),
+                                Resolution::Ambiguous(symbols) => Target::Ambiguous(symbols),
+                                Resolution::External => Target::External,
+                                Resolution::Unresolved => Target::Unresolved,
+                            }
+                        })
+                        .collect(),
+                ),
+                None,
+            )
         })
         .collect()
+}
+
+/// Build a reference result with no execution targets.
+fn analysis(
+    reference: &Reference,
+    resolution: Resolution,
+    dispatch: Option<CallDispatch>,
+) -> ReferenceAnalysis {
+    ReferenceAnalysis {
+        path: reference.path.clone(),
+        start_byte: reference.start_byte,
+        end_byte: reference.end_byte,
+        resolution,
+        dispatch,
+        execution_targets: Vec::new(),
+    }
 }
 
 fn joined_path(base: &[String], relative: &[String]) -> Vec<String> {

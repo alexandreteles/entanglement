@@ -1,3 +1,4 @@
+use super::super::analysis;
 use crate::graph::FileFactsView;
 use std::collections::BTreeSet;
 
@@ -16,13 +17,12 @@ impl Index<'_, '_> {
     ) -> Option<Vec<ReferenceAnalysis>> {
         (fact.resolution_family == ResolutionFamily::FileModules).then(|| {
             fact.references()
-                .map(|reference| ReferenceAnalysis {
-                    path: reference.path.clone(),
-                    start_byte: reference.start_byte,
-                    end_byte: reference.end_byte,
-                    resolution: self.resolve_reference(file, fact, reference),
-                    dispatch: None,
-                    execution_targets: Vec::new(),
+                .map(|reference| {
+                    analysis(
+                        reference,
+                        self.resolve_reference(file, fact, reference),
+                        None,
+                    )
                 })
                 .collect()
         })

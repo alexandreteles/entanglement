@@ -22,6 +22,7 @@ mod symbols;
 mod types;
 mod visibility;
 
+use super::analysis;
 use arguments::{
     CallArgumentEvidence, CallArguments, function_type_parameters, function_type_receiver,
     normalize_type, substitute_type_name,
