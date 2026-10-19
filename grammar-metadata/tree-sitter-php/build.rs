@@ -27,18 +27,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         root.join("common/scanner.h"),
     )?;
     let mut metadata: Value = serde_json::from_slice(&fs::read(source.join("tree-sitter.json"))?)?;
-    let php = metadata["grammars"]
+    let grammars = metadata["grammars"]
         .as_array_mut()
-        .ok_or("No PHP grammar metadata")?
+        .ok_or("No PHP grammar metadata")?;
+    let php = grammars
         .iter_mut()
         .find(|grammar| grammar["name"] == "php")
         .ok_or("No mixed PHP grammar metadata")?;
     php["file-types"] = json!(["php", "phtml"]);
     php["injection-regex"] = json!("^php$");
     // Keep the PHP-only grammar available without registering the file scope twice.
-    let php_only = metadata["grammars"]
-        .as_array_mut()
-        .ok_or("No PHP grammar metadata")?
+    let php_only = grammars
         .iter_mut()
         .find(|grammar| grammar["name"] == "php_only")
         .ok_or("No PHP-only grammar metadata")?;
@@ -97,7 +96,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Add the missing PHP 8.5 syntax without changing value expressions.
+/// Apply the PHP syntax corrections without changing value expressions.
 fn correct_grammar(grammar: &mut Value) -> Result<(), Box<dyn Error>> {
     let rules = &mut grammar["rules"];
     for pointer in [
@@ -111,14 +110,14 @@ fn correct_grammar(grammar: &mut Value) -> Result<(), Box<dyn Error>> {
             return Err("The PHP trait adaptation rule has changed".into());
         }
         *modifier = json!({"type":"CHOICE","members":[
-            modifier.clone(), {"type":"SYMBOL","name":"final_modifier"}
+            modifier.take(), {"type":"SYMBOL","name":"final_modifier"}
         ]});
     }
     let promotion = &mut rules["property_promotion_parameter"]["members"][1];
     if promotion["type"] != "REPEAT1" || promotion["content"]["name"] != "visibility" {
         return Err("The PHP promotion rule has changed".into());
     }
-    promotion["content"] = json!({"type":"CHOICE", "members":[promotion["content"].clone(),
+    promotion["content"] = json!({"type":"CHOICE", "members":[promotion["content"].take(),
         {"type":"FIELD", "name":"final", "content":{"type":"SYMBOL", "name":"final_modifier"}},
         {"type":"FIELD", "name":"readonly", "content":{"type":"SYMBOL", "name":"readonly_modifier"}}]});
     let parameters = rules["property_promotion_parameter"]["members"]
@@ -132,7 +131,7 @@ fn correct_grammar(grammar: &mut Value) -> Result<(), Box<dyn Error>> {
     if *statement != json!({"type":"SYMBOL", "name":"expression"}) {
         return Err("The PHP expression statement rule has changed".into());
     }
-    *statement = json!({"type":"CHOICE", "members":[statement.clone(), {"type":"SYMBOL","name":"void_expression"}]});
+    *statement = json!({"type":"CHOICE", "members":[statement.take(), {"type":"SYMBOL","name":"void_expression"}]});
     rules["void_expression"] = json!({"type":"SEQ", "members":[
         {"type":"STRING","value":"("},
         {"type":"ALIAS","content":{"type":"PATTERN","value":"void","flags":"i"},"named":false,"value":"void"},
@@ -163,7 +162,7 @@ fn correct_grammar(grammar: &mut Value) -> Result<(), Box<dyn Error>> {
     if *function_name != json!({"type":"SYMBOL","name":"name"}) {
         return Err("The PHP function name rule has changed".into());
     }
-    *function_name = json!({"type":"CHOICE","members":[function_name.clone(),
+    *function_name = json!({"type":"CHOICE","members":[function_name.take(),
         {"type":"ALIAS","content":{"type":"PATTERN","value":"clone","flags":"i"},"named":true,"value":"name"}
     ]});
     Ok(())
