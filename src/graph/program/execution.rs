@@ -1,11 +1,10 @@
 use crate::graph::DeclarationKind::{Class, CompanionObject, Object};
 use crate::graph::{CallDispatch, DeclarationExecutionFacts};
 use crate::model::{
-    DefinitionKind, ExecutionTarget, Reference, ReferenceAnalysis, ReferenceKind, Resolution,
-    SourceRange,
+    ExecutionTarget, Reference, ReferenceAnalysis, ReferenceKind, Resolution, SourceRange,
 };
 
-use super::{CallEdge, ProgramGraph, ProgramSymbolId};
+use super::{CallEdge, ProgramGraph, ProgramScopeId, ProgramSymbolId};
 
 impl<'a> ProgramGraph<'a> {
     pub(crate) fn confirmed_relations(
@@ -18,29 +17,17 @@ impl<'a> ProgramGraph<'a> {
                 continue;
             };
             for (reference, analysis) in fact.references().zip(analyses) {
-                self.append_reference(file_index, reference, analysis, &mut calls);
+                let Some(target) = self.resolved_reference_target(reference, analysis) else {
+                    continue;
+                };
+                self.append_execution_calls(file_index, reference, analysis, target, &mut calls);
+                calls.extend(self.legacy_call_edge(file_index, reference, analysis, target));
             }
         }
         calls.extend(self.implicit_initialization_edges());
-        calls.sort_by_key(call_order);
+        calls.sort();
         calls.dedup();
         calls
-    }
-
-    fn append_reference(
-        &self,
-        file_index: usize,
-        reference: &Reference,
-        analysis: &ReferenceAnalysis,
-        calls: &mut Vec<CallEdge>,
-    ) {
-        let Some(target) = self.resolved_reference_target(reference, analysis) else {
-            return;
-        };
-        self.append_execution_calls(file_index, reference, analysis, target, calls);
-        if let Some(edge) = self.legacy_call_edge(file_index, reference, analysis, target) {
-            calls.push(edge);
-        }
     }
 
     fn resolved_reference_target(
@@ -140,16 +127,6 @@ fn is_invocation(kind: ReferenceKind) -> bool {
     )
 }
 
-fn call_order(edge: &CallEdge) -> (usize, usize, usize, usize, usize, usize) {
-    (
-        edge.caller_file,
-        edge.caller_start_byte,
-        edge.callee_file,
-        edge.callee_start_byte,
-        edge.call_start_byte,
-        edge.call_end_byte,
-    )
-}
 impl<'a> ProgramGraph<'a> {
     pub(super) fn is_reported_callable(
         &self,
@@ -163,31 +140,21 @@ impl<'a> ProgramGraph<'a> {
             .iter()
             .filter(|function| function.start_byte == start_byte)
             .any(|function| {
-                let declared_function = self.function_starts[file_index]
-                    .contains(&(context_id, start_byte))
-                    && self
-                        .symbols_for_file(file_index)
-                        .filter(|symbol| {
-                            symbol.scope.context_id == context_id
-                                && symbol.semantic_id.start_byte == start_byte
-                                && matches!(
-                                    symbol.kind,
-                                    DefinitionKind::Function | DefinitionKind::Method
-                                )
-                        })
-                        .filter_map(|symbol| self.definition(symbol.id))
-                        .any(|definition| definition.end_byte == function.end_byte);
-                let declared_execution = self.facts[file_index]
-                    .semantic()
-                    .filter(|semantic| semantic.context_id == context_id)
-                    .flat_map(|semantic| semantic.declarations.iter())
-                    .filter_map(|declaration| declaration.execution.as_ref())
-                    .flat_map(execution_ranges)
-                    .any(|range| {
-                        range.start_byte == function.start_byte
-                            && range.end_byte == function.end_byte
-                    });
-                declared_function || declared_execution
+                self.file(file_index).allows(context_id)
+                    && (self.callable_scopes[file_index].contains(&ProgramScopeId::new(
+                        file_index,
+                        context_id,
+                        function.start_byte..function.end_byte,
+                    )) || self.facts[file_index]
+                        .semantic()
+                        .filter(|semantic| semantic.context_id == context_id)
+                        .flat_map(|semantic| &semantic.declarations)
+                        .filter_map(|declaration| declaration.execution.as_ref())
+                        .flat_map(execution_ranges)
+                        .any(|range| {
+                            range.start_byte == function.start_byte
+                                && range.end_byte == function.end_byte
+                        }))
             })
     }
 
@@ -243,37 +210,31 @@ impl<'a> ProgramGraph<'a> {
         resolved_symbol: ProgramSymbolId,
         target: &ExecutionTarget,
     ) -> bool {
-        let Some(symbol) = self.symbol(resolved_symbol) else {
-            return false;
-        };
-        if target.file_index != symbol.id.file_index || target.context_id != symbol.scope.context_id
-        {
-            return false;
-        }
-        let Some(definition) = self.definition(resolved_symbol) else {
-            return false;
-        };
-        let Some(declaration) = self.declaration(
-            symbol.id.file_index,
-            symbol.scope.context_id,
-            definition.start_byte,
-            None,
-        ) else {
-            return false;
-        };
-        let Some(execution) = declaration.execution.as_ref() else {
-            return false;
-        };
-        let range_is_declared = execution_ranges(execution).any(|range| range == target.range);
-        range_is_declared
-            && self.facts[target.file_index]
-                .analysis
-                .functions
-                .iter()
-                .any(|function| {
-                    function.start_byte == target.range.start_byte
-                        && function.end_byte == target.range.end_byte
-                })
+        self.symbol(resolved_symbol)
+            .filter(|symbol| {
+                target.file_index == symbol.id.file_index
+                    && target.context_id == symbol.scope.context_id
+            })
+            .and_then(|symbol| {
+                self.declaration(
+                    symbol.id.file_index,
+                    symbol.scope.context_id,
+                    symbol.semantic_id.start_byte,
+                    None,
+                )
+            })
+            .and_then(|declaration| declaration.execution.as_ref())
+            .is_some_and(|execution| {
+                execution_ranges(execution).any(|range| range == target.range)
+                    && self.facts[target.file_index]
+                        .analysis
+                        .functions
+                        .iter()
+                        .any(|function| {
+                            function.start_byte == target.range.start_byte
+                                && function.end_byte == target.range.end_byte
+                        })
+            })
     }
 }
 

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use crate::model::{Definition, DefinitionKind, FileFacts, SymbolId};
 
-use super::lookup::binding_identity;
+use super::bindings::binding_identity;
 use super::{
     FileFactsView, ProgramBinding, ProgramGraph, ProgramIndexes, ProgramScope, ProgramScopeId,
     ProgramSymbol, ProgramSymbolId,

@@ -9,6 +9,7 @@ use crate::model::{
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
+mod bindings;
 mod execution;
 mod indexing;
 mod lookup;
@@ -151,7 +152,7 @@ impl ProgramScopeId {
 }
 
 /// A resolved direct call between two callable metric scopes.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) struct CallEdge {
     pub caller_file: usize,
     pub caller_start_byte: usize,
