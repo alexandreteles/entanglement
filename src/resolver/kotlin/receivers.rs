@@ -442,27 +442,12 @@ impl Index<'_> {
             .map_or(&[], |context| context.package.as_slice())
     }
     pub(super) fn super_receiver_type(&self, file: usize, reference: &Reference) -> Option<String> {
-        let class = self
-            .candidates
-            .iter()
-            .filter(|candidate| candidate.file == file)
-            .filter(|candidate| {
-                candidate
-                    .declaration
-                    .is_some_and(|item| item.kind == DeclarationKind::Class)
-            })
-            .filter(|candidate| {
-                candidate.start <= reference.start_byte && reference.start_byte < candidate.end
-            })
-            .min_by_key(|candidate| candidate.end - candidate.start)?;
-        let declaration = class.declaration?;
-        let parents = declaration
-            .supertypes
-            .iter()
-            .flat_map(|supertype| {
-                self.resolve_declared_type(class.file, class.context_id, supertype, class.package)
-            })
-            .collect::<Vec<_>>();
+        let class = self.nearest_enclosing_declaration(
+            file,
+            reference.start_byte,
+            &[DeclarationKind::Class],
+        )?;
+        let parents = self.direct_supertypes(class);
         match parents.as_slice() {
             [parent] => Some(candidate_type_name(parent)),
             _ => None,
@@ -495,23 +480,15 @@ impl Index<'_> {
                 .then(|| types.into_iter().next())
                 .flatten();
         }
-        self.candidates
-            .iter()
-            .filter(|candidate| candidate.file == file)
-            .filter(|candidate| {
-                candidate.declaration.is_some_and(|item| {
-                    matches!(
-                        item.kind,
-                        DeclarationKind::Class
-                            | DeclarationKind::Object
-                            | DeclarationKind::CompanionObject
-                    )
-                })
-            })
-            .filter(|candidate| {
-                candidate.start <= reference.start_byte && reference.start_byte < candidate.end
-            })
-            .min_by_key(|candidate| candidate.end - candidate.start)
-            .map(candidate_type_name)
+        self.nearest_enclosing_declaration(
+            file,
+            reference.start_byte,
+            &[
+                DeclarationKind::Class,
+                DeclarationKind::Object,
+                DeclarationKind::CompanionObject,
+            ],
+        )
+        .map(candidate_type_name)
     }
 }

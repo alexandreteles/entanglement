@@ -140,14 +140,7 @@ impl Index<'_> {
             return true;
         }
         let package = self.semantic_package(file, reference.context_id);
-        let candidates = self
-            .named(receiver)
-            .filter(|candidate| {
-                candidate.package == package
-                    && candidate.owner.is_empty()
-                    && is_type_declaration(candidate)
-            })
-            .collect::<Vec<_>>();
+        let candidates = self.package_types(receiver, package).collect::<Vec<_>>();
         candidates.len() == 1
     }
     pub(super) fn type_candidates<'b>(
@@ -161,8 +154,7 @@ impl Index<'_> {
         let package = self.semantic_package(file, reference.context_id);
         let imported = self.imported_candidates(file, reference, short_name, false);
         let mut classes = self
-            .named(short_name)
-            .filter(|candidate| is_type_declaration(candidate))
+            .named_types(short_name)
             .filter(|candidate| self.visible_in_source_set(file, candidate))
             .filter(|candidate| {
                 if normalized.contains('.') {
@@ -191,35 +183,20 @@ impl Index<'_> {
                 .map(str::to_owned)
                 .chain(std::iter::once(name.to_owned()))
                 .collect::<Vec<_>>();
-            return self
-                .named(name)
-                .filter(|candidate| {
-                    candidate_type_segments(candidate) == qualified
-                        && is_type_declaration(candidate)
-                })
-                .collect();
+            return self.qualified_types(name, &qualified).collect();
         }
         let imported = self
             .imports(file, context_id)
             .filter(|import| !import.namespace && imported_name(import) == Some(name))
             .flat_map(|import| {
                 let imported_name = import.path.last().map(String::as_str).unwrap_or(name);
-                self.named(imported_name).filter(move |candidate| {
-                    candidate_type_segments(candidate) == import.path
-                        && is_type_declaration(candidate)
-                })
+                self.qualified_types(imported_name, &import.path)
             })
             .collect::<Vec<_>>();
         if !imported.is_empty() {
             return imported;
         }
-        self.named(name)
-            .filter(|candidate| {
-                candidate.package == package
-                    && candidate.owner.is_empty()
-                    && is_type_declaration(candidate)
-            })
-            .collect()
+        self.package_types(name, package).collect()
     }
     pub(super) fn canonical_type_names(
         &self,
@@ -259,6 +236,21 @@ impl Index<'_> {
         }
     }
 
+    /// Return direct parent candidates in the declaring type's source context.
+    ///
+    /// Keep declaration order and duplicate matches. The caller must select
+    /// valid parents and decide how to use unresolved or ambiguous evidence.
+    pub(super) fn direct_supertypes(&self, class: &Candidate) -> Vec<&Candidate<'_>> {
+        class
+            .declaration
+            .into_iter()
+            .flat_map(|declaration| &declaration.supertypes)
+            .flat_map(|supertype| {
+                self.resolve_declared_type(class.file, class.context_id, supertype, class.package)
+            })
+            .collect()
+    }
+
     pub(super) fn inherited_member_candidates(
         &self,
         file: usize,
@@ -272,26 +264,15 @@ impl Index<'_> {
             if !seen.insert((*class.symbol).clone()) {
                 continue;
             }
-            let Some(declaration) = class.declaration else {
-                continue;
-            };
-            for supertype in &declaration.supertypes {
-                let parents = self.resolve_declared_type(
-                    class.file,
-                    class.context_id,
-                    supertype,
-                    class.package,
-                );
-                for parent in parents {
-                    inherited.extend(self.members_of_type_seen(
-                        file,
-                        reference,
-                        name,
-                        &candidate_type_name(parent),
-                        false,
-                        seen,
-                    ));
-                }
+            for parent in self.direct_supertypes(class) {
+                inherited.extend(self.members_of_type_seen(
+                    file,
+                    reference,
+                    name,
+                    &candidate_type_name(parent),
+                    false,
+                    seen,
+                ));
             }
         }
         inherited
