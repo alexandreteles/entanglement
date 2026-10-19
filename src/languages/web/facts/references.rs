@@ -32,7 +32,7 @@ impl CaptureFacts {
                 .iter()
                 .find(|(capture_id, _)| *capture_id == capture.index)
             {
-                self.references.push(raw_reference(
+                self.references.extend(raw_reference(
                     capture.node,
                     *kind,
                     source,
@@ -40,6 +40,7 @@ impl CaptureFacts {
                 ));
             }
             if Some(capture.index) == query.namespace
+                && jsx_name(capture.node).is_none()
                 && let Some(namespace) =
                     namespace_reference(capture.node, source, self.root.clone())
             {
@@ -127,17 +128,54 @@ fn raw_reference(
     kind: ReferenceKind,
     source: &[u8],
     root: Range<usize>,
-) -> RawReference {
+) -> Option<RawReference> {
+    let jsx = jsx_name(node);
+    let node = jsx.unwrap_or(node);
+    let name = text(node, source);
+    if jsx.is_some()
+        && (node
+            .parent()
+            .is_some_and(|parent| parent.kind() == "jsx_closing_element")
+            || name.contains(':')
+            || (!name.contains('.')
+                && name.starts_with(|character: char| character.is_ascii_lowercase())))
+    {
+        return None;
+    }
     let (scope_start, scope_end) = scope_range(node, root, false);
-    RawReference {
-        path: vec![text(node, source)],
+    Some(RawReference {
+        path: if jsx.is_some() {
+            name.split('.').map(str::to_owned).collect()
+        } else {
+            vec![name]
+        },
         range: node.byte_range(),
-        kind,
+        kind: if jsx.is_some() && node.kind() == "member_expression" {
+            ReferenceKind::Qualified
+        } else {
+            kind
+        },
         scope: scope_start..scope_end,
-        call_owner: matches!(kind, ReferenceKind::Call | ReferenceKind::Method)
+        // A JSX tag selects a component. It does not call the component here.
+        call_owner: (jsx.is_none() && matches!(kind, ReferenceKind::Call | ReferenceKind::Method))
             .then(|| enclosing_function(node))
             .flatten(),
+    })
+}
+
+fn jsx_name(mut node: Node<'_>) -> Option<Node<'_>> {
+    while let Some(parent) = node.parent() {
+        match parent.kind() {
+            "member_expression" | "jsx_namespace_name" => node = parent,
+            "jsx_opening_element" | "jsx_self_closing_element" | "jsx_closing_element" => {
+                return parent
+                    .child_by_field_name("name")
+                    .filter(|name| name.id() == node.id());
+            }
+            _ => return None,
+        }
     }
+    None
 }
 
 fn contains(outer: &Range<usize>, inner: &Range<usize>) -> bool {

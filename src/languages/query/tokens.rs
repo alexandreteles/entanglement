@@ -12,7 +12,7 @@ pub(super) fn capture(
     let mut tokens = Vec::new();
     let mut pending = vec![root];
     while let Some(node) = pending.pop() {
-        if node.is_missing() {
+        if node.is_missing() || matches!(node.kind(), "jsx_text" | "html_character_reference") {
             continue;
         }
         if node.child_count() == 0 {

@@ -117,3 +117,71 @@ function host(flag) { return flag ? 1 : 0; }
     assert_eq!(function(file, "from_template")["cyclomatic_complexity"], 2);
     assert_eq!(function(file, "host")["cyclomatic_complexity"], 2);
 }
+
+#[test]
+fn jsx_tags_resolve_components_without_calls_or_text_operands() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = r#"
+import * as UI from "./widgets.js";
+import { Button } from "./widgets.js";
+export function Panel(flag) {
+  return <div><Button>{flag ? "yes" : "no"}</Button><UI.Button />
+    <UI.Nested.Button /><Panel /><my-widget /><svg:path />proseOnly &amp;</div>;
+}
+"#;
+    for extension in ["jsx", "tsx"] {
+        let root = temp.path().join(extension);
+        write(&root.join("package.json"), "{}");
+        write(
+            &root.join("widgets.js"),
+            "export function Button() { return null; }",
+        );
+        let path = root.join(format!("Panel.{extension}"));
+        write(&path, source);
+        let report = report(&run("repo", &root, None, Some("cc,cogc,halstead")));
+        let panel = file(&report, &format!("Panel.{extension}"));
+        let references = panel["resolution"].as_array().unwrap();
+        for name in ["div", "my-widget", "svg", "path", "proseOnly"] {
+            assert!(
+                !references
+                    .iter()
+                    .any(|item| item["path"] == serde_json::json!([name]))
+            );
+        }
+        for parts in [
+            vec!["Button"],
+            vec!["UI", "Button"],
+            vec!["UI", "Nested", "Button"],
+            vec!["Panel"],
+        ] {
+            assert_eq!(
+                references
+                    .iter()
+                    .filter(|item| item["path"] == serde_json::json!(parts))
+                    .count(),
+                1
+            );
+        }
+        assert!(has_resolution(panel, "Button", "exact"));
+        assert!(!recursive(function(panel, "Panel")));
+        assert_eq!(function(panel, "Panel")["cyclomatic_complexity"], 2);
+        let sparse = analyze_source(
+            &root,
+            &format!("Sparse.{extension}"),
+            &source.replace("proseOnly &amp;", ""),
+        );
+        let sparse = &sparse["files"][0];
+        for metric in [
+            "distinct_operators",
+            "distinct_operands",
+            "total_operators",
+            "total_operands",
+            "volume",
+        ] {
+            assert_eq!(
+                panel["halstead"][metric], sparse["halstead"][metric],
+                "{extension}: {metric}"
+            );
+        }
+    }
+}
