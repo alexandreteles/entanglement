@@ -43,10 +43,12 @@ fn collect_value_binding(
     let (alias_target, callable_reference) = local_alias(node, source);
     push_binding(
         result,
-        BindingEvidence {
+        BindingType {
             name: text(name_node, source).trim_matches('`').to_owned(),
-            name_node,
-            scope,
+            name_start_byte: name_node.start_byte(),
+            name_end_byte: name_node.end_byte(),
+            scope_start: scope.start,
+            scope_end: scope.end,
             type_name,
             alias_target,
             callable_reference,
@@ -111,10 +113,12 @@ fn collect_context_parameter(node: Node<'_>, source: &[u8], result: &mut Capture
     if let Some(name_node) = name_node {
         push_binding(
             result,
-            BindingEvidence {
+            BindingType {
                 name: text(name_node, source).trim_matches('`').to_owned(),
-                name_node,
-                scope,
+                name_start_byte: name_node.start_byte(),
+                name_end_byte: name_node.end_byte(),
+                scope_start: scope.start,
+                scope_end: scope.end,
                 type_name: type_node.map(|ty| normalized_type(text(ty, source))),
                 alias_target: None,
                 callable_reference: false,
@@ -202,50 +206,35 @@ pub(super) fn collect_context_facts(
                 });
             }
             if let (Some(name), Some(name_range)) = (&parameter.name, &parameter.name_range) {
-                result.locals.push(LocalBinding {
-                    name: name.clone(),
-                    start_byte: name_range.start,
-                    end_byte: name_range.end,
-                    scope_start: scope.start,
-                    scope_end: scope.end,
-                    context_id: 0,
-                });
-                result.semantic.bindings.push(BindingType {
-                    name: name.clone(),
-                    name_start_byte: name_range.start,
-                    name_end_byte: name_range.end,
-                    scope_start: scope.start,
-                    scope_end: scope.end,
-                    type_name: Some(type_name),
-                    alias_target: None,
-                    callable_reference: false,
-                    immutable: true,
-                });
+                push_binding(
+                    result,
+                    BindingType {
+                        name: name.clone(),
+                        name_start_byte: name_range.start,
+                        name_end_byte: name_range.end,
+                        scope_start: scope.start,
+                        scope_end: scope.end,
+                        type_name: Some(type_name),
+                        alias_target: None,
+                        callable_reference: false,
+                        immutable: true,
+                    },
+                );
             }
         }
     }
 }
 
-pub(super) fn push_binding(result: &mut Capture, evidence: BindingEvidence<'_>) {
+pub(super) fn push_binding(result: &mut Capture, binding: BindingType) {
     result.locals.push(LocalBinding {
-        name: evidence.name.clone(),
-        start_byte: evidence.name_node.start_byte(),
-        end_byte: evidence.name_node.end_byte(),
-        scope_start: evidence.scope.start,
-        scope_end: evidence.scope.end,
+        name: binding.name.clone(),
+        start_byte: binding.name_start_byte,
+        end_byte: binding.name_end_byte,
+        scope_start: binding.scope_start,
+        scope_end: binding.scope_end,
         context_id: 0,
     });
-    result.semantic.bindings.push(BindingType {
-        name: evidence.name,
-        name_start_byte: evidence.name_node.start_byte(),
-        name_end_byte: evidence.name_node.end_byte(),
-        scope_start: evidence.scope.start,
-        scope_end: evidence.scope.end,
-        type_name: evidence.type_name,
-        alias_target: evidence.alias_target,
-        callable_reference: evidence.callable_reference,
-        immutable: evidence.immutable,
-    });
+    result.semantic.bindings.push(binding);
 }
 
 pub(super) fn binding_scope(node: Node<'_>) -> Option<Range<usize>> {

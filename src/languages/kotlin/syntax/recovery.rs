@@ -56,7 +56,8 @@ fn recover_error_types(error: Node<'_>, source: &[u8], recovered: &mut Vec<Recov
         };
         let declaration_range = header.keyword.start_byte()..closing_brace.end_byte();
         let body_range = opening_brace.start_byte()..closing_brace.end_byte();
-        if !range_is_inside(&declaration_range, error.byte_range())
+        if declaration_range.start < error.start_byte()
+            || declaration_range.end > error.end_byte()
             || body_range.end <= body_range.start
         {
             continue;
@@ -84,32 +85,44 @@ pub(super) fn header_candidate<'tree>(
     source: &[u8],
 ) -> Option<HeaderCandidate<'tree>> {
     let candidate = children[keyword_index];
-    let (kind, keyword_index, header_end) = match candidate.kind() {
-        "class" => (RecoveredTypeKind::Class, keyword_index, keyword_index),
-        "interface" => (RecoveredTypeKind::Interface, keyword_index, keyword_index),
-        "object" if !is_companion_object_token(children, keyword_index) => {
-            (RecoveredTypeKind::Object, keyword_index, keyword_index)
+    let (kind, header_end) = match candidate.kind() {
+        "class" => (RecoveredTypeKind::Class, keyword_index),
+        "interface" => (RecoveredTypeKind::Interface, keyword_index),
+        "object"
+            if children[..keyword_index]
+                .iter()
+                .rev()
+                .find(|child| !is_comment(child.kind()))
+                .is_none_or(|child| child.kind() != "companion") =>
+        {
+            (RecoveredTypeKind::Object, keyword_index)
         }
-        "companion" => {
-            let object_index = next_non_comment(children, keyword_index + 1)?;
-            (
-                RecoveredTypeKind::CompanionObject,
-                keyword_index,
-                object_index,
-            )
-        }
+        "companion" => (
+            RecoveredTypeKind::CompanionObject,
+            (keyword_index + 1..children.len())
+                .find(|index| !is_comment(children[*index].kind()))?,
+        ),
         _ => return None,
     };
     let body_index =
         (header_end + 1..children.len()).find(|index| is_body_node(children[*index].kind()))?;
-    if !valid_header(children, header_end, body_index) {
+    if !children[header_end + 1..body_index]
+        .iter()
+        .copied()
+        .all(is_allowed_header_child)
+    {
         return None;
     }
     let name_range = children[header_end + 1..body_index]
         .iter()
-        .find(|child| is_name_token(**child) && has_source_text(**child, source))
+        .find(|child| {
+            is_name_token(**child)
+                && source
+                    .get(child.byte_range())
+                    .is_some_and(|bytes| !bytes.is_empty())
+        })
         .map(Node::byte_range);
-    if requires_name(kind) && name_range.is_none() {
+    if kind != RecoveredTypeKind::CompanionObject && name_range.is_none() {
         return None;
     }
     Some(HeaderCandidate {
@@ -123,21 +136,12 @@ pub(super) fn body_braces<'tree>(
     body: &Node<'tree>,
     leaves: &[Node<'tree>],
 ) -> Option<(Node<'tree>, Node<'tree>)> {
-    if !is_body_node(body.kind()) {
-        return None;
-    }
     let opening = leaves
         .iter()
         .copied()
         .find(|leaf| leaf.kind() == "{" && contains_node(*body, *leaf))?;
     let closing = matching_closing_brace(leaves, opening)?;
     (contains_node(*body, closing) || body.kind() == "{").then_some((opening, closing))
-}
-pub(super) fn valid_header(children: &[Node<'_>], header_end: usize, body_index: usize) -> bool {
-    header_end < body_index
-        && children[header_end + 1..body_index]
-            .iter()
-            .all(|child| is_allowed_header_child(*child))
 }
 pub(super) fn is_allowed_header_child(child: Node<'_>) -> bool {
     if is_comment(child.kind()) {
@@ -160,19 +164,6 @@ pub(super) fn is_allowed_header_child(child: Node<'_>) -> bool {
     }
     matches!(child.kind(), ":" | "," | "." | "where")
 }
-pub(super) fn is_companion_object_token(children: &[Node<'_>], object_index: usize) -> bool {
-    object_index > 0
-        && previous_non_comment(children, object_index)
-            .is_some_and(|index| children[index].kind() == "companion")
-}
-pub(super) fn next_non_comment(children: &[Node<'_>], start: usize) -> Option<usize> {
-    (start..children.len()).find(|index| !is_comment(children[*index].kind()))
-}
-pub(super) fn previous_non_comment(children: &[Node<'_>], before: usize) -> Option<usize> {
-    (0..before)
-        .rev()
-        .find(|index| !is_comment(children[*index].kind()))
-}
 pub(super) fn is_body_node(kind: &str) -> bool {
     matches!(kind, "{" | "class_body" | "enum_class_body")
 }
@@ -180,17 +171,6 @@ pub(super) fn is_name_token(node: Node<'_>) -> bool {
     matches!(
         node.kind(),
         "type_identifier" | "simple_identifier" | "identifier"
-    )
-}
-pub(super) fn has_source_text(node: Node<'_>, source: &[u8]) -> bool {
-    source
-        .get(node.byte_range())
-        .is_some_and(|bytes| !bytes.is_empty())
-}
-pub(super) fn requires_name(kind: RecoveredTypeKind) -> bool {
-    matches!(
-        kind,
-        RecoveredTypeKind::Class | RecoveredTypeKind::Interface | RecoveredTypeKind::Object
     )
 }
 pub(super) fn is_comment(kind: &str) -> bool {
@@ -259,10 +239,4 @@ pub(super) fn is_opaque_brace_container(kind: &str) -> bool {
 }
 pub(super) fn contains_node(outer: Node<'_>, inner: Node<'_>) -> bool {
     outer.start_byte() <= inner.start_byte() && inner.end_byte() <= outer.end_byte()
-}
-pub(super) fn range_is_inside(
-    inner: &std::ops::Range<usize>,
-    outer: std::ops::Range<usize>,
-) -> bool {
-    outer.start <= inner.start && inner.end <= outer.end
 }

@@ -6,6 +6,8 @@ mod scopes;
 mod syntax;
 mod tokens;
 
+pub(crate) use syntax::lexer::skip_comment;
+
 use std::borrow::Cow;
 
 use tree_sitter::{Language, Node, Tree};
