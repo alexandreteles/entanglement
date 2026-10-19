@@ -129,21 +129,6 @@ pub(super) fn is_kotlin_builtin(name: &str, reference: &Reference) -> bool {
     reference.path.len() == 1 && builtins.contains(&name)
 }
 
-pub(super) fn analysis(
-    reference: &Reference,
-    resolution: Resolution,
-    dispatch: Option<CallDispatch>,
-) -> ReferenceAnalysis {
-    ReferenceAnalysis {
-        path: reference.path.clone(),
-        start_byte: reference.start_byte,
-        end_byte: reference.end_byte,
-        resolution,
-        dispatch,
-        execution_targets: Vec::new(),
-    }
-}
-
 pub(super) fn unique_candidates(mut candidates: Vec<usize>) -> Vec<usize> {
     candidates.sort_unstable();
     candidates.dedup();

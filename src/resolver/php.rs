@@ -10,6 +10,8 @@ use crate::languages::ResolutionFamily;
 use crate::model::{Reference, ReferenceAnalysis, Resolution, SymbolId};
 use crate::snapshot::Snapshot;
 
+use super::analysis;
+
 mod execution;
 mod members;
 mod names;
@@ -276,20 +278,5 @@ impl<'a> Index<'a> {
             .flatten()
             .copied()
             .any(|included| included == target || self.included(included, context, target, visited))
-    }
-}
-
-fn analysis(
-    reference: &Reference,
-    resolution: Resolution,
-    dispatch: Option<CallDispatch>,
-) -> ReferenceAnalysis {
-    ReferenceAnalysis {
-        path: reference.path.clone(),
-        start_byte: reference.start_byte,
-        end_byte: reference.end_byte,
-        resolution,
-        dispatch,
-        execution_targets: Vec::new(),
     }
 }

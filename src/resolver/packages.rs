@@ -1,5 +1,6 @@
 //! Resolve Go package members without inferring types or choosing build tags.
 
+use super::analysis;
 use crate::graph::FileFactsView;
 
 use std::collections::BTreeMap;
@@ -38,13 +39,12 @@ pub(super) fn resolve(
         .map(|(file_index, fact)| {
             is_go(fact).then(|| {
                 fact.references()
-                    .map(|reference| ReferenceAnalysis {
-                        path: reference.path.clone(),
-                        start_byte: reference.start_byte,
-                        end_byte: reference.end_byte,
-                        resolution: index.resolve_reference(file_index, fact, reference, graph),
-                        dispatch: None,
-                        execution_targets: Vec::new(),
+                    .map(|reference| {
+                        analysis(
+                            reference,
+                            index.resolve_reference(file_index, fact, reference, graph),
+                            None,
+                        )
                     })
                     .collect()
             })
