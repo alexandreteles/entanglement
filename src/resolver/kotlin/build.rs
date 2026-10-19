@@ -82,28 +82,6 @@ impl BuildFacts {
     }
 }
 
-#[cfg(test)]
-fn parse_includes(source: &str) -> BTreeSet<String> {
-    Settings::parse(source).modules
-}
-
-#[cfg(test)]
-fn parse_project_directories(source: &str) -> BTreeMap<String, PathBuf> {
-    Settings::parse(source).directories
-}
-
-#[cfg(test)]
-fn parse_project_dependency_details(source: &str) -> BTreeSet<ProjectDependency> {
-    BuildFacts::parse(source).dependencies
-}
-
-#[cfg(test)]
-fn parse_source_edges(source: &str, edges: &mut BTreeMap<String, BTreeSet<String>>) {
-    for (child, parents) in BuildFacts::parse(source).source_edges {
-        edges.entry(child).or_default().extend(parents);
-    }
-}
-
 pub(super) fn classify_configuration(configuration: &str) -> (DependencyScope, DependencyExposure) {
     const SUFFIXES: [(&str, DependencyExposure); 6] = [
         ("implementation", DependencyExposure::Implementation),

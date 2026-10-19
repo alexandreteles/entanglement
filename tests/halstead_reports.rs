@@ -1,3 +1,6 @@
+mod support;
+use support::{only_file, report};
+
 use std::path::Path;
 use std::process::{Command, Output};
 
@@ -28,22 +31,6 @@ fn run(arguments: &[&str], target: &Path, diff: Option<&Path>) -> Output {
         command.arg("--diff").arg(diff);
     }
     command.arg(target).output().expect("run entanglement")
-}
-
-fn report(output: &Output) -> Value {
-    assert!(
-        output.status.success(),
-        "entanglement failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    serde_json::from_slice(&output.stdout).expect("parse JSON report")
-}
-
-fn only_file(report: &Value) -> &Value {
-    report["files"]
-        .as_array()
-        .and_then(|files| (files.len() == 1).then(|| &files[0]))
-        .expect("one source file report")
 }
 
 fn target_function(file: &Value) -> &Value {

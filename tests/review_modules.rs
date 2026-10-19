@@ -1,13 +1,11 @@
+use support::write;
+mod support;
+use support::file;
+
 use std::path::Path;
 use std::process::Command;
 
 use serde_json::Value;
-
-fn write(root: &Path, name: &str, source: &str) {
-    let path = root.join(name);
-    std::fs::create_dir_all(path.parent().expect("fixture parent")).unwrap();
-    std::fs::write(path, source).unwrap();
-}
 
 fn analyze(root: &Path) -> Value {
     let output = Command::new(env!("CARGO_BIN_EXE_entanglement"))
@@ -21,19 +19,6 @@ fn analyze(root: &Path) -> Value {
         String::from_utf8_lossy(&output.stderr)
     );
     serde_json::from_slice(&output.stdout).expect("parse JSON report")
-}
-
-fn file<'a>(report: &'a Value, suffix: &str) -> &'a Value {
-    report["files"]
-        .as_array()
-        .expect("file reports")
-        .iter()
-        .find(|item| {
-            item["path"]
-                .as_str()
-                .is_some_and(|path| path.ends_with(suffix))
-        })
-        .unwrap_or_else(|| panic!("missing file ending in {suffix}"))
 }
 
 fn resolution_status<'a>(file: &'a Value, name: &str) -> &'a str {
@@ -63,7 +48,7 @@ fn is_recursive(file: &Value, name: &str) -> bool {
 }
 
 fn package(root: &Path) {
-    write(root, "package.json", r#"{"name":"review-fixture"}"#);
+    write(&root.join("package.json"), r#"{"name":"review-fixture"}"#);
 }
 
 #[test]
@@ -72,20 +57,23 @@ fn cyclic_star_branch_keeps_leaf_resolution_and_recursion_edges() {
     let root = temp.path().join("project");
     package(&root);
     write(
-        &root,
-        "src/main.ts",
+        &&root.join("src/main.ts"),
         "import { leaf } from './barrel';\nexport function entry(flag: boolean) { if (flag) leaf(false); }\n",
     );
     write(
-        &root,
-        "src/barrel.ts",
+        &&root.join("src/barrel.ts"),
         "export * from './cycle-a';\nexport * from './leaf';\n",
     );
-    write(&root, "src/cycle-a.ts", "export * from './cycle-b';\n");
-    write(&root, "src/cycle-b.ts", "export * from './cycle-a';\n");
     write(
-        &root,
-        "src/leaf.ts",
+        &&root.join("src/cycle-a.ts"),
+        "export * from './cycle-b';\n",
+    );
+    write(
+        &&root.join("src/cycle-b.ts"),
+        "export * from './cycle-a';\n",
+    );
+    write(
+        &&root.join("src/leaf.ts"),
         "import { entry } from './main';\nexport function leaf(flag: boolean) { if (flag) entry(false); }\n",
     );
 
@@ -120,17 +108,27 @@ fn pure_star_cycles_stay_unresolved_and_conflicting_stars_stay_ambiguous() {
     let root = temp.path().join("project");
     package(&root);
     write(
-        &root,
-        "src/main.ts",
+        &&root.join("src/main.ts"),
         "import { absent } from './cycle-a';\nimport { duplicate } from './conflict';\nfunction cycleCaller() { absent(); }\nfunction conflictCaller() { duplicate(); }\n",
     );
-    write(&root, "src/cycle-a.ts", "export * from './cycle-b';\n");
-    write(&root, "src/cycle-b.ts", "export * from './cycle-a';\n");
-    write(&root, "src/first.ts", "export function duplicate() {}\n");
-    write(&root, "src/second.ts", "export function duplicate() {}\n");
     write(
-        &root,
-        "src/conflict.ts",
+        &&root.join("src/cycle-a.ts"),
+        "export * from './cycle-b';\n",
+    );
+    write(
+        &&root.join("src/cycle-b.ts"),
+        "export * from './cycle-a';\n",
+    );
+    write(
+        &&root.join("src/first.ts"),
+        "export function duplicate() {}\n",
+    );
+    write(
+        &&root.join("src/second.ts"),
+        "export function duplicate() {}\n",
+    );
+    write(
+        &&root.join("src/conflict.ts"),
         "export * from './cycle-a';\nexport * from './first';\nexport * from './second';\n",
     );
 
@@ -146,19 +144,16 @@ fn missing_and_external_star_branches_remain_conservative() {
     let root = temp.path().join("project");
     package(&root);
     write(
-        &root,
-        "src/main.ts",
+        &&root.join("src/main.ts"),
         "import { leaf as missingBranch } from './missing-branch';\nimport { leaf as externalBranch } from './external-branch';\nfunction missingCaller() { missingBranch(); }\nfunction externalCaller() { externalBranch(); }\n",
     );
-    write(&root, "src/leaf.ts", "export function leaf() {}\n");
+    write(&&root.join("src/leaf.ts"), "export function leaf() {}\n");
     write(
-        &root,
-        "src/missing-branch.ts",
+        &&root.join("src/missing-branch.ts"),
         "export * from './leaf';\nexport * from './not-present';\n",
     );
     write(
-        &root,
-        "src/external-branch.ts",
+        &&root.join("src/external-branch.ts"),
         "export * from './leaf';\nexport * from 'external-package';\n",
     );
 

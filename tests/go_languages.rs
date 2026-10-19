@@ -1,25 +1,10 @@
+mod support;
+use support::{file, function, report};
+
 use std::path::Path;
 use std::process::{Command, Output};
 
 use serde_json::Value;
-
-fn run(args: &[&str], path: &Path, diff: Option<&Path>) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_entanglement"));
-    command.args(["--format", "json"]).args(args).arg(path);
-    if let Some(diff) = diff {
-        command.arg("--diff").arg(diff);
-    }
-    command.output().expect("run entanglement")
-}
-
-fn report(output: &Output) -> Value {
-    assert!(
-        output.status.success(),
-        "entanglement failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    serde_json::from_slice(&output.stdout).expect("parse JSON report")
-}
 
 fn write(path: &Path, source: &str) {
     if path.extension().is_some_and(|extension| extension == "go") {
@@ -39,26 +24,13 @@ fn write(path: &Path, source: &str) {
     std::fs::write(path, source).unwrap();
 }
 
-fn file<'a>(report: &'a Value, suffix: &str) -> &'a Value {
-    report["files"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|item| {
-            item["path"]
-                .as_str()
-                .is_some_and(|path| path.ends_with(suffix))
-        })
-        .unwrap_or_else(|| panic!("missing file {suffix}"))
-}
-
-fn function<'a>(file: &'a Value, name: &str) -> &'a Value {
-    file["functions"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|item| item["name"] == name)
-        .unwrap_or_else(|| panic!("missing function {name}"))
+fn run(args: &[&str], path: &Path, diff: Option<&Path>) -> Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_entanglement"));
+    command.args(["--format", "json"]).args(args).arg(path);
+    if let Some(diff) = diff {
+        command.arg("--diff").arg(diff);
+    }
+    command.output().expect("run entanglement")
 }
 
 fn kinds(function: &Value) -> Vec<(String, u64)> {

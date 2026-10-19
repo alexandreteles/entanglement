@@ -1,13 +1,11 @@
+use support::write;
+mod support;
+use support::file;
+
 use std::path::Path;
 use std::process::Command;
 
 use serde_json::Value;
-
-fn write(root: &Path, path: &str, source: &str) {
-    let path = root.join(path);
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, source).unwrap();
-}
 
 fn analyze(root: &Path) -> Value {
     let output = Command::new(env!("CARGO_BIN_EXE_entanglement"))
@@ -21,19 +19,6 @@ fn analyze(root: &Path) -> Value {
         String::from_utf8_lossy(&output.stderr)
     );
     serde_json::from_slice(&output.stdout).expect("parse report")
-}
-
-fn file<'a>(report: &'a Value, suffix: &str) -> &'a Value {
-    report["files"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|item| {
-            item["path"]
-                .as_str()
-                .is_some_and(|path| path.ends_with(suffix))
-        })
-        .unwrap_or_else(|| panic!("missing file {suffix}"))
 }
 
 fn refs(file: &Value) -> &[Value] {

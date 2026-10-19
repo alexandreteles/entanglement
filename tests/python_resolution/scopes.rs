@@ -5,12 +5,11 @@ fn python_function_and_comprehension_bindings_stay_scoped() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("scope-project");
     write(
-        &root,
-        "pyproject.toml",
+        &&root.join("pyproject.toml"),
         "[project]\nname = 'scope-fixture'\n",
     );
-    write(&root, "src/pkg/__init__.py", "");
-    write(&root, "src/pkg/mod.py", "def leaf():\n    return 1\n");
+    write(&&root.join("src/pkg/__init__.py"), "");
+    write(&&root.join("src/pkg/mod.py"), "def leaf():\n    return 1\n");
     let source = r#"from pkg.mod import leaf
 
 def assigned():
@@ -30,15 +29,13 @@ class Calls:
     def bare(self):
         leaf()
 "#;
-    write(&root, "src/scopes.py", source);
+    write(&&root.join("src/scopes.py"), source);
     write(
-        &root,
-        "src/star.py",
+        &&root.join("src/star.py"),
         "from pkg.mod import *\n\ndef use_star_name():\n    leaf()\n",
     );
     write(
-        &root,
-        "src/module_write.py",
+        &&root.join("src/module_write.py"),
         r#"from pkg.mod import leaf
 def earlier_body():
     return leaf()
@@ -50,8 +47,7 @@ def later_body():
 "#,
     );
     write(
-        &root,
-        "src/global_write.py",
+        &&root.join("src/global_write.py"),
         r#"from pkg.mod import leaf
 def replace_global():
     global leaf
@@ -60,8 +56,7 @@ def replace_global():
 "#,
     );
     write(
-        &root,
-        "src/nonlocal_write.py",
+        &&root.join("src/nonlocal_write.py"),
         r#"from pkg.mod import leaf
 def outer():
     leaf = lambda: None
@@ -184,7 +179,7 @@ class C:
     def method(self):
         class_global()
 "#;
-    write(&root, "deceptive.py", source);
+    write(&&root.join("deceptive.py"), source);
     let report = analyze(&root);
     let deceptive = file(&report, "/deceptive.py");
     for name in [

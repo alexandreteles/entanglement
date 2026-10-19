@@ -1,3 +1,6 @@
+mod support;
+use support::report;
+
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -29,15 +32,6 @@ fn run(root: &Path, diff: &Path, metrics: Option<&str>) -> Output {
         .arg("--diff")
         .arg(diff);
     command.output().expect("run entanglement")
-}
-
-fn report(output: &Output) -> Value {
-    assert!(
-        output.status.success(),
-        "entanglement failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    serde_json::from_slice(&output.stdout).expect("parse JSON report")
 }
 
 fn function<'a>(functions: &'a Value, name: &str) -> &'a Value {

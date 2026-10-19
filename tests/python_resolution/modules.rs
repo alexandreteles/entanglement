@@ -4,10 +4,12 @@ use super::*;
 fn dotted_relative_reexport_and_cyclic_python_imports_resolve_exactly() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("python-project");
-    write(&root, "pyproject.toml", "[project]\nname = 'fixture'\n");
     write(
-        &root,
-        "src/pkg/__init__.py",
+        &&root.join("pyproject.toml"),
+        "[project]\nname = 'fixture'\n",
+    );
+    write(
+        &&root.join("src/pkg/__init__.py"),
         r#"def entry(flag):
     if flag:
         public_leaf(False)
@@ -16,8 +18,7 @@ from .mod import leaf as public_leaf
 "#,
     );
     write(
-        &root,
-        "src/pkg/mod.py",
+        &&root.join("src/pkg/mod.py"),
         r#"from . import entry
 from .sibling import sibling
 from .shared import helper
@@ -33,15 +34,16 @@ def _private():
 "#,
     );
     write(
-        &root,
-        "src/pkg/sibling.py",
+        &&root.join("src/pkg/sibling.py"),
         "def sibling():\n    return 1\n",
     );
-    write(&root, "src/pkg/shared.py", "def helper():\n    return 1\n");
-    write(&root, "src/pkg/nested/__init__.py", "");
     write(
-        &root,
-        "src/pkg/nested/worker.py",
+        &&root.join("src/pkg/shared.py"),
+        "def helper():\n    return 1\n",
+    );
+    write(&&root.join("src/pkg/nested/__init__.py"), "");
+    write(
+        &&root.join("src/pkg/nested/worker.py"),
         r#"from ..mod import leaf as relative_leaf
 from ..shared import helper
 from ...outside import distant
@@ -66,13 +68,12 @@ def exercise(flag):
     _private()
     external_get()
 "#;
-    write(&root, "src/main.py", main_source);
+    write(&&root.join("src/main.py"), main_source);
     write(
-        &root,
-        "src/pkg/missing_user.py",
+        &&root.join("src/pkg/missing_user.py"),
         "from .missing_module import absent\n\ndef use_missing():\n    absent()\n",
     );
-    write(&root, "src/pkg/mod.ts", "export function leaf() {}\n");
+    write(&&root.join("src/pkg/mod.ts"), "export function leaf() {}\n");
 
     let project = analyze(&root);
     let main = file(&project, "/main.py");

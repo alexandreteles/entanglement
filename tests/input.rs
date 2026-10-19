@@ -1,3 +1,6 @@
+mod support;
+use support::write;
+
 use std::path::Path;
 use std::process::{Command, Output};
 
@@ -29,11 +32,6 @@ fn patch_file<'a>(report: &'a Value, suffix: &str) -> &'a Value {
                 .is_some_and(|path| path.ends_with(suffix))
         })
         .unwrap_or_else(|| panic!("patch report has no file ending in {suffix}"))
-}
-
-fn write(path: &Path, contents: impl AsRef<[u8]>) {
-    std::fs::create_dir_all(path.parent().expect("fixture parent")).unwrap();
-    std::fs::write(path, contents).unwrap();
 }
 
 #[test]
