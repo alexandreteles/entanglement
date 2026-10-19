@@ -261,7 +261,7 @@ pub struct SourceRange {
     pub end_byte: usize,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Default)]
 /// The Halstead indicators and lexical contributors changed by a patch.
 pub struct HalsteadDelta {
     /// The distinct operator count (n1) before and after the patch.
@@ -309,7 +309,7 @@ pub struct HalsteadTokenChange {
     pub count: usize,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Default)]
 /// The before/after Microsoft Maintainability Index for a patch scope.
 pub struct MaintainabilityDelta {
     /// The measured before value, absent when the scope did not exist.
@@ -328,7 +328,7 @@ pub struct MaintainabilityDelta {
     pub clamp_adjustment: Option<f64>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Default)]
 /// One metric value before and after a patch, with its change.
 pub struct MetricDelta<T, D = i64> {
     /// The metric before the patch.

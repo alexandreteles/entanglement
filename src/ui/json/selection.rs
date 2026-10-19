@@ -1,107 +1,34 @@
 use crate::metrics::selection::{Metric, Selection};
 use serde_json::Value;
 
+/// Remove unselected fields only from report objects, leaving metric payloads intact.
 pub(super) fn project(result: &mut Value, selection: Selection) {
-    let Some(object) = result.as_object_mut() else {
-        return;
-    };
-    if !selection.includes(Metric::Mi) {
-        object.remove("maintainability_index_bands");
-    }
-    if let Some(files) = object.get_mut("files").and_then(Value::as_array_mut) {
-        for file in files {
-            project_file(file, selection);
-        }
-    }
-    if let Some(patch) = object.get_mut("patch") {
-        project_patch(patch, selection);
-    }
-}
-
-fn project_patch(patch: &mut Value, selection: Selection) {
-    let Some(object) = patch.as_object_mut() else {
-        return;
-    };
-    let Some(files) = object.get_mut("files").and_then(Value::as_array_mut) else {
-        return;
-    };
-    for file in files {
-        let Some(object) = file.as_object_mut() else {
-            continue;
-        };
-        for side in ["before", "after"] {
-            if let Some(value) = object.get_mut(side) {
-                project_file(value, selection);
+    match result {
+        Value::Array(items) => items.iter_mut().for_each(|item| project(item, selection)),
+        Value::Object(object) => {
+            object.retain(|field, _| {
+                let metric = match field.as_str() {
+                    "halstead" => Metric::Halstead,
+                    "maintainability_index" | "maintainability_index_bands" => Metric::Mi,
+                    "cyclomatic_density" => Metric::Density,
+                    "cyclomatic_complexity"
+                    | "contributions"
+                    | "added_contributions"
+                    | "removed_contributions" => Metric::Cc,
+                    "cognitive_complexity"
+                    | "cognitive_contributions"
+                    | "added_cognitive_contributions"
+                    | "removed_cognitive_contributions" => Metric::Cogc,
+                    _ => return true,
+                };
+                selection.includes(metric)
+            });
+            for field in ["files", "functions", "before", "after", "patch"] {
+                if let Some(value) = object.get_mut(field) {
+                    project(value, selection);
+                }
             }
         }
-        remove_unselected(object, "halstead", selection.includes(Metric::Halstead));
-        remove_unselected(
-            object,
-            "maintainability_index",
-            selection.includes(Metric::Mi),
-        );
-        if let Some(functions) = object.get_mut("functions").and_then(Value::as_array_mut) {
-            for function in functions {
-                project_function(function, selection);
-            }
-        }
-    }
-}
-
-fn project_file(file: &mut Value, selection: Selection) {
-    let Some(object) = file.as_object_mut() else {
-        return;
-    };
-    remove_unselected(object, "halstead", selection.includes(Metric::Halstead));
-    remove_unselected(
-        object,
-        "maintainability_index",
-        selection.includes(Metric::Mi),
-    );
-    if let Some(functions) = object.get_mut("functions").and_then(Value::as_array_mut) {
-        for function in functions {
-            project_function(function, selection);
-        }
-    }
-}
-
-fn project_function(function: &mut Value, selection: Selection) {
-    let Some(object) = function.as_object_mut() else {
-        return;
-    };
-    remove_unselected(object, "halstead", selection.includes(Metric::Halstead));
-    remove_unselected(
-        object,
-        "maintainability_index",
-        selection.includes(Metric::Mi),
-    );
-    remove_unselected(
-        object,
-        "cyclomatic_complexity",
-        selection.includes(Metric::Cc),
-    );
-    remove_unselected(
-        object,
-        "cyclomatic_density",
-        selection.includes(Metric::Density),
-    );
-    let include_cc = selection.includes(Metric::Cc);
-    remove_unselected(object, "contributions", include_cc);
-    remove_unselected(object, "added_contributions", include_cc);
-    remove_unselected(object, "removed_contributions", include_cc);
-    remove_unselected(
-        object,
-        "cognitive_complexity",
-        selection.includes(Metric::Cogc),
-    );
-    let include_cognitive = selection.includes(Metric::Cogc);
-    remove_unselected(object, "cognitive_contributions", include_cognitive);
-    remove_unselected(object, "added_cognitive_contributions", include_cognitive);
-    remove_unselected(object, "removed_cognitive_contributions", include_cognitive);
-}
-
-fn remove_unselected(object: &mut serde_json::Map<String, Value>, field: &str, selected: bool) {
-    if !selected {
-        object.remove(field);
+        _ => {}
     }
 }

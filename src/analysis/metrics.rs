@@ -5,7 +5,7 @@ use crate::metrics::{
     SyntaxEvent, SyntaxRole, cognitive,
     cyclomatic::{self, FunctionScope},
     cyclomatic_density,
-    halstead::{self, HalsteadMetrics, HalsteadToken},
+    halstead::{HalsteadMetrics, HalsteadToken},
     maintainability::MaintainabilityIndex,
 };
 use crate::model::ComplexityContribution;
@@ -45,7 +45,9 @@ impl LanguageMetrics {
             BTreeMap::new()
         };
         let assigned_tokens = if selection.needs_halstead() {
-            halstead::assign_tokens(scopes, &inputs.tokens)
+            crate::metrics::assign_to_functions(scopes, inputs.tokens.iter(), |token| {
+                token.start_byte..token.end_byte
+            })
         } else {
             BTreeMap::new()
         };
@@ -75,8 +77,14 @@ impl LanguageMetrics {
             &self.parents,
             self.selection,
         );
-        let (halstead_volume, halstead) =
-            halstead_metrics(index, &self.assigned_tokens, self.selection);
+        let (halstead_volume, halstead) = halstead_metrics(
+            self.assigned_tokens
+                .get(&index)
+                .into_iter()
+                .flatten()
+                .cloned(),
+            self.selection,
+        );
         let (cognitive_complexity, cognitive_contributions) = self
             .cognitive
             .as_ref()
@@ -177,21 +185,12 @@ pub(super) fn file_halstead(
     summaries: &[TreeSummary],
     selection: Selection,
 ) -> (f64, HalsteadMetrics) {
-    if !selection.needs_halstead() {
-        return (0.0, empty_halstead());
-    }
-    let metrics = HalsteadMetrics::from_tokens(
+    halstead_metrics(
         summaries
             .iter()
             .flat_map(|item| item.tokens.iter().cloned()),
-    );
-    let volume = metrics.volume;
-    let metrics = if selection.includes(Metric::Halstead) {
-        metrics
-    } else {
-        empty_halstead()
-    };
-    (volume, metrics)
+        selection,
+    )
 }
 
 fn cyclomatic_metrics(
@@ -217,15 +216,13 @@ fn cyclomatic_metrics(
 }
 
 fn halstead_metrics(
-    index: usize,
-    assigned_tokens: &BTreeMap<usize, Vec<HalsteadToken>>,
+    tokens: impl IntoIterator<Item = HalsteadToken>,
     selection: Selection,
 ) -> (f64, HalsteadMetrics) {
     if !selection.needs_halstead() {
         return (0.0, empty_halstead());
     }
-    let metrics =
-        HalsteadMetrics::from_tokens(assigned_tokens.get(&index).cloned().unwrap_or_default());
+    let metrics = HalsteadMetrics::from_tokens(tokens);
     let volume = metrics.volume;
     let metrics = if selection.includes(Metric::Halstead) {
         metrics

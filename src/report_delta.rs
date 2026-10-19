@@ -29,7 +29,7 @@ pub(super) fn halstead_delta(
     selection: Selection,
 ) -> model::HalsteadDelta {
     if !selection.includes(Metric::Halstead) {
-        return empty_halstead_delta();
+        return model::HalsteadDelta::default();
     }
     let zero = HalsteadMetrics::calculate(0, 0, 0, 0);
     let before = before.unwrap_or(&zero);
@@ -70,38 +70,6 @@ pub(super) fn halstead_delta(
     }
 }
 
-fn empty_halstead_delta() -> model::HalsteadDelta {
-    model::HalsteadDelta {
-        distinct_operators: metric_delta(0, 0, difference_usize),
-        distinct_operands: metric_delta(0, 0, difference_usize),
-        total_operators: metric_delta(0, 0, difference_usize),
-        total_operands: metric_delta(0, 0, difference_usize),
-        vocabulary: metric_delta(0, 0, difference_usize),
-        length: metric_delta(0, 0, difference_usize),
-        estimated_length: float_delta(0.0, 0.0),
-        volume: float_delta(0.0, 0.0),
-        difficulty: float_delta(0.0, 0.0),
-        effort: float_delta(0.0, 0.0),
-        time: float_delta(0.0, 0.0),
-        program_level: float_delta(0.0, 0.0),
-        estimated_bugs: float_delta(0.0, 0.0),
-        added_tokens: Vec::new(),
-        removed_tokens: Vec::new(),
-    }
-}
-
-fn empty_maintainability_delta() -> model::MaintainabilityDelta {
-    model::MaintainabilityDelta {
-        before: None,
-        after: None,
-        score: None,
-        volume_effect: None,
-        cyclomatic_effect: None,
-        nloc_effect: None,
-        clamp_adjustment: None,
-    }
-}
-
 /// Compare token identity by kind and spelling, preferring mapped positions.
 ///
 /// Position matching keeps contributors attached to the actual insertion or
@@ -115,8 +83,8 @@ fn token_changes(
     Vec<model::HalsteadTokenChange>,
     Vec<model::HalsteadTokenChange>,
 ) {
-    let old = tokens(before);
-    let new = tokens(after);
+    let old = before.tokens();
+    let new = after.tokens();
     let mut matched_new = vec![false; new.len()];
     let (mut by_position, mut by_identity) = token_indexes(&new);
     let unmatched_old = match_positions(&old, edits, &mut by_position, &mut matched_new);
@@ -197,10 +165,6 @@ fn unmatched_tokens<'a>(tokens: &[&'a HalsteadToken], matched: &[bool]) -> Vec<&
         .enumerate()
         .filter_map(|(index, &token)| (!matched[index]).then_some(token))
         .collect()
-}
-
-fn tokens(metrics: &HalsteadMetrics) -> Vec<&HalsteadToken> {
-    metrics.tokens()
 }
 
 fn group_tokens(tokens: Vec<&HalsteadToken>) -> Vec<model::HalsteadTokenChange> {
