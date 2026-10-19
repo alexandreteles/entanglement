@@ -1,5 +1,7 @@
 use super::*;
 
+mod types;
+
 impl Index<'_> {
     pub(super) fn members_of_type(
         &self,
@@ -77,34 +79,19 @@ impl Index<'_> {
         owners: &BTreeSet<(Vec<String>, Vec<String>)>,
         classes: &[&Candidate],
     ) -> Vec<usize> {
-        let mut members = self.object_member_candidates(name, classes);
-        for companion in self.candidates.iter().filter(|candidate| {
+        let objects = classes.iter().copied().filter(|class| {
+            class
+                .declaration
+                .is_some_and(|item| item.kind == DeclarationKind::Object)
+        });
+        let companions = self.candidates.iter().filter(|candidate| {
             candidate
                 .declaration
                 .is_some_and(|item| item.kind == DeclarationKind::CompanionObject)
                 && owners.contains(&(candidate.package.to_vec(), candidate.owner.to_vec()))
-        }) {
-            let companion_owner = extended_owner(companion.owner, companion.name);
-            members.extend(self.named(name).filter_map(|candidate| {
-                (candidate.package == companion.package && candidate.owner == companion_owner)
-                    .then_some(candidate.candidate_index)
-            }));
-        }
-        members
-    }
-
-    pub(super) fn object_member_candidates(
-        &self,
-        name: &str,
-        classes: &[&Candidate],
-    ) -> Vec<usize> {
-        classes
-            .iter()
-            .filter(|class| {
-                class
-                    .declaration
-                    .is_some_and(|declaration| declaration.kind == DeclarationKind::Object)
-            })
+        });
+        objects
+            .chain(companions)
             .flat_map(|class| {
                 let owner = extended_owner(class.owner, class.name);
                 self.named(name)
@@ -143,114 +130,6 @@ impl Index<'_> {
         let candidates = self.package_types(receiver, package).collect::<Vec<_>>();
         candidates.len() == 1
     }
-    pub(super) fn type_candidates<'b>(
-        &'b self,
-        file: usize,
-        reference: &Reference,
-        type_name: &str,
-    ) -> Vec<&'b Candidate<'b>> {
-        let normalized = normalize_type(type_name);
-        let short_name = normalized.rsplit('.').next().unwrap_or(&normalized);
-        let package = self.semantic_package(file, reference.context_id);
-        let imported = self.imported_candidates(file, reference, short_name, false);
-        let mut classes = self
-            .named_types(short_name)
-            .filter(|candidate| self.visible_in_source_set(file, candidate))
-            .filter(|candidate| {
-                if normalized.contains('.') {
-                    candidate_type_name(candidate) == normalized
-                } else if !imported.is_empty() {
-                    imported.contains(&candidate.candidate_index)
-                } else {
-                    candidate.package == package && candidate.owner.is_empty()
-                }
-            })
-            .collect::<Vec<_>>();
-        classes.dedup_by_key(|candidate| candidate.symbol);
-        classes
-    }
-    pub(super) fn resolve_declared_type(
-        &self,
-        file: usize,
-        context_id: usize,
-        type_name: &str,
-        package: &[String],
-    ) -> Vec<&Candidate<'_>> {
-        let name = type_name.rsplit('.').next().unwrap_or(type_name);
-        if let Some((qualified_package, _)) = type_name.rsplit_once('.') {
-            let qualified = qualified_package
-                .split('.')
-                .map(str::to_owned)
-                .chain(std::iter::once(name.to_owned()))
-                .collect::<Vec<_>>();
-            return self.qualified_types(name, &qualified).collect();
-        }
-        let imported = self
-            .imports(file, context_id)
-            .filter(|import| !import.namespace && imported_name(import) == Some(name))
-            .flat_map(|import| {
-                let imported_name = import.path.last().map(String::as_str).unwrap_or(name);
-                self.qualified_types(imported_name, &import.path)
-            })
-            .collect::<Vec<_>>();
-        if !imported.is_empty() {
-            return imported;
-        }
-        self.package_types(name, package).collect()
-    }
-    pub(super) fn canonical_type_names(
-        &self,
-        file: usize,
-        context_id: usize,
-        package: &[String],
-        type_name: &str,
-        seen: &mut BTreeSet<String>,
-    ) -> BTreeSet<String> {
-        let normalized = normalize_type(type_name);
-        if !seen.insert(normalized.clone()) {
-            return BTreeSet::new();
-        }
-        let declarations = self.resolve_declared_type(file, context_id, &normalized, package);
-        const BUILTINS: &[&str] = &[
-            "Any", "Nothing", "Unit", "Boolean", "Byte", "Short", "Int", "Long", "Float", "Double",
-            "Char", "String",
-        ];
-        match declarations.as_slice() {
-            [candidate] => match candidate
-                .declaration
-                .and_then(|declaration| declaration.alias_target.as_deref())
-            {
-                Some(alias) => self.canonical_type_names(
-                    candidate.file,
-                    candidate.context_id,
-                    candidate.package,
-                    alias,
-                    seen,
-                ),
-                None => [candidate_type_name(candidate)].into_iter().collect(),
-            },
-            [] if BUILTINS.contains(&normalized.as_str()) || normalized.contains('.') => {
-                [normalized].into_iter().collect()
-            }
-            _ => BTreeSet::new(),
-        }
-    }
-
-    /// Return direct parent candidates in the declaring type's source context.
-    ///
-    /// Keep declaration order and duplicate matches. The caller must select
-    /// valid parents and decide how to use unresolved or ambiguous evidence.
-    pub(super) fn direct_supertypes(&self, class: &Candidate) -> Vec<&Candidate<'_>> {
-        class
-            .declaration
-            .into_iter()
-            .flat_map(|declaration| &declaration.supertypes)
-            .flat_map(|supertype| {
-                self.resolve_declared_type(class.file, class.context_id, supertype, class.package)
-            })
-            .collect()
-    }
-
     pub(super) fn inherited_member_candidates(
         &self,
         file: usize,
