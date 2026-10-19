@@ -15,8 +15,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut assets = String::from("pub const GRAMMAR_ASSETS: &[(&str, &str, &[u8])] = &[\n");
     let mut roots = HashSet::new();
     for package in metadata.packages {
+        if package.name.as_str() == "tree-sitter-php" && package.source.is_some() {
+            continue;
+        }
         let manifest = package.manifest_path.into_std_path_buf();
-        let package_root = manifest.parent().ok_or("No grammar directory")?;
+        let generated_root = (package.name.as_str() == "tree-sitter-php")
+            .then(|| {
+                env::var_os("DEP_ENTANGLEMENT_PHP_ROOT")
+                    .map(PathBuf::from)
+                    .ok_or("No corrected PHP grammar directory")
+            })
+            .transpose()?;
+        let package_root = generated_root
+            .as_deref()
+            .or_else(|| manifest.parent())
+            .ok_or("No grammar directory")?;
         let metadata_file = package_root.join("tree-sitter.json");
         let override_file = Path::new("grammar-metadata")
             .join(package.name.as_str())
