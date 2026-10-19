@@ -22,25 +22,23 @@ impl Index {
     }
 
     fn add_symbols(&mut self, graph: &ProgramGraph<'_>) {
-        for file_index in 0..graph.file_count() {
-            let fact = graph.file(file_index);
-            if fact.resolution_family != ResolutionFamily::RustCrates {
-                continue;
-            }
+        for (file_index, fact) in graph
+            .files()
+            .iter()
+            .enumerate()
+            .filter(|(_, fact)| fact.resolution_family == ResolutionFamily::RustCrates)
+        {
             for context in &self.contexts[file_index] {
                 let file_module = joined_path(&context.module, &fact.module.0);
-                self.modules.insert(ModuleKey {
-                    crate_root: context.crate_root.clone(),
-                    path: Vec::new(),
-                });
-                if !file_module.is_empty() {
-                    self.modules.insert(ModuleKey {
+                self.modules
+                    .extend([Vec::new(), file_module.clone()].map(|path| ModuleKey {
                         crate_root: context.crate_root.clone(),
-                        path: file_module.clone(),
-                    });
-                }
+                        path,
+                    }));
 
-                for graph_symbol in graph.symbols_for_file(file_index) {
+                for graph_symbol in graph.symbols_for_file(file_index).filter(|symbol| {
+                    !matches!(symbol.kind, DefinitionKind::Method | DefinitionKind::Other)
+                }) {
                     let definition = graph
                         .definition(graph_symbol.id)
                         .expect("eligible symbol has canonical definition");
@@ -55,16 +53,9 @@ impl Index {
                         self.modules.insert(module_key.clone());
                         self.modules.insert(child);
                     }
-                    if !is_resolvable_kind(&definition.kind) {
-                        continue;
-                    }
-                    let id = graph
-                        .symbol_id(graph_symbol.id)
-                        .cloned()
-                        .expect("program graph indexes every definition");
                     let id = SymbolId {
                         module: ModulePath(module),
-                        ..id
+                        ..graph_symbol.semantic_id.clone()
                     };
                     self.symbols
                         .entry(module_key)
@@ -82,20 +73,23 @@ impl Index {
                 }
             }
         }
-        for names in self.symbols.values_mut() {
-            for symbols in names.values_mut() {
-                symbols.sort_by(|left, right| left.id.cmp(&right.id));
-                symbols.dedup_by(|left, right| left.id == right.id);
-            }
+        for symbols in self
+            .symbols
+            .values_mut()
+            .flat_map(|names| names.values_mut())
+        {
+            symbols.sort_by(|left, right| left.id.cmp(&right.id));
+            symbols.dedup_by(|left, right| left.id == right.id);
         }
     }
 
     fn add_imports(&mut self, graph: &ProgramGraph<'_>) {
-        for file_index in 0..graph.file_count() {
-            let fact = graph.file(file_index);
-            if fact.resolution_family != ResolutionFamily::RustCrates {
-                continue;
-            }
+        for (file_index, fact) in graph
+            .files()
+            .iter()
+            .enumerate()
+            .filter(|(_, fact)| fact.resolution_family == ResolutionFamily::RustCrates)
+        {
             for context in &self.contexts[file_index] {
                 let file_module = joined_path(&context.module, &fact.module.0);
                 for import in graph.imports(file_index) {
@@ -154,8 +148,4 @@ fn import_name_and_path(import: &Import) -> Option<(String, Vec<String>)> {
     }
     let name = import.alias.clone().or_else(|| path.last().cloned())?;
     Some((name, path))
-}
-
-fn is_resolvable_kind(kind: &DefinitionKind) -> bool {
-    !matches!(kind, DefinitionKind::Method | DefinitionKind::Other)
 }

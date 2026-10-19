@@ -1,4 +1,8 @@
+use crate::graph::ProgramSymbolId;
+use crate::graph::{SemanticFacts, program::FileFactsView};
+use crate::languages::ResolutionFamily;
 use std::sync::Arc;
+use std::{collections::HashSet, path::PathBuf};
 
 use super::*;
 use crate::graph::BindingType;
@@ -126,10 +130,11 @@ fn projections_reuse_indexes_and_preserve_canonical_identity_and_context_evidenc
     // Excluded exact keys must behave as absent, allowing the module
     // qualification fallback used by Rust resolution to find the view's declaration.
     let excluded_target = graph
-        .symbol_id(ProgramSymbolId {
+        .symbol(ProgramSymbolId {
             file_index: 0,
             definition_index: 0,
         })
+        .map(|symbol| &symbol.semantic_id)
         .unwrap();
     assert_eq!(
         projected.unique_symbol_for_target(excluded_target),
@@ -138,7 +143,7 @@ fn projections_reuse_indexes_and_preserve_canonical_identity_and_context_evidenc
     let ambiguous = project(HashSet::from([1, 2]));
     assert_eq!(ambiguous.unique_symbol_for_target(excluded_target), None);
     assert_eq!(
-        ambiguous.unique_symbol_for_target(graph.symbol_id(id).unwrap()),
+        ambiguous.unique_symbol_for_target(&graph.symbol(id).unwrap().semantic_id),
         None
     );
 }
