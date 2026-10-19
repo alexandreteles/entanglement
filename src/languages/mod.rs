@@ -1,6 +1,7 @@
 mod assets;
 pub(crate) mod go;
 pub(crate) mod kotlin;
+mod php;
 mod python;
 pub(crate) mod query;
 mod registry;
@@ -106,6 +107,7 @@ pub(crate) trait LanguageHandler: Send + Sync {
 /// Resolver behavior and relative-file rules declared by a language descriptor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ResolutionFamily {
+    PhpNamespaces,
     RustCrates,
     FileModules,
     GoPackages,

@@ -6,8 +6,13 @@
 
 use crate::model::SourceRange;
 
+mod php;
+pub(crate) use php::*;
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct SemanticFacts {
+    /// PHP name and declaration rules for this semantic layer.
+    pub php: Option<PhpFacts>,
     /// The semantic layer that owns these facts, including injected programs.
     pub context_id: usize,
     /// Resolution policy for this layer; grammar details stay in adapters.

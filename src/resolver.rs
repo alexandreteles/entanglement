@@ -16,6 +16,7 @@ mod indexing;
 mod kotlin;
 mod module_graph;
 mod packages;
+mod php;
 mod resolution;
 mod strategies;
 
@@ -117,6 +118,7 @@ fn resolve_references(
     let file_resolutions = files::resolve(facts, graph);
     let kotlin_resolutions = kotlin::resolve(facts, snapshot, graph, kotlin_cache);
     let package_resolutions = packages::resolve(facts, snapshot, graph);
+    let php_resolutions = php::resolve(facts, snapshot, graph);
     facts
         .iter()
         .enumerate()
@@ -124,6 +126,7 @@ fn resolve_references(
             let resolved = file_resolutions[file_index]
                 .as_ref()
                 .or(kotlin_resolutions[file_index].as_ref())
+                .or(php_resolutions[file_index].as_ref())
                 .or(package_resolutions[file_index].as_ref());
             resolve_fact(&index, file_index, fact, resolved)
         })
