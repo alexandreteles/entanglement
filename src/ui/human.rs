@@ -7,22 +7,13 @@ use super::maintainability::{
     write_index as write_maintainability,
 };
 use crate::metrics::halstead::HalsteadMetrics;
-use crate::metrics::selection::Selection;
 use crate::model::{
-    AnalysisResult, ComplexityContribution, FileAnalysis, HalsteadDelta, HalsteadTokenChange,
-    MetricDelta,
+    ComplexityContribution, FileAnalysis, HalsteadDelta, HalsteadTokenChange, MetricDelta,
 };
 
 mod selection;
 
-/// Render file metrics or patch changes as readable terminal text.
-///
-/// The renderer uses values already present in `result`. It does not calculate
-/// metrics or change contribution signs. It returns an empty string when the
-/// result has no files and no patch data.
-pub fn render(result: &AnalysisResult, selection: Selection) -> String {
-    selection::render(result, selection)
-}
+pub use selection::render;
 
 fn metric_value(value: Option<usize>) -> String {
     value.map_or_else(|| "—".to_owned(), |value| value.to_string())

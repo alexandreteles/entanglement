@@ -1,6 +1,6 @@
 //! Render analysis results as JSON.
 
-use crate::metrics::selection::Selection;
+use crate::metrics::selection::{Metric, Selection};
 use crate::model::AnalysisResult;
 
 mod selection;
@@ -10,7 +10,7 @@ mod selection;
 /// The output contains the same file and patch data as the analysis result.
 /// It returns a serialization error if the result cannot be encoded.
 pub fn render(result: &AnalysisResult, selection: Selection) -> crate::Result<String> {
-    if super::selection::is_all(selection) {
+    if selection.includes(Metric::All) {
         return Ok(serde_json::to_string_pretty(result)?);
     }
     let mut value = serde_json::to_value(result)?;

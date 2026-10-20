@@ -23,7 +23,12 @@ const FILE_COLUMNS: [FunctionColumn; 3] = [
 
 const PATCH_COLUMNS: [FunctionColumn; 2] = [FunctionColumn::Cc, FunctionColumn::Density];
 
-pub(super) fn render(result: &AnalysisResult, selection: Selection) -> String {
+/// Render file metrics or patch changes as readable terminal text.
+///
+/// The renderer uses values already present in `result`. It does not calculate
+/// metrics or change contribution signs. It returns an empty string when the
+/// result has no files and no patch data.
+pub fn render(result: &AnalysisResult, selection: Selection) -> String {
     let mut output = String::new();
     if let Some(patch) = &result.patch {
         write_patch_report(&mut output, result, patch, selection);
