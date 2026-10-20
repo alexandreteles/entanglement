@@ -1,28 +1,23 @@
 use std::ops::Range;
 
-use super::super::CaptureFacts;
 use crate::model::ReferenceKind;
 
-impl CaptureFacts<'_> {
-    pub(super) fn call_owner(
-        &self,
-        node_id: usize,
-        reference_range: &Range<usize>,
-        kind: ReferenceKind,
-    ) -> Option<usize> {
-        if !matches!(
-            kind,
-            ReferenceKind::Call
-                | ReferenceKind::Method
-                | ReferenceKind::Qualified
-                | ReferenceKind::Value
-        ) {
-            return None;
-        }
-        let reference = self.graph.node(node_id)?;
-        let call = direct_call(reference, reference_range)?;
-        enclosing_function(call)
+pub(super) fn call_owner(
+    reference: tree_sitter::Node<'_>,
+    reference_range: &Range<usize>,
+    kind: ReferenceKind,
+) -> Option<usize> {
+    if !matches!(
+        kind,
+        ReferenceKind::Call
+            | ReferenceKind::Method
+            | ReferenceKind::Qualified
+            | ReferenceKind::Value
+    ) {
+        return None;
     }
+    let call = direct_call(reference, reference_range)?;
+    enclosing_function(call)
 }
 
 fn direct_call<'tree>(
