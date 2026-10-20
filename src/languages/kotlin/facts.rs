@@ -33,7 +33,7 @@ use recovered::*;
 use references::*;
 use signatures::*;
 
-pub(super) use crate::languages::CapturedSemantics as Capture;
+pub(super) use crate::languages::SemanticStore as Capture;
 
 struct DefinitionContext<'tree, 'source> {
     root: Node<'tree>,

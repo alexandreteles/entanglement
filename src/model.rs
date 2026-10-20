@@ -339,9 +339,33 @@ pub struct MetricDelta<T, D = i64> {
     pub delta: D,
 }
 
+/// Owned semantic records for one ordered segment of a source context.
+///
+/// The store moves from capture to file analysis without a flat record copy.
+/// Segments with the same context ID and family form one logical program.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SemanticStore {
+    pub semantic: crate::graph::SemanticFacts,
+    pub definitions: Vec<Definition>,
+    pub imports: Vec<Import>,
+    pub exports: Vec<Export>,
+    pub references: Vec<Reference>,
+    pub locals: Vec<LocalBinding>,
+}
+
+impl SemanticStore {
+    /// Identify the logical context and its language lookup policy.
+    pub(crate) fn context_key(&self) -> (usize, Option<crate::languages::ResolutionFamily>) {
+        (self.semantic.context_id, self.semantic.resolution_family)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct FileFacts {
-    pub semantic: Vec<crate::graph::SemanticFacts>,
+    /// Canonical context segments in capture order. This order fixes report and symbol order.
+    pub contexts: Vec<SemanticStore>,
+    /// Metadata indices grouped by first-seen context and family.
+    pub context_order: Vec<usize>,
     pub source: std::sync::Arc<[u8]>,
     /// The resolved identity of the source file.
     pub target: PathBuf,
@@ -352,12 +376,22 @@ pub(crate) struct FileFacts {
     pub module: ModulePath,
     pub resolution_family: crate::languages::ResolutionFamily,
     pub file_module_rules: Option<&'static crate::languages::FileModuleRules>,
-    pub definitions: Vec<Definition>,
-    pub imports: Vec<Import>,
-    pub exports: Vec<Export>,
-    pub references: Vec<Reference>,
-    pub locals: Vec<LocalBinding>,
     pub analysis: FileAnalysis,
+}
+
+impl FileFacts {
+    /// Index metadata without changing record or capture order.
+    pub(crate) fn index_contexts(mut self) -> Self {
+        self.context_order = (0..self.contexts.len()).collect();
+        self.context_order.sort_by_cached_key(|index| {
+            let key = self.contexts[*index].context_key();
+            self.contexts
+                .iter()
+                .position(|store| store.context_key() == key)
+                .expect("indexed metadata belongs to a canonical context store")
+        });
+        self
+    }
 }
 
 #[derive(Debug, Clone)]

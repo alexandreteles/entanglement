@@ -4,9 +4,7 @@ use crate::model::{
     ExecutionTarget, Reference, ReferenceAnalysis, ReferenceKind, Resolution, SourceRange,
 };
 
-use super::{
-    CallEdge, ExecutionGraph, ExecutionRelation, ProgramGraph, ProgramScopeId, ProgramSymbolId,
-};
+use super::{CallEdge, ExecutionGraph, ExecutionRelation, ProgramGraph, ProgramSymbolId};
 
 impl<'a> ProgramGraph<'a> {
     pub(crate) fn confirmed_relations(
@@ -104,20 +102,17 @@ impl<'a> ProgramGraph<'a> {
             crate::model::DefinitionKind::Method => analysis.dispatch == Some(CallDispatch::Direct),
             _ => false,
         };
-        let callable_is_reported = self.function_starts[symbol.id.file_index]
-            .contains(&(symbol.scope.context_id, callee_start));
-        (dispatch_is_confirmed
-            && callable_is_reported
-            && self.is_reported_caller(file_index, reference, caller))
-        .then_some(CallEdge {
-            relation: ExecutionRelation::Invocation,
-            caller_file: file_index,
-            caller_start_byte: caller,
-            callee_file: symbol.id.file_index,
-            callee_start_byte: callee_start,
-            call_start_byte: reference.start_byte,
-            call_end_byte: reference.end_byte,
-        })
+        (dispatch_is_confirmed && self.is_reported_caller(file_index, reference, caller)).then_some(
+            CallEdge {
+                relation: ExecutionRelation::Invocation,
+                caller_file: file_index,
+                caller_start_byte: caller,
+                callee_file: symbol.id.file_index,
+                callee_start_byte: callee_start,
+                call_start_byte: reference.start_byte,
+                call_end_byte: reference.end_byte,
+            },
+        )
     }
 }
 
@@ -138,28 +133,11 @@ impl<'a> ProgramGraph<'a> {
         context_id: usize,
         start_byte: usize,
     ) -> bool {
-        self.facts[file_index]
-            .analysis
-            .functions
-            .iter()
-            .filter(|function| function.start_byte == start_byte)
-            .any(|function| {
-                self.file(file_index).allows(context_id)
-                    && (self.callable_scopes[file_index].contains(&ProgramScopeId::new(
-                        file_index,
-                        context_id,
-                        function.start_byte..function.end_byte,
-                    )) || self.facts[file_index]
-                        .definitions()
-                        .filter(|definition| definition.context_id == context_id)
-                        .filter_map(|definition| definition.declaration.as_deref())
-                        .filter_map(|declaration| declaration.execution.as_ref())
-                        .flat_map(execution_ranges)
-                        .any(|range| {
-                            range.start_byte == function.start_byte
-                                && range.end_byte == function.end_byte
-                        }))
-            })
+        self.file(file_index).allows(context_id)
+            && self.reported_scopes[file_index]
+                .range((context_id, start_byte, 0)..=(context_id, start_byte, usize::MAX))
+                .next()
+                .is_some()
     }
 
     pub(super) fn is_reported_caller(
@@ -223,19 +201,16 @@ impl<'a> ProgramGraph<'a> {
             .and_then(|declaration| declaration.execution.as_ref())
             .is_some_and(|execution| {
                 execution_ranges(execution).any(|range| range == target.range)
-                    && self.facts[target.file_index]
-                        .analysis
-                        .functions
-                        .iter()
-                        .any(|function| {
-                            function.start_byte == target.range.start_byte
-                                && function.end_byte == target.range.end_byte
-                        })
+                    && self.reported_scopes[target.file_index].contains(&(
+                        target.context_id,
+                        target.range.start_byte,
+                        target.range.end_byte,
+                    ))
             })
     }
 }
 
-fn execution_ranges(
+pub(super) fn execution_ranges(
     execution: &DeclarationExecutionFacts,
 ) -> impl Iterator<Item = SourceRange> + '_ {
     [execution.callable_value, execution.getter, execution.setter]
@@ -317,13 +292,11 @@ impl<'a> ProgramGraph<'a> {
         context_id: usize,
         range: crate::model::SourceRange,
     ) -> bool {
-        self.is_reported_callable(file_index, context_id, range.start_byte)
-            && self.facts[file_index]
-                .analysis
-                .functions
-                .iter()
-                .any(|function| {
-                    function.start_byte == range.start_byte && function.end_byte == range.end_byte
-                })
+        self.file(file_index).allows(context_id)
+            && self.reported_scopes[file_index].contains(&(
+                context_id,
+                range.start_byte,
+                range.end_byte,
+            ))
     }
 }

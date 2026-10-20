@@ -77,10 +77,19 @@ impl<'a> ProgramGraph<'a> {
         file_index: usize,
         context_id: usize,
         family: Option<ResolutionFamily>,
-    ) -> Option<&'a SemanticFacts> {
-        self.file(file_index).semantic().find(|semantic| {
-            semantic.context_id == context_id
-                && family.is_none_or(|family| semantic.resolution_family == Some(family))
+    ) -> impl Iterator<Item = &'a SemanticFacts> + Clone {
+        let file = self.file(file_index);
+        let first_family = file
+            .semantic()
+            .find(|semantic| {
+                semantic.context_id == context_id
+                    && family.is_none_or(|family| semantic.resolution_family == Some(family))
+            })
+            .map(|semantic| semantic.resolution_family);
+        file.semantic().filter(move |semantic| {
+            file.allows(context_id)
+                && semantic.context_id == context_id
+                && Some(semantic.resolution_family) == first_family
         })
     }
 
@@ -89,9 +98,9 @@ impl<'a> ProgramGraph<'a> {
         file_index: usize,
         context_id: usize,
         family: Option<ResolutionFamily>,
-    ) -> &'a [CallFacts] {
+    ) -> impl Iterator<Item = &'a CallFacts> + Clone {
         self.semantic(file_index, context_id, family)
-            .map_or(&[], |semantic| semantic.calls.as_slice())
+            .flat_map(|semantic| &semantic.calls)
     }
 
     pub(super) fn unique_symbol_for_target(&self, target: &SymbolId) -> Option<ProgramSymbolId> {

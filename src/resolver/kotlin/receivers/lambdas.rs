@@ -13,7 +13,6 @@ impl Index<'_> {
                 reference.context_id,
                 Some(ResolutionFamily::KotlinModules),
             )
-            .iter()
             .filter_map(move |call| {
                 call.arguments
                     .iter()

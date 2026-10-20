@@ -9,7 +9,7 @@ use crate::model::{
     Definition, DefinitionKind, LocalBinding, ModulePath, Reference, ReferenceKind,
 };
 
-pub(super) use crate::languages::CapturedSemantics as SemanticFacts;
+pub(super) use crate::languages::SemanticStore as SemanticFacts;
 
 pub(super) struct CaptureFacts {
     root: Range<usize>,

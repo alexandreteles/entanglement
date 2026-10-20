@@ -2,9 +2,10 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 
-use crate::model::{Definition, DefinitionKind, FileFacts, SymbolId};
+use crate::model::{DefinitionKind, FileFacts, SourceRange, SymbolId};
 
 use super::bindings::binding_identity;
+use super::execution::execution_ranges;
 use super::{
     CallEdge, ExecutionGraph, FileFactsView, ProgramBinding, ProgramFunctionId, ProgramGraph,
     ProgramIndexes, ProgramScope, ProgramScopeId, ProgramSymbol, ProgramSymbolId,
@@ -44,8 +45,10 @@ impl<'a> ProgramGraph<'a> {
                 symbols_by_file: vec![Vec::new(); facts.len()],
                 symbols_by_name: (0..facts.len()).map(|_| HashMap::new()).collect(),
                 symbol_by_semantic_id: HashMap::new(),
-                function_starts: (0..facts.len()).map(|_| HashSet::new()).collect(),
                 callable_scopes: (0..facts.len()).map(|_| HashSet::new()).collect(),
+                reported_scopes: (0..facts.len())
+                    .map(|_| std::collections::BTreeSet::new())
+                    .collect(),
                 scopes: Vec::new(),
                 scopes_by_file: vec![Vec::new(); facts.len()],
                 scope_by_id: HashMap::new(),
@@ -66,12 +69,32 @@ impl<'a> ProgramGraph<'a> {
         self.index_definitions(file_index, fact);
         self.index_declared_scopes(file_index, fact);
         self.index_bindings(file_index, fact);
-        self.index_callable_scopes(file_index, fact);
+        for definition in FileFactsView::new(fact).definitions().filter(|definition| {
+            matches!(
+                definition.kind,
+                DefinitionKind::Function | DefinitionKind::Method
+            )
+        }) {
+            let scope = ProgramScopeId::new(
+                file_index,
+                definition.context_id,
+                definition.start_byte..definition.end_byte,
+            );
+            self.callable_scopes[file_index].insert(scope);
+            self.add_scope(scope);
+        }
     }
 }
 impl<'a> ProgramGraph<'a> {
     fn index_definitions(&mut self, file_index: usize, fact: &'a FileFacts) {
-        for (definition_index, definition) in fact.definitions.iter().enumerate() {
+        let view = FileFactsView::new(fact);
+        let metric_ranges: HashSet<_> = fact
+            .analysis
+            .functions
+            .iter()
+            .map(|function| (function.start_byte, function.end_byte))
+            .collect();
+        for (definition_index, definition) in view.definitions().enumerate() {
             let id = ProgramSymbolId {
                 file_index,
                 definition_index,
@@ -83,7 +106,13 @@ impl<'a> ProgramGraph<'a> {
                 end_byte: definition.scope_end,
             };
             self.add_scope(scope);
-            let semantic_id = semantic_symbol_id(fact, definition);
+            let semantic_id = SymbolId {
+                file: fact.analysis.path.clone(),
+                module: definition.module.clone(),
+                name: definition.name.clone(),
+                kind: definition.kind.clone(),
+                start_byte: definition.start_byte,
+            };
             self.symbol_by_semantic_id
                 .entry(semantic_id.clone())
                 .or_default()
@@ -100,50 +129,41 @@ impl<'a> ProgramGraph<'a> {
                 .entry(definition.name.clone())
                 .or_default()
                 .push(symbol_index);
-        }
-    }
-    fn index_callable_scopes(&mut self, file_index: usize, fact: &FileFacts) {
-        for definition in fact.definitions.iter().filter(|definition| {
-            matches!(
+            let callable = matches!(
                 definition.kind,
                 DefinitionKind::Function | DefinitionKind::Method
             )
-        }) {
-            let scope = ProgramScopeId::new(
-                file_index,
-                definition.context_id,
-                definition.start_byte..definition.end_byte,
+            .then_some(SourceRange {
+                start_byte: definition.start_byte,
+                end_byte: definition.end_byte,
+            });
+            let execution = definition
+                .declaration
+                .as_deref()
+                .and_then(|declaration| declaration.execution.as_ref());
+            self.reported_scopes[file_index].extend(
+                callable
+                    .into_iter()
+                    .chain(execution.into_iter().flat_map(execution_ranges))
+                    .filter(|range| metric_ranges.contains(&(range.start_byte, range.end_byte)))
+                    .map(|range| (definition.context_id, range.start_byte, range.end_byte)),
             );
-            self.function_starts[file_index].insert((scope.context_id, scope.start_byte));
-            self.callable_scopes[file_index].insert(scope);
-            self.add_scope(scope);
         }
     }
 }
 
-fn semantic_symbol_id(fact: &FileFacts, definition: &Definition) -> SymbolId {
-    SymbolId {
-        file: fact.analysis.path.clone(),
-        module: definition.module.clone(),
-        name: definition.name.clone(),
-        kind: definition.kind.clone(),
-        start_byte: definition.start_byte,
-    }
-}
 impl<'a> ProgramGraph<'a> {
     fn index_declared_scopes(&mut self, file_index: usize, fact: &FileFacts) {
-        let ranges = fact
-            .imports
-            .iter()
+        let view = FileFactsView::new(fact);
+        let ranges = view
+            .imports()
             .map(|item| (item.context_id, item.scope_start, item.scope_end))
             .chain(
-                fact.exports
-                    .iter()
+                view.exports()
                     .map(|item| (item.context_id, item.scope_start, item.scope_end)),
             )
             .chain(
-                fact.references
-                    .iter()
+                view.references()
                     .map(|item| (item.context_id, item.scope_start, item.scope_end)),
             );
         for (context_id, start, end) in ranges {
@@ -193,7 +213,8 @@ impl<'a> ProgramGraph<'a> {
 }
 impl<'a> ProgramGraph<'a> {
     fn index_bindings(&mut self, file_index: usize, fact: &FileFacts) {
-        let locals = fact.locals.iter().map(|local| {
+        let view = FileFactsView::new(fact);
+        let locals = view.locals().map(|local| {
             ProgramBinding::new(
                 ProgramScopeId::new(
                     file_index,
@@ -205,11 +226,15 @@ impl<'a> ProgramGraph<'a> {
             )
         });
         for binding in locals {
-            self.index_binding(binding);
+            self.add_binding(binding);
         }
-        for semantic in &fact.semantic {
-            for binding in &semantic.bindings {
-                self.index_binding(ProgramBinding {
+        for group in fact.context_order.chunk_by(|left, right| {
+            fact.contexts[*left].context_key() == fact.contexts[*right].context_key()
+        }) {
+            let context_id = fact.contexts[group[0]].semantic.context_id;
+            let stores = group.iter().map(|index| &fact.contexts[*index].semantic);
+            for binding in stores.clone().flat_map(|store| &store.bindings) {
+                self.add_binding(ProgramBinding {
                     type_name: binding.type_name.clone(),
                     alias_target: binding.alias_target.clone(),
                     callable_reference: binding.callable_reference,
@@ -218,7 +243,7 @@ impl<'a> ProgramGraph<'a> {
                     ..ProgramBinding::new(
                         ProgramScopeId::new(
                             file_index,
-                            semantic.context_id,
+                            context_id,
                             binding.scope_start..binding.scope_end,
                         ),
                         binding.name.clone(),
@@ -226,22 +251,17 @@ impl<'a> ProgramGraph<'a> {
                     )
                 });
             }
-            for receiver in &semantic.receivers {
+            for receiver in stores.flat_map(|store| &store.receivers) {
                 self.add_scope(ProgramScopeId::new(
                     file_index,
-                    semantic.context_id,
+                    context_id,
                     receiver.start_byte..receiver.end_byte,
                 ));
             }
         }
     }
-    fn index_binding(&mut self, binding: ProgramBinding) {
-        let scope = binding.scope;
-        self.add_binding(binding);
-        self.add_scope(scope);
-    }
-
     fn add_binding(&mut self, binding: ProgramBinding) {
+        self.add_scope(binding.scope);
         let existing = self.bindings_by_file_name[binding.scope.file_index]
             .get(&binding.name)
             .into_iter()

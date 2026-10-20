@@ -156,11 +156,11 @@ pub(super) fn extended_owner(owner: &[String], name: &str) -> Vec<String> {
 }
 
 pub(super) fn exact_argument_call<'a>(
-    calls: &'a [CallFacts],
+    calls: impl IntoIterator<Item = &'a CallFacts>,
     argument: &CallArgumentFact,
 ) -> Option<&'a CallFacts> {
     calls
-        .iter()
+        .into_iter()
         .filter(|call| {
             call.start_byte == argument.start_byte
                 && call.end_byte == argument.end_byte

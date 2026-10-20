@@ -45,18 +45,13 @@ impl Index<'_> {
             .read(self.graph.file(file).target)
             .ok()
             .flatten();
-        let calls = self.graph.call_facts(
-            file,
-            reference.context_id,
-            Some(ResolutionFamily::KotlinModules),
-        );
         for argument in inferred
             .iter_mut()
             .filter(|argument| !argument.is_lambda && argument.type_name.is_none())
         {
             argument.type_name = self
                 .infer_identifier_argument(file, reference, argument, source.as_deref())
-                .or_else(|| self.infer_call_argument_type(file, reference, argument, calls));
+                .or_else(|| self.infer_call_argument_type(file, reference, argument));
         }
         let inferred = Rc::new(inferred);
         let _ = arguments.evidence.inferred.set(Rc::clone(&inferred));
@@ -96,9 +91,15 @@ impl Index<'_> {
         file: usize,
         reference: &Reference,
         argument: &CallArgumentFact,
-        calls: &[CallFacts],
     ) -> Option<String> {
-        let call = exact_argument_call(calls, argument)?;
+        let call = exact_argument_call(
+            self.graph.call_facts(
+                file,
+                reference.context_id,
+                Some(ResolutionFamily::KotlinModules),
+            ),
+            argument,
+        )?;
         let inner = call_target_reference(
             self.graph.file(file).references(),
             reference.context_id,

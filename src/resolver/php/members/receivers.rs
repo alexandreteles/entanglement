@@ -115,13 +115,16 @@ impl Index<'_> {
             file,
             reference.context_id,
             Some(ResolutionFamily::PhpNamespaces),
-        )?;
-        let mut bindings = semantic.bindings.iter().filter(|binding| {
-            binding.name == name
-                && binding.scope_start <= reference.start_byte
-                && reference.start_byte < binding.scope_end
-                && self.callable_owner(file, binding.name_start_byte) == reference.execution_owner
-        });
+        );
+        let mut bindings = semantic
+            .flat_map(|semantic| &semantic.bindings)
+            .filter(|binding| {
+                binding.name == name
+                    && binding.scope_start <= reference.start_byte
+                    && reference.start_byte < binding.scope_end
+                    && self.callable_owner(file, binding.name_start_byte)
+                        == reference.execution_owner
+            });
         let binding = bindings
             .clone()
             .min_by_key(|binding| std::cmp::Reverse(binding.scope_start))?;
