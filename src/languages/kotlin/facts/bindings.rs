@@ -130,44 +130,47 @@ pub(super) fn collect_context_facts(
         };
         for parameter in &context.parameters {
             let type_name = normalized_type(parameter.type_name.clone());
-            if parameter.name.is_none() {
-                let markers = result
-                    .definitions
-                    .iter()
-                    .filter_map(|definition| definition.declaration.as_deref())
-                    .find(|fact| {
-                        fact.kind == DeclarationKind::Class
-                            && fact.start_byte < declaration.start_byte()
-                            && fact.declared_type.as_deref().is_some_and(|name| {
-                                name.rsplit('.').next() == type_name.rsplit('.').next()
-                            })
-                    })
-                    .map(|fact| fact.dsl_markers.clone())
-                    .unwrap_or_default();
-                result.semantic.receivers.push(ReceiverScope {
-                    start_byte: scope.start,
-                    end_byte: scope.end,
-                    receiver_type: type_name.clone(),
-                    implicit: true,
-                    label: Some(type_name.clone()),
-                    dsl_markers: markers,
-                });
-            }
-            if let (Some(name), Some(name_range)) = (&parameter.name, &parameter.name_range) {
-                push_binding(
-                    result,
-                    BindingType {
-                        name: name.clone(),
-                        name_start_byte: name_range.start,
-                        name_end_byte: name_range.end,
-                        scope_start: scope.start,
-                        scope_end: scope.end,
-                        type_name: Some(type_name),
-                        alias_target: None,
-                        callable_reference: false,
-                        immutable: true,
-                    },
-                );
+            match (&parameter.name, &parameter.name_range) {
+                (None, _) => {
+                    let markers = result
+                        .definitions
+                        .iter()
+                        .filter_map(|definition| definition.declaration.as_deref())
+                        .find(|fact| {
+                            fact.kind == DeclarationKind::Class
+                                && fact.start_byte < declaration.start_byte()
+                                && fact.declared_type.as_deref().is_some_and(|name| {
+                                    name.rsplit('.').next() == type_name.rsplit('.').next()
+                                })
+                        })
+                        .map(|fact| fact.dsl_markers.clone())
+                        .unwrap_or_default();
+                    result.semantic.receivers.push(ReceiverScope {
+                        start_byte: scope.start,
+                        end_byte: scope.end,
+                        receiver_type: type_name.clone(),
+                        implicit: true,
+                        label: Some(type_name),
+                        dsl_markers: markers,
+                    });
+                }
+                (Some(name), Some(name_range)) => {
+                    push_binding(
+                        result,
+                        BindingType {
+                            name: name.clone(),
+                            name_start_byte: name_range.start,
+                            name_end_byte: name_range.end,
+                            scope_start: scope.start,
+                            scope_end: scope.end,
+                            type_name: Some(type_name),
+                            alias_target: None,
+                            callable_reference: false,
+                            immutable: true,
+                        },
+                    );
+                }
+                _ => {}
             }
         }
     }

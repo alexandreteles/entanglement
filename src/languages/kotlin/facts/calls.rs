@@ -198,28 +198,22 @@ pub(super) fn real_literal_type(literal: &str) -> &'static str {
 }
 
 pub(super) fn integer_literal_type(literal: &str) -> Option<&'static str> {
-    let literal = literal.replace('_', "");
-    let literal = literal.as_str();
-    let lowercase = literal.to_ascii_lowercase();
-    let (digits, suffix) = if lowercase.ends_with("ul") || lowercase.ends_with("lu") {
-        (&lowercase[..lowercase.len() - 2], "ul")
-    } else if lowercase.ends_with('u') {
-        (&lowercase[..lowercase.len() - 1], "u")
-    } else if lowercase.ends_with('l') {
-        (&lowercase[..lowercase.len() - 1], "l")
-    } else {
-        (lowercase.as_str(), "")
-    };
-    let (radix, digits) = if let Some(digits) = digits.strip_prefix("0x") {
-        (16, digits)
-    } else if let Some(digits) = digits.strip_prefix("0b") {
-        (2, digits)
-    } else {
-        (10, digits)
-    };
+    let lowercase = literal.replace('_', "").to_ascii_lowercase();
+    let (digits, suffix) = ["ul", "lu", "u", "l"]
+        .into_iter()
+        .find_map(|suffix| {
+            lowercase
+                .strip_suffix(suffix)
+                .map(|digits| (digits, suffix))
+        })
+        .unwrap_or((&lowercase, ""));
+    let (radix, digits) = [("0x", 16), ("0b", 2)]
+        .into_iter()
+        .find_map(|(prefix, radix)| digits.strip_prefix(prefix).map(|digits| (radix, digits)))
+        .unwrap_or((10, digits));
     let value = u64::from_str_radix(digits, radix).ok()?;
     match suffix {
-        "ul" => Some("ULong"),
+        "ul" | "lu" => Some("ULong"),
         "u" if value <= u32::MAX as u64 => Some("UInt"),
         "u" => Some("ULong"),
         "l" if value <= i64::MAX as u64 => Some("Long"),
