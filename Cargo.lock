@@ -273,6 +273,7 @@ dependencies = [
  "tree-sitter-astro",
  "tree-sitter-css",
  "tree-sitter-go",
+ "tree-sitter-groovy 0.0.1",
  "tree-sitter-html",
  "tree-sitter-htmlx-svelte",
  "tree-sitter-javascript",
@@ -718,6 +719,13 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter"
+version = "0.26.8"
+dependencies = [
+ "tree-sitter 0.27.1",
+]
+
+[[package]]
+name = "tree-sitter"
 version = "0.27.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a5129de2ccc97808c4583d48f1fb44576d015cf241e432800572bda11ef30c3b"
@@ -787,6 +795,27 @@ checksum = "c8560a4d2f835cc0d4d2c2e03cbd0dde2f6114b43bc491164238d333e28b16ea"
 dependencies = [
  "cc",
  "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-groovy"
+version = "0.0.1"
+dependencies = [
+ "cargo_metadata",
+ "cc",
+ "serde_json",
+ "tree-sitter-generate",
+ "tree-sitter-groovy 0.0.1 (git+https://github.com/murtaza64/tree-sitter-groovy.git?rev=2a6ddd558b6aa39c5b77d8db9fe9baf817486b2c)",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-groovy"
+version = "0.0.1"
+source = "git+https://github.com/murtaza64/tree-sitter-groovy.git?rev=2a6ddd558b6aa39c5b77d8db9fe9baf817486b2c#2a6ddd558b6aa39c5b77d8db9fe9baf817486b2c"
+dependencies = [
+ "cc",
+ "tree-sitter 0.26.8",
 ]
 
 [[package]]

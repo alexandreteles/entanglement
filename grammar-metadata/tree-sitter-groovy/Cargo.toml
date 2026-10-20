@@ -1,0 +1,19 @@
+[package]
+name = "tree-sitter-groovy"
+version = "0.0.1"
+edition = "2024"
+license = "MIT"
+links = "entanglement_groovy"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+tree-sitter-language = "0.1"
+
+[build-dependencies]
+cargo_metadata = "0.23"
+cc = "1.2"
+serde_json = "1"
+tree-sitter-generate = { version = "=0.27.1", default-features = false, features = ["load"] }
+upstream = { package = "tree-sitter-groovy", git = "https://github.com/murtaza64/tree-sitter-groovy.git", rev = "2a6ddd558b6aa39c5b77d8db9fe9baf817486b2c" }

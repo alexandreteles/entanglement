@@ -30,6 +30,8 @@ tree-sitter-go = "0.25.0"
 tree-sitter-php = "=0.25.1"
 tree-sitter-kotlin = { git = "https://github.com/fwcd/tree-sitter-kotlin.git", rev = "1852ea17b7f60fb3f9d84e0b1555d56b46b39fb1" }
 
+tree-sitter-groovy = { path = "grammar-metadata/tree-sitter-groovy" }
+
 [dev-dependencies]
 tempfile = "3.27.0"
 
@@ -42,3 +44,6 @@ tree-sitter-loader = "0.27.1"
 tree-sitter = { path = "grammar-metadata/tree-sitter-angular/runtime" }
 
 tree-sitter-php = { path = "grammar-metadata/tree-sitter-php" }
+
+# The upstream Groovy binding uses the former runtime type.
+tree-sitter-groovy-runtime = { package = "tree-sitter", path = "grammar-metadata/tree-sitter-groovy/runtime" }

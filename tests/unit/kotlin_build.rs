@@ -1,21 +1,28 @@
-use super::{BuildFacts, DependencyExposure, DependencyScope, ProjectDependency, Settings};
+use super::{DependencyExposure, DependencyScope, ProjectDependency};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 fn parse_includes(source: &str) -> BTreeSet<String> {
-    Settings::parse(source).modules
+    super::parse(source, super::ScriptKind::Kotlin).0.modules
 }
 
 fn parse_project_directories(source: &str) -> BTreeMap<String, PathBuf> {
-    Settings::parse(source).directories
+    super::parse(source, super::ScriptKind::Kotlin)
+        .0
+        .directories
 }
 
 fn parse_project_dependency_details(source: &str) -> BTreeSet<ProjectDependency> {
-    BuildFacts::parse(source).dependencies
+    super::parse(source, super::ScriptKind::Kotlin)
+        .1
+        .dependencies
 }
 
 fn parse_source_edges(source: &str, edges: &mut BTreeMap<String, BTreeSet<String>>) {
-    for (child, parents) in BuildFacts::parse(source).source_edges {
+    for (child, parents) in super::parse(source, super::ScriptKind::Kotlin)
+        .1
+        .source_edges
+    {
         edges.entry(child).or_default().extend(parents);
     }
 }
@@ -220,7 +227,7 @@ fn groovy_literals_and_comments_are_scanned_without_confusing_urls() {
         def message = 'https://example.test/a//b include(\':fake\')'
     "#;
     assert_eq!(
-        parse_includes(settings),
+        super::parse(settings, super::ScriptKind::Groovy).0.modules,
         BTreeSet::from([":app".into(), ":lib".into()])
     );
     let build = r#"
@@ -231,7 +238,9 @@ fn groovy_literals_and_comments_are_scanned_without_confusing_urls() {
         }
     "#;
     assert_eq!(
-        parse_project_dependency_details(build)
+        super::parse(build, super::ScriptKind::Groovy)
+            .1
+            .dependencies
             .into_iter()
             .map(|dependency| (dependency.path, dependency.exposure))
             .collect::<BTreeSet<_>>(),
@@ -349,4 +358,42 @@ fn source_set_delegates_stop_at_semicolons_on_the_same_line() {
 
     assert_eq!(edges["childMain"], BTreeSet::from(["firstMain".into()]));
     assert!(!edges.contains_key("firstMain"));
+}
+
+#[test]
+fn unsupported_arguments_do_not_become_static_literals() {
+    let (settings, build) = super::parse(
+        r#"
+        project(":lib", configuration = "test").projectDir = file("lib")
+        project(":other").projectDir = file("other", mode = "test")
+        dependencies {
+            implementation(project(":lib", configuration = "test"))
+            implementation(project(":valid"))
+        }
+        kotlin { sourceSets {
+            named("childMain", extra = "value") { dependsOn(baseMain) }
+            val realMain by getting {
+                dependsOn(sharedMain.someValue)
+                dependsOn(otherMain + extraMain)
+            }
+        } }
+    "#,
+        super::ScriptKind::Kotlin,
+    );
+    assert!(settings.directories.is_empty());
+    assert_eq!(
+        build
+            .dependencies
+            .iter()
+            .map(|dependency| dependency.path.as_str())
+            .collect::<Vec<_>>(),
+        [":valid"]
+    );
+    assert_eq!(
+        build.source_edges,
+        BTreeMap::from([(
+            "realMain".into(),
+            BTreeSet::from(["sharedMain".into(), "otherMain".into()])
+        )])
+    );
 }
