@@ -1,6 +1,7 @@
 use crate::graph::ProgramGraph;
 use crate::model::{DefinitionKind, Export};
 
+use super::bindings::best_ranked;
 use super::{Target, unique_targets};
 
 pub(super) fn local_symbols(
@@ -10,36 +11,34 @@ pub(super) fn local_symbols(
     position: usize,
     context_id: usize,
 ) -> Option<(usize, Vec<Target>)> {
-    let candidates = graph
-        .symbols_named(file_index, name)
-        .filter(|symbol| {
-            symbol.kind != DefinitionKind::Method
-                && symbol.scope.start_byte <= position
-                && position < symbol.scope.end_byte
-                && symbol.scope.context_id == context_id
-        })
-        .collect::<Vec<_>>();
-    let rank = candidates
-        .iter()
-        .map(|symbol| {
-            symbol
-                .scope
-                .end_byte
-                .saturating_sub(symbol.scope.start_byte)
-        })
-        .min()?;
-    let targets = candidates
-        .into_iter()
-        .filter(|symbol| {
-            symbol
-                .scope
-                .end_byte
-                .saturating_sub(symbol.scope.start_byte)
-                == rank
-        })
-        .map(|symbol| Target::Symbol(symbol.semantic_id.clone()))
-        .collect();
-    Some((rank, unique_targets(targets)))
+    let (rank, candidates) = best_ranked(
+        graph
+            .symbols_named(file_index, name)
+            .filter(|symbol| {
+                symbol.kind != DefinitionKind::Method
+                    && symbol.scope.start_byte <= position
+                    && position < symbol.scope.end_byte
+                    && symbol.scope.context_id == context_id
+            })
+            .map(|symbol| {
+                (
+                    symbol
+                        .scope
+                        .end_byte
+                        .saturating_sub(symbol.scope.start_byte),
+                    symbol,
+                )
+            }),
+    )?;
+    Some((
+        rank,
+        unique_targets(
+            candidates
+                .into_iter()
+                .map(|symbol| Target::Symbol(symbol.semantic_id.clone()))
+                .collect(),
+        ),
+    ))
 }
 
 pub(super) fn anonymous_export_symbols(
