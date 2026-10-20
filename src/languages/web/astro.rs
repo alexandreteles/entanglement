@@ -61,9 +61,11 @@ impl LanguageHandler for Analyzer {
             line: root.start_position().row + 1,
         });
         captured
+            .facts
             .definitions
             .push(semantics::component_definition(root_range.clone()));
         captured
+            .facts
             .exports
             .push(semantics::component_export(root_range));
         captured

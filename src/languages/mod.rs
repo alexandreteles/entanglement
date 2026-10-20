@@ -87,31 +87,18 @@ pub(crate) struct CapturedSemantics {
 
 #[derive(Default)]
 pub(crate) struct CapturedTree {
-    pub semantic: crate::graph::SemanticFacts,
+    pub facts: CapturedSemantics,
     pub events: Vec<SyntaxEvent>,
     pub parents: HashMap<usize, Option<usize>>,
     pub functions: Vec<FunctionScope>,
     pub tokens: Vec<HalsteadToken>,
-    pub definitions: Vec<Definition>,
-    pub imports: Vec<Import>,
-    pub exports: Vec<Export>,
-    pub references: Vec<Reference>,
-    pub locals: Vec<LocalBinding>,
     pub injections: Vec<InjectionRequest>,
 }
 
 impl CapturedTree {
     /// Combine normalized semantic output with this tree's syntax captures.
     pub(crate) fn with_semantics(self, facts: CapturedSemantics) -> Self {
-        Self {
-            semantic: facts.semantic,
-            definitions: facts.definitions,
-            imports: facts.imports,
-            exports: facts.exports,
-            references: facts.references,
-            locals: facts.locals,
-            ..self
-        }
+        Self { facts, ..self }
     }
 }
 

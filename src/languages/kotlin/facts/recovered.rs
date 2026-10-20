@@ -62,19 +62,6 @@ pub(in crate::languages::kotlin::facts) fn collect_recovered_type_definitions(
                 DefinitionKind::Other
             }
         };
-        result.definitions.push(Definition {
-            name: name.clone(),
-            kind: definition_kind,
-            module: ModulePath(package.to_vec()),
-            start_byte,
-            end_byte: recovered.declaration_range.end,
-            scope_start: scope.start,
-            scope_end: scope.end,
-            is_public: visibility == SemanticVisibility::Public,
-            inline_module: false,
-            external_module: false,
-            context_id: 0,
-        });
 
         if let Some(outer_callable) =
             ancestors(error).find(|ancestor| is_executable_scope(ancestor.kind()))
@@ -97,13 +84,13 @@ pub(in crate::languages::kotlin::facts) fn collect_recovered_type_definitions(
         }
 
         let signature = recovered_signature(error, recovered, source);
-        result.semantic.declarations.push(DeclarationFacts {
+        let declaration = DeclarationFacts {
             php: None,
             start_byte,
             owner,
             visibility,
             kind,
-            declared_type: Some(name),
+            declared_type: Some(name.clone()),
             supertypes: recovered_supertypes(error, recovered, source),
             alias_target: None,
             signature,
@@ -111,6 +98,20 @@ pub(in crate::languages::kotlin::facts) fn collect_recovered_type_definitions(
             is_interface_member: false,
             dsl_markers: markers,
             execution: recovered_type_execution(recovered, recovered_types, scope_index),
+        };
+        result.definitions.push(Definition {
+            declaration: Some(Box::new(declaration)),
+            name,
+            kind: definition_kind,
+            module: ModulePath(package.to_vec()),
+            start_byte,
+            end_byte: recovered.declaration_range.end,
+            scope_start: scope.start,
+            scope_end: scope.end,
+            is_public: visibility == SemanticVisibility::Public,
+            inline_module: false,
+            external_module: false,
+            context_id: 0,
         });
     }
 }

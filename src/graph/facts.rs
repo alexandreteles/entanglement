@@ -18,8 +18,6 @@ pub(crate) struct SemanticFacts {
     /// Resolution policy for this layer; grammar details stay in adapters.
     pub resolution_family: Option<crate::languages::ResolutionFamily>,
     pub file_module_rules: Option<&'static crate::languages::FileModuleRules>,
-    /// Metadata keyed by the start byte of the corresponding `Definition`.
-    pub declarations: Vec<DeclarationFacts>,
     /// Statically declared or narrowly inferred local binding types.
     pub bindings: Vec<BindingType>,
     /// Receiver types that are in scope at a source range.

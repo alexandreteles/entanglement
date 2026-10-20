@@ -49,17 +49,18 @@ struct Candidate<'a> {
     graph_id: ProgramSymbolId,
     symbol: &'a SymbolId,
     file: usize,
-    context_id: usize,
-    name: &'a str,
+    definition: &'a crate::model::Definition,
     package: &'a [String],
     owner: &'a [String],
-    kind: DefinitionKind,
     declaration: Option<&'a DeclarationFacts>,
-    public: bool,
-    start: usize,
-    end: usize,
-    scope_start: usize,
-    scope_end: usize,
+}
+
+impl std::ops::Deref for Candidate<'_> {
+    type Target = crate::model::Definition;
+
+    fn deref(&self) -> &Self::Target {
+        self.definition
+    }
 }
 
 impl Candidate<'_> {

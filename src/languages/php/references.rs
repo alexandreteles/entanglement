@@ -215,7 +215,7 @@ impl Capture<'_> {
             .cloned()
             .chain(name_parts(name))
             .collect::<Vec<_>>();
-        captured.references.push(Reference {
+        captured.facts.references.push(Reference {
             path,
             module: ModulePath::default(),
             kind,

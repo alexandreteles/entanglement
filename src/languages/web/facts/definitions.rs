@@ -64,6 +64,7 @@ impl CaptureFacts {
         let name_range = name_node.byte_range();
         self.definition_names.push(name_range);
         self.semantic.definitions.push(Definition {
+            declaration: None,
             name: text(name_node, source),
             kind: actual_kind,
             module: crate::model::ModulePath::default(),

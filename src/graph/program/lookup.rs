@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-use crate::graph::{CallFacts, DeclarationFacts, SemanticFacts};
+use crate::graph::{CallFacts, SemanticFacts};
 use crate::languages::ResolutionFamily;
 use crate::model::{Definition, Import, SymbolId};
 
@@ -27,7 +27,7 @@ impl<'a> ProgramGraph<'a> {
     pub(crate) fn symbols_for_file(
         &self,
         file_index: usize,
-    ) -> impl Iterator<Item = &ProgramSymbol> {
+    ) -> impl Iterator<Item = &ProgramSymbol<'a>> {
         self.symbols_by_file[file_index]
             .iter()
             .map(|index| &self.symbols[*index])
@@ -38,7 +38,7 @@ impl<'a> ProgramGraph<'a> {
         &self,
         file_index: usize,
         name: &str,
-    ) -> impl Iterator<Item = &ProgramSymbol> {
+    ) -> impl Iterator<Item = &ProgramSymbol<'a>> {
         self.symbols_by_name[file_index]
             .get(name)
             .into_iter()
@@ -47,7 +47,7 @@ impl<'a> ProgramGraph<'a> {
             .filter(move |symbol| self.file(file_index).allows(symbol.scope.context_id))
     }
 
-    pub(crate) fn symbol(&self, id: ProgramSymbolId) -> Option<&ProgramSymbol> {
+    pub(crate) fn symbol(&self, id: ProgramSymbolId) -> Option<&ProgramSymbol<'a>> {
         let definition_index = self
             .symbols_by_file
             .get(id.file_index)?
@@ -58,9 +58,7 @@ impl<'a> ProgramGraph<'a> {
     }
 
     pub(crate) fn definition(&self, id: ProgramSymbolId) -> Option<&'a Definition> {
-        let file = self.facts.get(id.file_index)?;
-        let definition = file.canonical.definitions.get(id.definition_index)?;
-        file.allows(definition.context_id).then_some(definition)
+        self.symbol(id).map(|symbol| symbol.definition)
     }
 
     pub(crate) fn definitions(
@@ -84,19 +82,6 @@ impl<'a> ProgramGraph<'a> {
             semantic.context_id == context_id
                 && family.is_none_or(|family| semantic.resolution_family == Some(family))
         })
-    }
-
-    pub(crate) fn declaration(
-        &self,
-        file_index: usize,
-        context_id: usize,
-        start_byte: usize,
-        family: Option<ResolutionFamily>,
-    ) -> Option<&'a DeclarationFacts> {
-        self.semantic(file_index, context_id, family)?
-            .declarations
-            .iter()
-            .find(|item| item.start_byte == start_byte)
     }
 
     pub(crate) fn call_facts(

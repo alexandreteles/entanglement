@@ -77,7 +77,18 @@ pub(crate) fn emit_constructor_property(
         .into_iter()
         .find(|child| child.kind() == "modifiers");
     let (visibility, modifiers, _) = modifier_metadata(modifier_node, source);
+
+    let declaration = DeclarationFacts {
+        start_byte: parameter.start_byte(),
+        owner,
+        visibility,
+        kind: DeclarationKind::Property,
+        declared_type,
+        modifiers,
+        ..DeclarationFacts::default()
+    };
     sinks.result.definitions.push(Definition {
+        declaration: Some(Box::new(declaration)),
         name: text(name_node, source).trim_matches('`').to_owned(),
         kind: DefinitionKind::Other,
         module: ModulePath(context.package.to_vec()),
@@ -89,15 +100,6 @@ pub(crate) fn emit_constructor_property(
         inline_module: false,
         external_module: false,
         context_id: 0,
-    });
-    sinks.result.semantic.declarations.push(DeclarationFacts {
-        start_byte: parameter.start_byte(),
-        owner,
-        visibility,
-        kind: DeclarationKind::Property,
-        declared_type,
-        modifiers,
-        ..DeclarationFacts::default()
     });
     record_declared_name(sinks, name_node);
 }

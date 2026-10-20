@@ -40,7 +40,10 @@ impl Extras {
 }
 
 pub(super) fn finish(extras: &mut Extras, cutoff: usize, captured: &mut CapturedTree) {
-    captured.references.append(&mut extras.component_references);
+    captured
+        .facts
+        .references
+        .append(&mut extras.component_references);
     captured
         .events
         .retain(|event| event.start_byte >= cutoff || is_source_line_event(event.role));
@@ -48,18 +51,28 @@ pub(super) fn finish(extras: &mut Extras, cutoff: usize, captured: &mut Captured
         .functions
         .retain(|function| function.range.start >= cutoff);
     captured
+        .facts
         .definitions
         .retain(|item| item.start_byte >= cutoff);
-    captured.imports.retain(|item| item.start_byte >= cutoff);
-    captured.exports.retain(|item| item.start_byte >= cutoff);
+    captured
+        .facts
+        .imports
+        .retain(|item| item.start_byte >= cutoff);
+    captured
+        .facts
+        .exports
+        .retain(|item| item.start_byte >= cutoff);
     let astro_scopes = astro_scopes(captured);
-    captured.references.retain(|item| {
+    captured.facts.references.retain(|item| {
         item.start_byte >= cutoff
             && (astro_is_bound(&astro_scopes, item.start_byte)
                 || item.path.len() != 1
                 || item.path.first().map(String::as_str) != Some("Astro"))
     });
-    captured.locals.retain(|item| item.start_byte >= cutoff);
+    captured
+        .facts
+        .locals
+        .retain(|item| item.start_byte >= cutoff);
     captured
         .injections
         .retain(|item| item.range.start >= cutoff);
@@ -67,16 +80,19 @@ pub(super) fn finish(extras: &mut Extras, cutoff: usize, captured: &mut Captured
 
 fn astro_scopes(captured: &CapturedTree) -> Vec<Range<usize>> {
     let imports = captured
+        .facts
         .imports
         .iter()
         .filter(|item| item.alias.as_deref().or(item.imported_name.as_deref()) == Some("Astro"))
         .map(|item| item.scope_start..item.scope_end);
     let definitions = captured
+        .facts
         .definitions
         .iter()
         .filter(|item| item.name == "Astro")
         .map(|item| item.scope_start..item.scope_end);
     let locals = captured
+        .facts
         .locals
         .iter()
         .filter(|item| item.name == "Astro")
@@ -119,6 +135,7 @@ fn component_reference(node: Node<'_>, source: &[u8], root: &Range<usize>) -> Re
 
 pub(super) fn component_definition(range: Range<usize>) -> Definition {
     Definition {
+        declaration: None,
         name: "<component>".into(),
         kind: DefinitionKind::Other,
         module: ModulePath::default(),

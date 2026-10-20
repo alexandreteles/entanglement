@@ -119,7 +119,7 @@ impl Index<'_> {
         self.accessible(
             file,
             reference,
-            self.members_of_type(file, reference, name, class.name),
+            self.members_of_type(file, reference, name, &class.name),
         )
     }
 

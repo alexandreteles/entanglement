@@ -372,6 +372,8 @@ pub(crate) struct LocalBinding {
 
 #[derive(Debug, Clone)]
 pub(crate) struct Definition {
+    /// Language evidence owned by this declaration.
+    pub declaration: Option<Box<crate::graph::DeclarationFacts>>,
     pub name: String,
     pub kind: DefinitionKind,
     pub module: ModulePath,

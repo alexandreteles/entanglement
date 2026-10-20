@@ -63,12 +63,13 @@ impl LanguageHandler for Analyzer {
             line: root.start_position().row + 1,
         });
         captured
+            .facts
             .definitions
             .push(component_definition(range.clone()));
-        captured.exports.push(component_export(range.clone()));
-        captured.definitions.extend(extras.definitions);
-        captured.references.extend(extras.references);
-        captured.locals.extend(extras.locals);
+        captured.facts.exports.push(component_export(range.clone()));
+        captured.facts.definitions.extend(extras.definitions);
+        captured.facts.references.extend(extras.references);
+        captured.facts.locals.extend(extras.locals);
         classify_tokens(&mut captured);
         captured
             .functions
@@ -142,6 +143,7 @@ impl Extras {
         };
         let scope = lexical_parent_scope(block, root);
         self.definitions.push(Definition {
+            declaration: None,
             name: text(name, source),
             kind: DefinitionKind::Function,
             module: ModulePath::default(),
@@ -218,6 +220,7 @@ fn trim_quotes(value: &str) -> &str {
 
 fn component_definition(range: Range<usize>) -> Definition {
     Definition {
+        declaration: None,
         name: "<component>".into(),
         kind: DefinitionKind::Other,
         module: ModulePath::default(),

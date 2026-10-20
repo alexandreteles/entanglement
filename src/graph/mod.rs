@@ -15,5 +15,7 @@ pub(crate) use facts::{
     PhpNamespace, PhpReference, PhpReferenceKind, PhpSymbolKind, PhpTraitAdaptation, PhpTraitUse,
     ReceiverScope, SemanticContext, SemanticFacts, SemanticVisibility,
 };
-pub(crate) use program::{CallEdge, FileFactsView, ProgramGraph, ProgramSymbol, ProgramSymbolId};
+pub(crate) use program::{
+    ExecutionGraph, FileFactsView, ProgramGraph, ProgramSymbol, ProgramSymbolId,
+};
 pub(crate) use syntax::SyntaxGraph;

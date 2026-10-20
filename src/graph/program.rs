@@ -3,8 +3,8 @@ use std::path::PathBuf;
 
 use crate::languages::{FileModuleRules, ResolutionFamily};
 use crate::model::{
-    Definition, DefinitionKind, Export, FileAnalysis, FileFacts, Import, LocalBinding, ModulePath,
-    Reference, SymbolId,
+    Definition, Export, FileAnalysis, FileFacts, Import, LocalBinding, ModulePath, Reference,
+    SymbolId,
 };
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
@@ -151,9 +151,15 @@ impl ProgramScopeId {
     }
 }
 
-/// A resolved direct call between two callable metric scopes.
+/// One proven execution relation between reported callable scopes.
+///
+/// Edges point from caller to callee. Call-site ranges preserve repeated
+/// invocations; exact duplicate edges are removed. Self-edges are retained.
+/// Cross-context edges require the same resolution and dispatch proof as
+/// same-context edges.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) struct CallEdge {
+    pub relation: ExecutionRelation,
     pub caller_file: usize,
     pub caller_start_byte: usize,
     pub callee_file: usize,
@@ -162,14 +168,43 @@ pub(crate) struct CallEdge {
     pub call_end_byte: usize,
 }
 
+/// The reason that one executable body can directly enter another.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) enum ExecutionRelation {
+    Invocation,
+    Initialization,
+}
+
+/// A reported function in one immutable analysis snapshot.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct ProgramFunctionId {
+    pub file_index: usize,
+    pub function_index: usize,
+}
+
+/// The shared execution graph, including call-site evidence on each edge.
+///
+/// Petgraph provides node access and forward/reverse adjacency. Parallel edges
+/// preserve distinct call sites and relation kinds. Unresolved, ambiguous, and
+/// virtual references remain in file analyses and do not enter this graph.
+/// A node uses the first reported function for each file and start byte.
+/// Duplicate edges have equal relation kinds, endpoints, and source ranges.
+pub(crate) type ExecutionGraph = petgraph::graph::DiGraph<ProgramFunctionId, CallEdge>;
+
 #[derive(Clone, Debug)]
-pub(crate) struct ProgramSymbol {
+pub(crate) struct ProgramSymbol<'a> {
     pub id: ProgramSymbolId,
     pub semantic_id: SymbolId,
-    pub name: String,
-    pub kind: DefinitionKind,
+    pub definition: &'a Definition,
     pub scope: ProgramScopeId,
-    pub is_public: bool,
+}
+
+impl std::ops::Deref for ProgramSymbol<'_> {
+    type Target = Definition;
+
+    fn deref(&self) -> &Self::Target {
+        self.definition
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -216,11 +251,11 @@ impl ProgramBinding {
 /// share symbol identities, scope selection, path aliases, and call-edge validation.
 pub(crate) struct ProgramGraph<'a> {
     facts: Vec<FileFactsView<'a>>,
-    indexes: Arc<ProgramIndexes>,
+    indexes: Arc<ProgramIndexes<'a>>,
 }
 
-pub(crate) struct ProgramIndexes {
-    symbols: Vec<ProgramSymbol>,
+pub(crate) struct ProgramIndexes<'a> {
+    symbols: Vec<ProgramSymbol<'a>>,
     symbols_by_file: Vec<Vec<usize>>,
     symbols_by_name: Vec<HashMap<String, Vec<usize>>>,
     symbol_by_semantic_id: HashMap<SymbolId, Vec<ProgramSymbolId>>,
@@ -234,8 +269,8 @@ pub(crate) struct ProgramIndexes {
     aliases: BTreeMap<PathBuf, BTreeSet<usize>>,
 }
 
-impl Deref for ProgramGraph<'_> {
-    type Target = ProgramIndexes;
+impl<'a> Deref for ProgramGraph<'a> {
+    type Target = ProgramIndexes<'a>;
     fn deref(&self) -> &Self::Target {
         &self.indexes
     }

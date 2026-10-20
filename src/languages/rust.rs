@@ -188,16 +188,17 @@ impl<'a> CaptureFacts<'a> {
             Vec::new()
         };
         Ok(CapturedTree {
-            semantic: Default::default(),
+            facts: super::CapturedSemantics {
+                definitions,
+                imports,
+                references,
+                locals,
+                ..Default::default()
+            },
             events: self.events,
             parents: self.parents,
             functions: self.functions,
             tokens,
-            definitions,
-            imports,
-            exports: Vec::new(),
-            references,
-            locals,
             injections: self.injections,
         })
     }
@@ -214,6 +215,7 @@ impl<'a> CaptureFacts<'a> {
                 let module = relative_module(item.range.start, modules);
                 let (scope_start, scope_end) = lexical_scope(item.node_id, true, &self.graph, root);
                 Some(Definition {
+                    declaration: None,
                     name: item.name.clone(),
                     kind: item.kind.clone(),
                     module,

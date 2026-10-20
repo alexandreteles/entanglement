@@ -12,6 +12,7 @@ pub(in crate::languages::web) fn inline_templates(
     captured: &mut CapturedTree,
 ) {
     if !captured
+        .facts
         .imports
         .iter()
         .any(|import| import.source.as_deref() == Some("@angular/core"))
@@ -59,16 +60,16 @@ fn component_call(node: Node<'_>, source: &[u8], captured: &CapturedTree) -> boo
         }
         _ => return false,
     };
-    captured.imports.iter().any(|import| {
+    captured.facts.imports.iter().any(|import| {
         import.source.as_deref() == Some("@angular/core")
             && import.alias.as_deref() == Some(binding)
             && import.namespace == namespace
             && (namespace || import.imported_name.as_deref() == Some("Component"))
-    }) && !captured.locals.iter().any(|local| {
+    }) && !captured.facts.locals.iter().any(|local| {
         local.name == binding
             && local.scope_start <= node.start_byte()
             && node.end_byte() <= local.scope_end
-    }) && !captured.definitions.iter().any(|definition| {
+    }) && !captured.facts.definitions.iter().any(|definition| {
         definition.name == binding
             && definition.scope_start <= node.start_byte()
             && node.end_byte() <= definition.scope_end

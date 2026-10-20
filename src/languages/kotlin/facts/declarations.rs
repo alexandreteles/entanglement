@@ -59,20 +59,6 @@ pub(super) fn collect_definition(
     let is_interface_member = is_interface_member_declaration(node, recovered_types);
     let module = ModulePath(package.to_vec());
 
-    result.definitions.push(Definition {
-        name: name.clone(),
-        kind: definition_kind,
-        module,
-        start_byte,
-        end_byte: node.end_byte(),
-        scope_start: scope.start,
-        scope_end: scope.end,
-        is_public: visibility_level == SemanticVisibility::Public,
-        inline_module: false,
-        external_module: false,
-        context_id: 0,
-    });
-
     let signature = callable_signature(node, source);
     let declared_type = declared_type(node, source);
     let supertypes = declaration_supertypes(node, source);
@@ -81,7 +67,7 @@ pub(super) fn collect_definition(
         .flatten();
     // Keep raw annotations so the resolver can establish DslMarker metadata
     // across files, even when the annotation type is declared elsewhere.
-    result.semantic.declarations.push(DeclarationFacts {
+    let declaration = DeclarationFacts {
         php: None,
         start_byte,
         owner: owner.clone(),
@@ -95,6 +81,20 @@ pub(super) fn collect_definition(
         dsl_markers: markers.clone(),
         is_interface_member,
         execution: declaration_execution(node, context.scope_index),
+    };
+    result.definitions.push(Definition {
+        declaration: Some(Box::new(declaration)),
+        name: name.clone(),
+        kind: definition_kind,
+        module,
+        start_byte,
+        end_byte: node.end_byte(),
+        scope_start: scope.start,
+        scope_end: scope.end,
+        is_public: visibility_level == SemanticVisibility::Public,
+        inline_module: false,
+        external_module: false,
+        context_id: 0,
     });
 
     capture_local_binding(

@@ -102,7 +102,7 @@ impl Index<'_> {
         self.named(name).filter(move |candidate| {
             candidate.file == file
                 && candidate.context_id == reference.context_id
-                && candidate.start < position
+                && candidate.start_byte < position
                 && candidate.scope_start <= position
                 && position < candidate.scope_end
         })

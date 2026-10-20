@@ -20,7 +20,8 @@ pub(in crate::analysis) fn summary(
         inherited_scope,
     } = context;
     let prefix = &inherited_module.0;
-    let mut semantic = captured.semantic;
+    let mut facts = captured.facts;
+    let semantic = &mut facts.semantic;
     semantic.context_id = semantic_context;
     semantic.resolution_family = Some(choice.resolution_family);
     semantic.file_module_rules = choice.file_module_rules;
@@ -43,11 +44,6 @@ pub(in crate::analysis) fn summary(
                 .any(|range| range.contains(&item.start_byte))
         });
     }
-    semantic.declarations.retain(|item| {
-        !excluded
-            .iter()
-            .any(|range| range.contains(&item.start_byte))
-    });
     semantic
         .bindings
         .retain(|item| !inside_any(item.name_start_byte..item.name_end_byte, &excluded));
@@ -65,9 +61,15 @@ pub(in crate::analysis) fn summary(
             inherited_scope,
         );
     }
-    let mut definitions = captured.definitions;
+    let definitions = &mut facts.definitions;
     definitions.retain(|item| !inside_any(item.start_byte..item.end_byte, &excluded));
-    for definition in &mut definitions {
+    for definition in definitions.iter_mut() {
+        if excluded
+            .iter()
+            .any(|range| range.contains(&definition.start_byte))
+        {
+            definition.declaration = None;
+        }
         definition.context_id = semantic_context;
         inherit_scope(
             &mut definition.scope_start,
@@ -77,9 +79,9 @@ pub(in crate::analysis) fn summary(
         );
         prepend_module(&mut definition.module, prefix);
     }
-    let mut imports = captured.imports;
+    let imports = &mut facts.imports;
     imports.retain(|item| !inside_any(item.start_byte..item.end_byte, &excluded));
-    for import in &mut imports {
+    for import in imports.iter_mut() {
         import.context_id = semantic_context;
         if import.scope_start == 0 && import.scope_end == 0 {
             import.scope_start = owner_range.start;
@@ -94,9 +96,9 @@ pub(in crate::analysis) fn summary(
         }
         prepend_module(&mut import.module, prefix);
     }
-    let mut exports = captured.exports;
+    let exports = &mut facts.exports;
     exports.retain(|item| !inside_any(item.start_byte..item.end_byte, &excluded));
-    for export in &mut exports {
+    for export in exports.iter_mut() {
         export.context_id = semantic_context;
         inherit_scope(
             &mut export.scope_start,
@@ -105,9 +107,9 @@ pub(in crate::analysis) fn summary(
             inherited_scope,
         );
     }
-    let mut references = captured.references;
+    let references = &mut facts.references;
     references.retain(|item| !inside_any(item.start_byte..item.end_byte, &excluded));
-    for reference in &mut references {
+    for reference in references.iter_mut() {
         reference.context_id = semantic_context;
         inherit_scope(
             &mut reference.scope_start,
@@ -123,9 +125,9 @@ pub(in crate::analysis) fn summary(
         }
         prepend_module(&mut reference.module, prefix);
     }
-    let mut locals = captured.locals;
+    let locals = &mut facts.locals;
     locals.retain(|item| !inside_any(item.start_byte..item.end_byte, &excluded));
-    for local in &mut locals {
+    for local in locals.iter_mut() {
         local.context_id = semantic_context;
         inherit_scope(
             &mut local.scope_start,
@@ -142,7 +144,7 @@ pub(in crate::analysis) fn summary(
     let mut tokens = captured.tokens;
     tokens.retain(|token| !inside_any(token.start_byte..token.end_byte, &excluded));
     TreeSummary {
-        semantic,
+        facts,
         metric_id,
         resolution_family: choice.resolution_family,
         file_module_rules: choice.file_module_rules,
@@ -153,11 +155,6 @@ pub(in crate::analysis) fn summary(
         functions,
         tokens,
         excluded,
-        definitions,
-        imports,
-        exports,
-        references,
-        locals,
     }
 }
 
@@ -174,14 +171,16 @@ impl TreeSummary {
                 binding.scope_end,
             ))
         });
-        self.locals.extend(bindings.into_iter().map(|mut binding| {
-            binding.context_id = self.semantic_context;
-            binding
-        }));
+        self.facts
+            .locals
+            .extend(bindings.into_iter().map(|mut binding| {
+                binding.context_id = self.semantic_context;
+                binding
+            }));
     }
 
     pub(in crate::analysis) fn discard_exports(&mut self) {
-        self.exports.clear();
+        self.facts.exports.clear();
     }
 
     pub(in crate::analysis) fn share_top_level_bindings_into(
@@ -190,22 +189,25 @@ impl TreeSummary {
         owner_range: &Range<usize>,
         target_scope: &Range<usize>,
     ) {
-        target.definitions.extend(
-            self.definitions
+        target.facts.definitions.extend(
+            self.facts
+                .definitions
                 .iter()
                 .filter(|item| {
                     item.scope_start <= owner_range.start && owner_range.end <= item.scope_end
                 })
                 .cloned()
                 .map(|mut item| {
+                    item.declaration = None;
                     item.context_id = target.semantic_context;
                     item.scope_start = target_scope.start;
                     item.scope_end = target_scope.end;
                     item
                 }),
         );
-        target.imports.extend(
-            self.imports
+        target.facts.imports.extend(
+            self.facts
+                .imports
                 .iter()
                 .filter(|item| {
                     item.scope_start <= owner_range.start && owner_range.end <= item.scope_end

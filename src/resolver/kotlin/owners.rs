@@ -11,7 +11,7 @@ impl<'a> Index<'a> {
     ) -> impl Iterator<Item = &'b Candidate<'a>> + 'b {
         let file = owner.file;
         let context_id = owner.context_id;
-        let path = extended_owner(owner.owner, owner.name);
+        let path = extended_owner(owner.owner, &owner.name);
         self.candidates.iter().filter(move |candidate| {
             candidate.file == file && candidate.context_id == context_id && candidate.owner == path
         })
@@ -36,7 +36,7 @@ impl<'a> Index<'a> {
                     .declaration
                     .is_some_and(|declaration| kinds.contains(&declaration.kind))
             })
-            .filter(|candidate| candidate.start <= position && position < candidate.end)
-            .min_by_key(|candidate| candidate.end - candidate.start)
+            .filter(|candidate| candidate.start_byte <= position && position < candidate.end_byte)
+            .min_by_key(|candidate| candidate.end_byte - candidate.start_byte)
     }
 }

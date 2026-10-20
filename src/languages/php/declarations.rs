@@ -185,21 +185,9 @@ impl Capture<'_> {
             (Property, _) => (DefinitionKind::Static, DeclarationKind::Property),
             (Constant, _) => (DefinitionKind::Constant, DeclarationKind::Other),
         };
-        captured.definitions.push(Definition {
-            name: name.to_owned(),
-            kind: definition_kind,
-            module: ModulePath(namespace.name.clone()),
-            start_byte: node.start_byte(),
-            end_byte: node.end_byte(),
-            scope_start: namespace.range.start_byte,
-            scope_end: namespace.range.end_byte,
-            is_public: visibility(node, source) == SemanticVisibility::Public,
-            inline_module: false,
-            external_module: false,
-            context_id: 0,
-        });
+
         let class = ancestors(node).find(|node| is_class(*node));
-        captured.semantic.declarations.push(DeclarationFacts {
+        let declaration = DeclarationFacts {
             php: Some(PhpDeclaration {
                 setter_visibility: None,
                 kind: php_kind,
@@ -219,11 +207,26 @@ impl Capture<'_> {
             },
             is_interface_member: class.is_some_and(|class| class.kind() == "interface_declaration"),
             ..DeclarationFacts::default()
+        };
+        captured.facts.definitions.push(Definition {
+            declaration: Some(Box::new(declaration)),
+            name: name.to_owned(),
+            kind: definition_kind,
+            module: ModulePath(namespace.name.clone()),
+            start_byte: node.start_byte(),
+            end_byte: node.end_byte(),
+            scope_start: namespace.range.start_byte,
+            scope_end: namespace.range.end_byte,
+            is_public: visibility(node, source) == SemanticVisibility::Public,
+            inline_module: false,
+            external_module: false,
+            context_id: 0,
         });
         captured
-            .semantic
-            .declarations
+            .facts
+            .definitions
             .last_mut()
+            .and_then(|definition| definition.declaration.as_deref_mut())
             .expect("emitted declaration")
     }
 }
