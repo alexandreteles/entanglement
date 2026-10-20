@@ -21,9 +21,6 @@ use super::metrics;
 pub(super) struct TreeSummary {
     pub(super) facts: crate::languages::SemanticStore,
     metric_id: String,
-    resolution_family: ResolutionFamily,
-    file_module_rules: Option<&'static FileModuleRules>,
-    pub(super) semantic_context: usize,
     pub(super) events: Vec<SyntaxEvent>,
     pub(super) parents: HashMap<usize, Option<usize>>,
     pub(super) cognitive_parent: Option<usize>,
@@ -151,14 +148,14 @@ fn summary_descriptor(
     } else {
         let Some(family) = summaries
             .iter()
-            .map(|item| item.resolution_family)
+            .filter_map(|item| item.facts.semantic.resolution_family)
             .find(|family| *family != ResolutionFamily::None)
         else {
             return (ResolutionFamily::None, None);
         };
         let one_family = summaries
             .iter()
-            .map(|item| item.resolution_family)
+            .filter_map(|item| item.facts.semantic.resolution_family)
             .filter(|candidate| *candidate != ResolutionFamily::None)
             .all(|candidate| candidate == family);
         if !one_family {
@@ -173,8 +170,8 @@ fn summary_descriptor(
             } else {
                 summaries
                     .iter()
-                    .filter(|item| item.resolution_family == family)
-                    .find_map(|item| item.file_module_rules)
+                    .filter(|item| item.facts.semantic.resolution_family == Some(family))
+                    .find_map(|item| item.facts.semantic.file_module_rules)
             }
         })
         .flatten();
@@ -182,29 +179,14 @@ fn summary_descriptor(
 }
 
 fn summary_context_is_consistent(summary: &TreeSummary) -> bool {
-    summary
-        .facts
+    let facts = &summary.facts;
+    facts
         .definitions
         .iter()
-        .all(|item| item.context_id == summary.semantic_context)
-        && summary
-            .facts
-            .imports
-            .iter()
-            .all(|item| item.context_id == summary.semantic_context)
-        && summary
-            .facts
-            .exports
-            .iter()
-            .all(|item| item.context_id == summary.semantic_context)
-        && summary
-            .facts
-            .references
-            .iter()
-            .all(|item| item.context_id == summary.semantic_context)
-        && summary
-            .facts
-            .locals
-            .iter()
-            .all(|item| item.context_id == summary.semantic_context)
+        .map(|item| item.context_id)
+        .chain(facts.imports.iter().map(|item| item.context_id))
+        .chain(facts.exports.iter().map(|item| item.context_id))
+        .chain(facts.references.iter().map(|item| item.context_id))
+        .chain(facts.locals.iter().map(|item| item.context_id))
+        .all(|context_id| context_id == facts.semantic.context_id)
 }
