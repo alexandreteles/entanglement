@@ -52,16 +52,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if !roots.insert(root.clone()) {
             return Err(format!("Duplicate grammar package path: {root}").into());
         }
-        let metadata_directory = metadata_file.parent().ok_or("No metadata directory")?;
-        let metadata = TreeSitterJSON::from_file(metadata_directory)?;
         let mut files = BTreeSet::new();
-        if metadata_file.starts_with(package_root) {
-            collect(package_root, Path::new("tree-sitter.json"), &mut files)?;
-        } else {
-            files.insert(PathBuf::from("tree-sitter.json"));
-        }
-        for grammar in metadata.grammars {
-            add_grammar_assets(package_root, grammar, &mut files)?;
+        if package.name != "tree-sitter-groovy" {
+            let metadata_directory = metadata_file.parent().ok_or("No metadata directory")?;
+            let metadata = TreeSitterJSON::from_file(metadata_directory)?;
+            if metadata_file.starts_with(package_root) {
+                collect(package_root, Path::new("tree-sitter.json"), &mut files)?;
+            } else {
+                files.insert(PathBuf::from("tree-sitter.json"));
+            }
+            for grammar in metadata.grammars {
+                add_grammar_assets(package_root, grammar, &mut files)?;
+            }
+            generated.push_str(&format!("{root:?},\n"));
         }
         for entry in fs::read_dir(package_root)? {
             let entry = entry?;
@@ -73,7 +76,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )?;
             }
         }
-        generated.push_str(&format!("{root:?},\n"));
         for file in files {
             let path = if file == Path::new("tree-sitter.json")
                 && !metadata_file.starts_with(package_root)
