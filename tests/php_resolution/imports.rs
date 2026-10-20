@@ -134,17 +134,37 @@ namespace App {
 }
 
 #[test]
-fn php_conditional_classes_and_invalid_static_calls_do_not_form_cycles() {
-    let temp = tempfile::tempdir().unwrap();
-    let source = r#"<?php
-if ($flag) { class Conditional { public static function uncertain() { self::uncertain(); } } }
-class Record { public function instance() { factory(); } }
-function factory() { Record::instance(); }
-"#;
-    write(&temp.path().join("uncertain.php"), source);
-    let report = support::report(&support::run("repo", temp.path(), None, Some("cogc")));
-    let target = file(&report, "/uncertain.php");
-    assert!(!recursive(function(target, "uncertain")));
-    assert!(!recursive(function(target, "instance")));
-    assert!(!recursive(function(target, "factory")));
+fn php_conditional_declarations_and_invalid_static_calls_do_not_form_cycles() {
+    for (start, end) in [
+        ("if ($flag) {", "}"),
+        ("try { mayThrow();", "} catch (Throwable $error) {}"),
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let source = format!(
+            r#"<?php
+{start}
+class Conditional {{ public static function uncertain() {{ self::uncertain(); }} }}
+function conditionalFunction() {{ conditionalFunction(); }}
+{end}
+class Record {{ public function instance() {{ factory(); }} }}
+function factory() {{ Record::instance(); }}
+conditionalFunction();
+Conditional::uncertain();
+new Conditional();
+"#
+        );
+        write(&temp.path().join("uncertain.php"), &source);
+        let report = support::report(&support::run("repo", temp.path(), None, Some("cogc")));
+        let target = file(&report, "/uncertain.php");
+        for name in ["uncertain", "conditionalFunction", "instance", "factory"] {
+            assert!(!recursive(function(target, name)), "{start}: {name}");
+        }
+        for needle in ["conditionalFunction();", "uncertain();", "Conditional();"] {
+            assert_eq!(
+                reference(target, &source, needle)["status"],
+                "unresolved",
+                "{start}: {needle}"
+            );
+        }
+    }
 }

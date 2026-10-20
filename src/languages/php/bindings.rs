@@ -68,10 +68,7 @@ fn binding(node: Node<'_>, mutations: &[Mutation<'_>], source: &[u8]) -> Option<
             .take_while(|node| !is_callable(*node))
             .any(|node| {
                 is_branch(node)
-                    || matches!(
-                        node.kind(),
-                        "conditional_expression" | "match_expression" | "try_statement"
-                    )
+                    || matches!(node.kind(), "conditional_expression" | "match_expression")
             });
     Some(LocalBinding {
         evidence: BindingEvidence::Semantic,
