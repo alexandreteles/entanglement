@@ -37,13 +37,11 @@ pub(in crate::resolver::kotlin) fn parse(source: &str, kind: ScriptKind) -> (Set
 impl ScriptFacts {
     fn walk(&mut self, body: Node<'_>, source: &str, scope: Scope) {
         for node in children(body) {
-            match node.kind() {
-                "assignment" if matches!(scope, Scope::Root) => {
-                    if let Some((module, path)) = project_directory(node, source) {
-                        self.settings.directories.insert(module.into(), path);
-                    }
-                }
-                "property_declaration" if matches!(scope, Scope::SourceSets(_)) => {
+            match (&scope, node.kind()) {
+                (Scope::Root, "assignment") => self.settings.directories.extend(
+                    project_directory(node, source).map(|(module, path)| (module.into(), path)),
+                ),
+                (Scope::SourceSets(_), "property_declaration") => {
                     if let Some((name, call)) = declared_source_set(node, source)
                         && let Some(body) = call.body
                     {
@@ -52,7 +50,7 @@ impl ScriptFacts {
                             source,
                             Scope::SourceSet {
                                 name: name.into(),
-                                dependencies: matches!(call.name, "getting" | "creating")
+                                dependencies: ["getting", "creating"].contains(&call.name)
                                     && call.args.is_empty(),
                                 edges: true,
                             },
@@ -80,28 +78,7 @@ impl ScriptFacts {
                 );
             }
             Scope::Dependencies(scope) if call.receiver.is_none() => {
-                let (declared_scope, exposure) = classify_configuration(call.name);
-                let scope = match scope {
-                    DependencyScope::Production => declared_scope,
-                    scope => scope.clone(),
-                };
-                for node in &call.args {
-                    let Some(project) = Call::read(*node, source)
-                        .filter(|call| call.name == "project" && call.receiver.is_none())
-                    else {
-                        continue;
-                    };
-                    let Some(path) = project.string(source).filter(|path| project_path(path))
-                    else {
-                        continue;
-                    };
-                    self.build.dependencies.insert(ProjectDependency {
-                        path: path.into(),
-                        configuration: call.name.into(),
-                        scope: scope.clone(),
-                        exposure: exposure.clone(),
-                    });
-                }
+                self.dependencies(&call, source, scope);
             }
             Scope::SourceSet {
                 name, edges: true, ..
@@ -120,6 +97,27 @@ impl ScriptFacts {
         {
             self.walk(body, source, next);
         }
+    }
+
+    fn dependencies(&mut self, call: &Call<'_, '_>, source: &str, scope: &DependencyScope) {
+        let (declared_scope, exposure) = classify_configuration(call.name);
+        let scope = match scope {
+            DependencyScope::Production => declared_scope,
+            scope => scope.clone(),
+        };
+        self.build
+            .dependencies
+            .extend(call.args.iter().filter_map(|node| {
+                let project = Call::read(*node, source)
+                    .filter(|call| call.name == "project" && call.receiver.is_none())?;
+                let path = project.string(source).filter(|path| project_path(path))?;
+                Some(ProjectDependency {
+                    path: path.into(),
+                    configuration: call.name.into(),
+                    scope: scope.clone(),
+                    exposure: exposure.clone(),
+                })
+            }));
     }
 
     fn source_edge(&mut self, child: &str, call: &Call<'_, '_>, source: &str) {
