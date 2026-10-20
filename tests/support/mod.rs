@@ -98,12 +98,15 @@ pub fn rust_project(source: &str) -> (tempfile::TempDir, std::path::PathBuf, std
     (temp, root, path)
 }
 
-/// Create a unified patch with repository-relative paths.
-pub fn patch(path: &str, before: &str, after: &str) -> String {
-    diffy::create_patch(before, after)
+/// Create a unified patch for an existing, added, or deleted file.
+/// An absent side uses `/dev/null`; an empty file uses an empty string.
+pub fn patch(path: &str, before: Option<&str>, after: Option<&str>) -> String {
+    let from = before.map_or_else(|| "/dev/null".to_owned(), |_| format!("a/{path}"));
+    let to = after.map_or_else(|| "/dev/null".to_owned(), |_| format!("b/{path}"));
+    diffy::create_patch(before.unwrap_or_default(), after.unwrap_or_default())
         .to_string()
-        .replacen("--- original", &format!("--- a/{path}"), 1)
-        .replacen("+++ modified", &format!("+++ b/{path}"), 1)
+        .replacen("--- original", &format!("--- {from}"), 1)
+        .replacen("+++ modified", &format!("+++ {to}"), 1)
 }
 
 /// Check the command status and all required human report labels.

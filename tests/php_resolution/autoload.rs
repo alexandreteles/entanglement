@@ -1,46 +1,108 @@
 use super::*;
 
+struct ManifestCase {
+    before: Option<&'static str>,
+    after: Option<&'static str>,
+    files: &'static [(&'static str, &'static str)],
+    namespace: &'static str,
+    before_exact: bool,
+    after_target: Option<&'static str>,
+}
+
 #[test]
-fn php_candidate_recomputes_composer_autoload_without_source_edits() {
-    let temp = tempfile::tempdir().unwrap();
-    let root = temp.path();
-    let before = "{\"autoload\":{\"psr-4\":{\"Api\\\\\":\"other/\"}}}\n";
-    let after = "{\"autoload\":{\"psr-4\":{\"Api\\\\\":\"src/\"}}}\n";
-    write(&root.join("composer.json"), before);
-    write(
-        &root.join("src/Record.php"),
-        "<?php namespace Api; final class Record {}\n",
-    );
-    let source = "<?php function make() { return new \\Api\\Record(); }\n";
-    write(&root.join("client.php"), source);
-    let initial = support::report(&support::run("repo", root, None, Some("cogc")));
-    assert_ne!(
-        reference(file(&initial, "/client.php"), source, "\\Api\\Record()")["status"],
-        "exact"
-    );
-    let diff = diffy::create_patch(before, after)
-        .to_string()
-        .replacen("--- original", "--- a/composer.json", 1)
-        .replacen("+++ modified", "+++ b/composer.json", 1);
-    let patch = root.join("change.diff");
-    std::fs::write(&patch, diff).unwrap();
-    let candidate = support::report(&support::run("candidate", root, Some(&patch), Some("cogc")));
-    exact(
-        file(&candidate, "/client.php"),
-        source,
-        "\\Api\\Record()",
-        "/src/Record.php",
-        "Record",
-    );
-    assert_eq!(
-        std::fs::read_to_string(root.join("composer.json")).unwrap(),
-        before
-    );
-    write(&root.join("composer.json"), after);
-    assert_eq!(
-        candidate["files"],
-        support::report(&support::run("repo", root, None, Some("cogc")))["files"]
-    );
+fn composer_candidate_changes_use_snapshot_routes_and_dependencies() {
+    const OTHER: &str = "{\"autoload\":{\"psr-4\":{\"Api\\\\\":\"other/\"}}}\n";
+    const ROUTED: &str = "{\"autoload\":{\"psr-4\":{\"Api\\\\\":\"src/\"}}}\n";
+    for case in [
+        ManifestCase {
+            before: Some(OTHER),
+            after: Some(ROUTED),
+            namespace: "Api",
+            before_exact: false,
+            after_target: Some("/src/Record.php"),
+            files: &[(
+                "src/Record.php",
+                "<?php namespace Api; final class Record {}\n",
+            )],
+        },
+        ManifestCase {
+            before: None,
+            after: Some(OTHER),
+            namespace: "Api",
+            before_exact: true,
+            after_target: None,
+            files: &[("src/Record.php", "<?php namespace Api; class Record {}\n")],
+        },
+        ManifestCase {
+            before: Some(OTHER),
+            after: None,
+            namespace: "Api",
+            before_exact: false,
+            after_target: Some("/src/Record.php"),
+            files: &[("src/Record.php", "<?php namespace Api; class Record {}\n")],
+        },
+        ManifestCase {
+            before: Some("{\"name\":\"app/root\"}\n"),
+            after: Some("{\"name\":\"app/root\",\"require\":{\"lib/record\":\"*\"}}\n"),
+            namespace: "Lib",
+            before_exact: false,
+            after_target: Some("/library/src/Record.php"),
+            files: &[
+                (
+                    "library/composer.json",
+                    r#"{"name":"lib/record","autoload":{"psr-4":{"Lib\\":"src/"}}}"#,
+                ),
+                (
+                    "library/src/Record.php",
+                    "<?php namespace Lib; class Record {}\n",
+                ),
+            ],
+        },
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let manifest = root.join("composer.json");
+        for (path, source) in case.files {
+            write(&root.join(path), source);
+        }
+        if let Some(source) = case.before {
+            write(&manifest, source);
+        }
+        let needle = format!("\\{}\\Record()", case.namespace);
+        let source = format!("<?php function make() {{ return new {needle}; }}\n");
+        write(&root.join("client.php"), &source);
+        let initial = support::report(&support::run("repo", root, None, Some("cogc")));
+        assert_eq!(
+            reference(file(&initial, "/client.php"), &source, &needle)["status"] == "exact",
+            case.before_exact
+        );
+        let diff = root.join("change.diff");
+        write(
+            &diff,
+            support::patch("composer.json", case.before, case.after),
+        );
+        let candidate =
+            support::report(&support::run("candidate", root, Some(&diff), Some("cogc")));
+        let client = file(&candidate, "/client.php");
+        if let Some(target) = case.after_target {
+            exact(client, &source, &needle, target, "Record");
+        } else {
+            assert_ne!(reference(client, &source, &needle)["status"], "exact");
+        }
+        assert_eq!(manifest.exists(), case.before.is_some());
+        assert_eq!(
+            std::fs::read_to_string(&manifest).ok().as_deref(),
+            case.before
+        );
+        match case.after {
+            Some(source) => write(&manifest, source),
+            None => std::fs::remove_file(&manifest).unwrap(),
+        }
+        assert_eq!(
+            candidate["files"],
+            support::report(&support::run("repo", root, None, Some("cogc")))["files"]
+        );
+    }
 }
 
 #[test]
@@ -89,116 +151,6 @@ fn php_composer_routes_keep_classmap_exclusions_separate() {
         "Thing_Name",
     );
     assert_ne!(reference(target, source, "Excluded()")["status"], "exact");
-}
-
-#[test]
-fn php_candidate_manifest_addition_and_deletion_use_the_snapshot() {
-    for addition in [true, false] {
-        let temp = tempfile::tempdir().unwrap();
-        let root = temp.path();
-        let manifest = "{\"autoload\":{\"psr-4\":{\"Api\\\\\":\"other/\"}}}\n";
-        let (before, after) = if addition {
-            ("", manifest)
-        } else {
-            (manifest, "")
-        };
-        if !addition {
-            write(&root.join("composer.json"), before);
-        }
-        write(
-            &root.join("src/Record.php"),
-            "<?php namespace Api; class Record {}\n",
-        );
-        let source = "<?php function make() { return new \\Api\\Record(); }\n";
-        write(&root.join("client.php"), source);
-        let initial = support::report(&support::run("repo", root, None, Some("cogc")));
-        assert_eq!(
-            reference(file(&initial, "/client.php"), source, "\\Api\\Record()")["status"]
-                == "exact",
-            addition
-        );
-        let patch = diffy::create_patch(before, after)
-            .to_string()
-            .replacen(
-                "--- original",
-                if addition {
-                    "--- /dev/null"
-                } else {
-                    "--- a/composer.json"
-                },
-                1,
-            )
-            .replacen(
-                "+++ modified",
-                if addition {
-                    "+++ b/composer.json"
-                } else {
-                    "+++ /dev/null"
-                },
-                1,
-            );
-        let diff = root.join("change.diff");
-        std::fs::write(&diff, patch).unwrap();
-        let candidate =
-            support::report(&support::run("candidate", root, Some(&diff), Some("cogc")));
-        assert_eq!(
-            reference(file(&candidate, "/client.php"), source, "\\Api\\Record()")["status"]
-                == "exact",
-            !addition
-        );
-        assert_eq!(root.join("composer.json").exists(), !addition);
-        if addition {
-            write(&root.join("composer.json"), after);
-        } else {
-            std::fs::remove_file(root.join("composer.json")).unwrap();
-        }
-        assert_eq!(
-            candidate["files"],
-            support::report(&support::run("repo", root, None, Some("cogc")))["files"]
-        );
-    }
-}
-
-#[test]
-fn php_nested_composer_projects_need_a_declared_dependency() {
-    let temp = tempfile::tempdir().unwrap();
-    let root = temp.path();
-    let before = "{\"name\":\"app/root\"}\n";
-    let after = "{\"name\":\"app/root\",\"require\":{\"lib/record\":\"*\"}}\n";
-    write(&root.join("composer.json"), before);
-    write(
-        &root.join("library/composer.json"),
-        r#"{"name":"lib/record","autoload":{"psr-4":{"Lib\\":"src/"}}}"#,
-    );
-    write(
-        &root.join("library/src/Record.php"),
-        "<?php namespace Lib; class Record {}\n",
-    );
-    let source = "<?php function make() { return new \\Lib\\Record(); }\n";
-    write(&root.join("client.php"), source);
-    let initial = support::report(&support::run("repo", root, None, Some("cogc")));
-    assert_ne!(
-        reference(file(&initial, "/client.php"), source, "\\Lib\\Record()")["status"],
-        "exact"
-    );
-    let patch = diffy::create_patch(before, after)
-        .to_string()
-        .replacen("--- original", "--- a/composer.json", 1)
-        .replacen("+++ modified", "+++ b/composer.json", 1);
-    let diff = root.join("change.diff");
-    std::fs::write(&diff, patch).unwrap();
-    let candidate = support::report(&support::run("candidate", root, Some(&diff), Some("cogc")));
-    exact(
-        file(&candidate, "/client.php"),
-        source,
-        "\\Lib\\Record()",
-        "/library/src/Record.php",
-        "Record",
-    );
-    assert_eq!(
-        std::fs::read_to_string(root.join("composer.json")).unwrap(),
-        before
-    );
 }
 
 #[test]
