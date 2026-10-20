@@ -136,13 +136,6 @@ fn merge_convention_calls(calls: &mut Vec<CallFacts>, conventions: Vec<CallFacts
             }) {
                 existing_argument.type_name =
                     argument.type_name.or(existing_argument.type_name.take());
-                existing_argument.is_lambda |= argument.is_lambda;
-                if existing_argument.lambda_parameter_types.is_empty() {
-                    existing_argument.lambda_parameter_types = argument.lambda_parameter_types;
-                }
-                existing_argument.lambda_receiver_type = argument
-                    .lambda_receiver_type
-                    .or(existing_argument.lambda_receiver_type.take());
             } else {
                 existing.arguments.push(argument);
             }
