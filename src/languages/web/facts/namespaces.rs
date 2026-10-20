@@ -3,17 +3,12 @@ use std::ops::Range;
 use tree_sitter::Node;
 
 use super::scope::{enclosing_function, scope_range, text};
+use crate::model::{ModulePath, Reference, ReferenceKind};
 
-#[derive(Clone)]
 pub(super) struct NamespaceReference {
-    pub(super) alias: String,
-    pub(super) member: String,
-    pub(super) range: Range<usize>,
+    pub(super) reference: Reference,
     pub(super) object: Range<usize>,
     pub(super) property: Range<usize>,
-    pub(super) scope: Range<usize>,
-    pub(super) call_owner: Option<usize>,
-    pub(super) is_call: bool,
 }
 
 pub(super) fn namespace_reference(
@@ -27,15 +22,27 @@ pub(super) fn namespace_reference(
         return None;
     }
     let (scope_start, scope_end) = scope_range(node, root, false);
+    let call_owner = enclosing_function(node);
     Some(NamespaceReference {
-        alias: text(object, source),
-        member: text(property, source),
-        range: node.byte_range(),
+        reference: Reference {
+            path: vec![text(object, source), text(property, source)],
+            module: ModulePath::default(),
+            kind: if is_call_target(node) {
+                ReferenceKind::Call
+            } else {
+                ReferenceKind::Qualified
+            },
+            start_byte: node.start_byte(),
+            end_byte: node.end_byte(),
+            scope_start,
+            scope_end,
+            call_owner,
+            execution_owner: call_owner,
+            access: None,
+            context_id: 0,
+        },
         object: object.byte_range(),
         property: property.byte_range(),
-        scope: scope_start..scope_end,
-        call_owner: enclosing_function(node),
-        is_call: is_call_target(node),
     })
 }
 

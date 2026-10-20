@@ -25,7 +25,7 @@ pub(super) struct CaptureFacts {
     definition_names: Vec<Range<usize>>,
     import_ranges: Vec<Range<usize>>,
     export_clause_ranges: Vec<Range<usize>>,
-    references: Vec<references::RawReference>,
+    references: Vec<Reference>,
     namespaces: Vec<namespaces::NamespaceReference>,
 }
 
@@ -89,8 +89,7 @@ impl CaptureFacts {
             export.scope_end = self.root.end;
         }
         self.mark_public_definitions();
-        self.resolve_namespace_members();
-        self.materialize_references();
+        self.finish_references();
         self.remove_duplicate_top_level_locals();
         self.deduplicate_facts();
         self.semantic
