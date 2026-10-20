@@ -38,15 +38,12 @@ impl QueryFacts {
                     _ => {}
                 }
             }
-            if Some(capture.index) == analyzer.function {
-                if !ranges::fully_included(node, included) {
-                    continue;
-                }
+            if Some(capture.index) == analyzer.function && ranges::fully_included(node, included) {
                 let explicit_name = analyzer.function_name.and_then(|name_id| {
                     captures
                         .iter()
                         .filter(|item| item.index == name_id)
-                        .min_by_key(|item| distance(item.node.start_byte(), node.start_byte()))
+                        .min_by_key(|item| item.node.start_byte().abs_diff(node.start_byte()))
                         .map(|item| node_text(item.node, source).unwrap_or_default())
                 });
                 let name = explicit_name
@@ -96,10 +93,6 @@ fn event_range(
 
 fn node_text(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     Some(String::from_utf8_lossy(source.get(node.byte_range())?).into_owned())
-}
-
-fn distance(left: usize, right: usize) -> usize {
-    left.abs_diff(right)
 }
 
 fn deduplicate<T, K: Eq + std::hash::Hash>(values: &mut Vec<T>, key: impl Fn(&T) -> K) {
