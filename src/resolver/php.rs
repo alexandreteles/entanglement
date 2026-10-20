@@ -87,11 +87,13 @@ impl<'a> Index<'a> {
                     context: symbol.scope.context_id,
                     position: symbol.semantic_id.start_byte,
                 };
-                let semantic = graph.semantic(
-                    site.file,
-                    site.context,
-                    Some(ResolutionFamily::PhpNamespaces),
-                )?;
+                let semantic = graph
+                    .semantic(
+                        site.file,
+                        site.context,
+                        Some(ResolutionFamily::PhpNamespaces),
+                    )
+                    .next()?;
                 let facts = semantic.php.as_ref()?;
                 let declaration = symbol.definition.declaration.as_deref()?;
                 let php = declaration.php.as_ref()?;
@@ -134,7 +136,8 @@ impl<'a> Index<'a> {
 
     fn facts(&self, file: usize, context: usize) -> Option<&'a PhpFacts> {
         self.graph
-            .semantic(file, context, Some(ResolutionFamily::PhpNamespaces))?
+            .semantic(file, context, Some(ResolutionFamily::PhpNamespaces))
+            .next()?
             .php
             .as_ref()
     }

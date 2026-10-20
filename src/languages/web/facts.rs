@@ -17,7 +17,7 @@ use super::{exports::parse_export, imports::parse_import, syntax::named_child};
 pub(super) use capture_schema::Captures;
 pub(super) use scope::binding_names;
 
-pub(super) use crate::languages::CapturedSemantics as SemanticFacts;
+pub(super) use crate::languages::SemanticStore as SemanticFacts;
 
 pub(super) struct CaptureFacts {
     pub(super) semantic: SemanticFacts,

@@ -27,7 +27,7 @@ pub(super) const PYTHON_FILE_MODULE_RULES: FileModuleRules = FileModuleRules {
     wildcard_imports_shadow: true,
 };
 
-pub(super) use crate::languages::CapturedSemantics as SemanticFacts;
+pub(super) use crate::languages::SemanticStore as SemanticFacts;
 
 pub(super) fn capture(root: Node<'_>, source: &[u8]) -> SemanticFacts {
     let mut facts = SemanticFacts::default();

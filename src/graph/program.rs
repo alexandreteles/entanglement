@@ -79,43 +79,49 @@ impl<'a> FileFactsView<'a> {
 
     pub(crate) fn definitions(&self) -> impl Iterator<Item = &'a Definition> + '_ {
         self.canonical
-            .definitions
+            .contexts
             .iter()
+            .flat_map(|store| &store.definitions)
             .filter(|item| self.allows(item.context_id))
     }
 
     pub(crate) fn imports(&self) -> impl Iterator<Item = &'a Import> + '_ {
         self.canonical
-            .imports
+            .contexts
             .iter()
+            .flat_map(|store| &store.imports)
             .filter(|item| self.allows(item.context_id))
     }
 
     pub(crate) fn exports(&self) -> impl Iterator<Item = &'a Export> + '_ {
         self.canonical
-            .exports
+            .contexts
             .iter()
+            .flat_map(|store| &store.exports)
             .filter(|item| self.allows(item.context_id))
     }
 
     pub(crate) fn references(&self) -> impl Iterator<Item = &'a Reference> + '_ {
         self.canonical
-            .references
+            .contexts
             .iter()
+            .flat_map(|store| &store.references)
             .filter(|item| self.allows(item.context_id))
     }
 
     pub(crate) fn locals(&self) -> impl Iterator<Item = &'a LocalBinding> + '_ {
         self.canonical
-            .locals
+            .contexts
             .iter()
+            .flat_map(|store| &store.locals)
             .filter(|item| self.allows(item.context_id))
     }
 
-    pub(crate) fn semantic(&self) -> impl Iterator<Item = &'a super::SemanticFacts> + '_ {
+    pub(crate) fn semantic(&self) -> impl Iterator<Item = &'a super::SemanticFacts> + Clone + '_ {
         self.canonical
-            .semantic
+            .context_order
             .iter()
+            .map(|index| &self.canonical.contexts[*index].semantic)
             .filter(|item| self.allows(item.context_id))
     }
 }
@@ -259,8 +265,8 @@ pub(crate) struct ProgramIndexes<'a> {
     symbols_by_file: Vec<Vec<usize>>,
     symbols_by_name: Vec<HashMap<String, Vec<usize>>>,
     symbol_by_semantic_id: HashMap<SymbolId, Vec<ProgramSymbolId>>,
-    function_starts: Vec<HashSet<(usize, usize)>>,
     callable_scopes: Vec<HashSet<ProgramScopeId>>,
+    reported_scopes: Vec<BTreeSet<(usize, usize, usize)>>,
     scopes: Vec<ProgramScope>,
     scopes_by_file: Vec<Vec<usize>>,
     scope_by_id: HashMap<ProgramScopeId, usize>,

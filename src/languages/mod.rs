@@ -20,7 +20,7 @@ use tree_sitter::{Language, Tree};
 use crate::Result;
 use crate::metrics::halstead::HalsteadToken;
 use crate::metrics::{SyntaxEvent, cyclomatic::FunctionScope};
-use crate::model::{Definition, Export, Import, LocalBinding, Reference};
+use crate::model::LocalBinding;
 
 #[derive(Debug, Clone)]
 pub(crate) struct InjectionRequest {
@@ -73,21 +73,11 @@ impl InjectionRequest {
     }
 }
 
-/// Normalized declarations, bindings, and references emitted by an adapter.
-/// Raw query captures and language-specific normalization stay in each adapter.
-#[derive(Default)]
-pub(crate) struct CapturedSemantics {
-    pub semantic: crate::graph::SemanticFacts,
-    pub definitions: Vec<Definition>,
-    pub imports: Vec<Import>,
-    pub exports: Vec<Export>,
-    pub references: Vec<Reference>,
-    pub locals: Vec<LocalBinding>,
-}
+pub(crate) use crate::model::SemanticStore;
 
 #[derive(Default)]
 pub(crate) struct CapturedTree {
-    pub facts: CapturedSemantics,
+    pub facts: SemanticStore,
     pub events: Vec<SyntaxEvent>,
     pub parents: HashMap<usize, Option<usize>>,
     pub functions: Vec<FunctionScope>,
@@ -97,7 +87,7 @@ pub(crate) struct CapturedTree {
 
 impl CapturedTree {
     /// Combine normalized semantic output with this tree's syntax captures.
-    pub(crate) fn with_semantics(self, facts: CapturedSemantics) -> Self {
+    pub(crate) fn with_semantics(self, facts: SemanticStore) -> Self {
         Self { facts, ..self }
     }
 }

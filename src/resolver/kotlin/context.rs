@@ -141,11 +141,11 @@ fn candidate_for_symbol<'a>(
     graph: &'a ProgramGraph<'a>,
 ) -> Option<Candidate<'a>> {
     let context_id = symbol.scope.context_id;
-    let semantic = graph.semantic(file, context_id, Some(ResolutionFamily::KotlinModules))?;
+    let mut semantic = graph.semantic(file, context_id, Some(ResolutionFamily::KotlinModules));
+    semantic.clone().next()?;
     let definition = symbol.definition;
     let package = semantic
-        .context
-        .as_ref()
+        .find_map(|semantic| semantic.context.as_ref())
         .map_or(definition.module.0.as_slice(), |context| {
             context.package.as_slice()
         });

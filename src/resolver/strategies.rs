@@ -24,12 +24,16 @@ impl Strategy {
 }
 
 fn for_context(fact: &FileFacts, context_id: usize) -> Strategy {
-    let layer = fact.semantic.iter().find(|layer| {
-        layer.context_id == context_id
-            && layer
-                .resolution_family
-                .is_some_and(|family| family != ResolutionFamily::None)
-    });
+    let layer = fact
+        .contexts
+        .iter()
+        .map(|context| &context.semantic)
+        .find(|layer| {
+            layer.context_id == context_id
+                && layer
+                    .resolution_family
+                    .is_some_and(|family| family != ResolutionFamily::None)
+        });
     Strategy {
         family: layer
             .and_then(|layer| layer.resolution_family)
@@ -39,14 +43,9 @@ fn for_context(fact: &FileFacts, context_id: usize) -> Strategy {
 }
 
 fn context_ids(fact: &FileFacts) -> impl Iterator<Item = usize> + '_ {
-    fact.semantic
+    fact.contexts
         .iter()
-        .map(|layer| layer.context_id)
-        .chain(fact.references.iter().map(|item| item.context_id))
-        .chain(fact.definitions.iter().map(|item| item.context_id))
-        .chain(fact.imports.iter().map(|item| item.context_id))
-        .chain(fact.exports.iter().map(|item| item.context_id))
-        .chain(fact.locals.iter().map(|item| item.context_id))
+        .map(|context| context.semantic.context_id)
 }
 
 pub(super) fn resolve(
@@ -69,21 +68,21 @@ pub(super) fn resolve(
         return super::resolve_references(graph.files(), snapshot, graph, &mut cache);
     }
     let mut strategies = Vec::<Strategy>::new();
-    for fact in facts {
-        for context_id in context_ids(fact) {
-            let strategy = for_context(fact, context_id);
-            if strategy.family != ResolutionFamily::None
-                && !strategies.iter().any(|other| strategy.same(*other))
-            {
-                strategies.push(strategy);
-            }
+    for strategy in facts
+        .iter()
+        .flat_map(|fact| context_ids(fact).map(|context_id| for_context(fact, context_id)))
+    {
+        if strategy.family != ResolutionFamily::None
+            && !strategies.iter().any(|other| strategy.same(*other))
+        {
+            strategies.push(strategy);
         }
     }
     let mut result = facts
         .iter()
         .map(|fact| {
-            fact.references
-                .iter()
+            FileFactsView::new(fact)
+                .references()
                 .map(|reference| analysis(reference, Resolution::Unresolved, None))
                 .collect::<Vec<_>>()
         })
@@ -106,9 +105,9 @@ pub(super) fn resolve(
             &mut cache,
         );
         for (file_index, (fact, resolutions)) in facts.iter().zip(resolved).enumerate() {
-            let indices = fact
-                .references
-                .iter()
+            let view = FileFactsView::new(fact);
+            let indices = view
+                .references()
                 .enumerate()
                 .filter(|(_, reference)| strategy.same(for_context(fact, reference.context_id)))
                 .map(|(index, _)| index);

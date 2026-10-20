@@ -19,7 +19,7 @@ use super::injections::{self, ParsedInjection};
 use super::metrics;
 
 pub(super) struct TreeSummary {
-    pub(super) facts: crate::languages::CapturedSemantics,
+    pub(super) facts: crate::languages::SemanticStore,
     metric_id: String,
     resolution_family: ResolutionFamily,
     file_module_rules: Option<&'static FileModuleRules>,
@@ -105,46 +105,15 @@ pub(super) fn build_facts(
     });
     let mut injections = Vec::<InjectionAnalysis>::new();
     injections::collect_injection_analysis(parsed_injections, &mut injections);
-    let mut definitions = Vec::new();
-    let mut imports = Vec::new();
-    let mut exports = Vec::new();
-    let mut references = Vec::new();
-    let mut locals = Vec::new();
-    let mut semantic = Vec::<crate::graph::SemanticFacts>::new();
-    for summary in summaries {
-        let item = summary.facts;
-        definitions.extend(item.definitions);
-        imports.extend(item.imports);
-        exports.extend(item.exports);
-        references.extend(item.references);
-        locals.extend(item.locals);
-        if let Some(layer) = semantic.iter_mut().find(|layer| {
-            layer.context_id == item.semantic.context_id
-                && layer.resolution_family == item.semantic.resolution_family
-        }) {
-            layer.bindings.extend(item.semantic.bindings);
-            layer.receivers.extend(item.semantic.receivers);
-            layer.calls.extend(item.semantic.calls);
-            if layer.context.is_none() {
-                layer.context = item.semantic.context;
-            }
-        } else {
-            semantic.push(item.semantic);
-        }
-    }
     FileFacts {
-        semantic,
+        contexts: summaries.into_iter().map(|summary| summary.facts).collect(),
+        context_order: Vec::new(),
         target: path.to_path_buf(),
         aliases: vec![path.to_path_buf()],
         path: path.to_path_buf(),
         module: ModulePath::default(),
         resolution_family,
         file_module_rules,
-        definitions,
-        imports,
-        exports,
-        references,
-        locals,
         analysis: FileAnalysis {
             path: path.display().to_string(),
             hash: blake3::hash(&source).to_hex().to_string(),
@@ -160,6 +129,7 @@ pub(super) fn build_facts(
         },
         source,
     }
+    .index_contexts()
 }
 
 fn summary_nloc<'a>(

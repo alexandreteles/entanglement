@@ -158,7 +158,7 @@ impl<'a> CaptureFacts<'a> {
         } else {
             Vec::new()
         };
-        CapturedTree::from(common).with_semantics(super::CapturedSemantics {
+        CapturedTree::from(common).with_semantics(super::SemanticStore {
             definitions,
             imports,
             references,

@@ -1,5 +1,5 @@
 use crate::graph::ProgramSymbolId;
-use crate::graph::{SemanticFacts, program::FileFactsView};
+use crate::graph::{ReceiverScope, SemanticFacts, program::FileFactsView};
 use crate::languages::ResolutionFamily;
 use std::sync::Arc;
 use std::{collections::HashSet, path::PathBuf};
@@ -7,7 +7,9 @@ use std::{collections::HashSet, path::PathBuf};
 use super::*;
 use crate::graph::BindingType;
 use crate::metrics::halstead::HalsteadMetrics;
-use crate::model::{DefinitionKind, FileAnalysis, FileFacts, LocalBinding, ModulePath};
+use crate::model::{
+    DefinitionKind, FileAnalysis, FileFacts, LocalBinding, ModulePath, SemanticStore,
+};
 
 fn fixture() -> FileFacts {
     let definition = |context_id, module: &str| Definition {
@@ -40,20 +42,31 @@ fn fixture() -> FileFacts {
         ..SemanticFacts::default()
     };
     FileFacts {
-        definitions: vec![
-            definition(0, "excluded"),
-            definition(1, "included"),
-            definition(2, "included"),
+        context_order: Vec::new(),
+        contexts: vec![
+            SemanticStore {
+                definitions: vec![definition(0, "excluded")],
+                ..SemanticStore::default()
+            },
+            SemanticStore {
+                semantic: semantic(1, "First"),
+                definitions: vec![definition(1, "included")],
+                locals: vec![LocalBinding {
+                    name: "value".into(),
+                    start_byte: 25,
+                    end_byte: 30,
+                    scope_start: 20,
+                    scope_end: 80,
+                    context_id: 1,
+                }],
+                ..SemanticStore::default()
+            },
+            SemanticStore {
+                semantic: semantic(2, "Second"),
+                definitions: vec![definition(2, "included")],
+                ..SemanticStore::default()
+            },
         ],
-        semantic: vec![semantic(1, "First"), semantic(2, "Second")],
-        locals: vec![LocalBinding {
-            name: "value".into(),
-            start_byte: 25,
-            end_byte: 30,
-            scope_start: 20,
-            scope_end: 80,
-            context_id: 1,
-        }],
         source: Arc::from(vec![b' '; 100]),
         target: PathBuf::from("fixture.rs"),
         aliases: vec![PathBuf::from("fixture.rs")],
@@ -61,9 +74,6 @@ fn fixture() -> FileFacts {
         module: ModulePath::default(),
         resolution_family: ResolutionFamily::RustCrates,
         file_module_rules: None,
-        imports: Vec::new(),
-        exports: Vec::new(),
-        references: Vec::new(),
         analysis: FileAnalysis {
             path: "fixture.rs".into(),
             hash: String::new(),
@@ -76,6 +86,7 @@ fn fixture() -> FileFacts {
             resolution: Vec::new(),
         },
     }
+    .index_contexts()
 }
 
 #[test]
@@ -102,11 +113,11 @@ fn projections_reuse_indexes_and_preserve_canonical_identity_and_context_evidenc
     assert_eq!(symbols[0].id, id);
     assert!(std::ptr::eq(
         projected.definition(id).unwrap(),
-        &facts[0].definitions[1]
+        &facts[0].contexts[1].definitions[0]
     ));
     assert!(std::ptr::eq(
         projected.file(0).definitions().next().unwrap(),
-        &facts[0].definitions[1]
+        &facts[0].contexts[1].definitions[0]
     ));
     assert!(
         projected
@@ -152,7 +163,8 @@ fn projections_reuse_indexes_and_preserve_canonical_identity_and_context_evidenc
 #[test]
 fn projections_preserve_conflicting_binding_evidence_within_an_eligible_context() {
     let mut facts = [fixture()];
-    facts[0].semantic[1].context_id = 1;
+    let conflicting = facts[0].contexts[2].semantic.bindings[0].clone();
+    facts[0].contexts[1].semantic.bindings.push(conflicting);
     let graph = ProgramGraph::new(&facts);
     let projected = graph.project(vec![FileFactsView::projected(
         &facts[0],
@@ -162,4 +174,47 @@ fn projections_preserve_conflicting_binding_evidence_within_an_eligible_context(
     )]);
     assert!(projected.has_local_binding(0, "value", 1, 50));
     assert_eq!(projected.binding_type(0, "value", 1, 50), None);
+}
+
+#[test]
+fn context_fragments_keep_record_order_and_scope_tie_selection() {
+    let mut fact = fixture();
+    let mut first = fact.contexts.remove(1);
+    let binding = first.semantic.bindings.pop().unwrap();
+    first.locals.clear();
+    first.definitions[0].name = "first".into();
+    first.semantic.resolution_family = Some(ResolutionFamily::KotlinModules);
+    first.semantic.receivers.push(ReceiverScope {
+        start_byte: 20,
+        end_byte: 80,
+        receiver_type: "Owner".into(),
+        label: None,
+        implicit: true,
+        dsl_markers: Vec::new(),
+    });
+    let mut middle = first.clone();
+    middle.definitions[0].name = "middle".into();
+    middle.semantic.resolution_family = Some(ResolutionFamily::PhpNamespaces);
+    middle.semantic.bindings.push(binding.clone());
+    let mut last = first.clone();
+    last.definitions[0].name = "last".into();
+    last.semantic.bindings.push(BindingType {
+        scope_start: 30,
+        scope_end: 90,
+        ..binding
+    });
+    fact.contexts = vec![first, middle, last];
+    let facts = [fact.index_contexts()];
+    let graph = ProgramGraph::new(&facts);
+    assert_eq!(
+        graph
+            .file(0)
+            .definitions()
+            .map(|item| item.name.as_str())
+            .collect::<Vec<_>>(),
+        ["first", "middle", "last"]
+    );
+    // The binding and receiver scopes have equal widths. The original merge
+    // indexed all Kotlin bindings before receivers and the middle PHP segment.
+    assert_eq!(graph.scope_at(0, 1, 50).unwrap().start_byte, 30);
 }
