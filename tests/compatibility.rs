@@ -1,18 +1,6 @@
 mod support;
 use support::report;
 
-use std::path::Path;
-use std::process::{Command, Output};
-
-fn run(arguments: &[&str], path: &Path) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_entanglement"))
-        .args(["--format", "json"])
-        .args(arguments)
-        .arg(path)
-        .output()
-        .expect("run entanglement")
-}
-
 #[test]
 fn file_mode_accepts_invalid_utf8_and_malformed_rust() {
     let temp = tempfile::tempdir().expect("create temporary directory");
@@ -22,24 +10,19 @@ fn file_mode_accepts_invalid_utf8_and_malformed_rust() {
     source.extend_from_slice(b"\n");
     std::fs::write(&invalid, source).expect("write invalid UTF-8 fixture");
 
-    let invalid_report = report(&run(&["file"], &invalid));
-    let invalid_file = &invalid_report["files"][0];
-    assert_eq!(invalid_file["language"], "rust");
-    assert!(invalid_file["nloc"].as_u64().is_some());
-    assert!(invalid_file["functions"].as_array().is_some());
-
     let malformed = temp.path().join("malformed.rs");
     std::fs::write(
         &malformed,
         b"fn broken( { let value = ; }\nfn recovered() { if true { let _ = 1; } }\n",
     )
     .expect("write malformed Rust fixture");
-
-    let malformed_report = report(&run(&["file"], &malformed));
-    let malformed_file = &malformed_report["files"][0];
-    assert_eq!(malformed_file["language"], "rust");
-    assert!(malformed_file["nloc"].as_u64().is_some());
-    assert!(malformed_file["functions"].as_array().is_some());
+    for path in [invalid, malformed] {
+        let result = report(&support::run("file", &path, None, None));
+        let file = support::only_file(&result);
+        assert_eq!(file["language"], "rust");
+        assert!(file["nloc"].is_u64());
+        assert!(file["functions"].is_array());
+    }
 }
 
 #[test]
@@ -49,7 +32,7 @@ fn repo_skips_binary_files_without_a_registered_extension() {
         .expect("write binary fixture");
     std::fs::write(temp.path().join("lib.rs"), b"fn kept() {}\n").expect("write Rust fixture");
 
-    let repo_report = report(&run(&["repo"], temp.path()));
+    let repo_report = report(&support::run("repo", temp.path(), None, None));
     let files = repo_report["files"].as_array().expect("files array");
     assert_eq!(files.len(), 1);
     assert_eq!(files[0]["language"], "rust");
@@ -78,7 +61,12 @@ fn repo_follows_file_and_directory_symlinks_without_duplicate_reports() {
     symlink(source_dir.join("lib.rs"), root.join("lib-alias.rs")).expect("create file symlink");
     symlink(&source_dir, root.join("mirror")).expect("create directory symlink");
 
-    let file_report = report(&run(&["file"], &root.join("lib-alias.rs")));
+    let file_report = report(&support::run(
+        "file",
+        &root.join("lib-alias.rs"),
+        None,
+        None,
+    ));
     assert_eq!(file_report["files"].as_array().unwrap().len(), 1);
     assert!(
         file_report["files"][0]["path"]
@@ -86,7 +74,7 @@ fn repo_follows_file_and_directory_symlinks_without_duplicate_reports() {
             .is_some_and(|path| path.ends_with("/repo/lib-alias.rs"))
     );
 
-    let repo_report = report(&run(&["repo"], &root));
+    let repo_report = report(&support::run("repo", &root, None, None));
     let files = repo_report["files"].as_array().expect("repo files");
     assert_eq!(files.len(), 2);
     assert!(files.iter().any(
@@ -103,7 +91,7 @@ fn repo_follows_file_and_directory_symlinks_without_duplicate_reports() {
     }));
 
     symlink(root.join("missing.rs"), root.join("broken.rs")).expect("create broken symlink");
-    let broken_link_output = run(&["repo"], &root);
+    let broken_link_output = support::run("repo", &root, None, None);
     assert!(
         !broken_link_output.status.success(),
         "repository analysis should reject a broken symlink"

@@ -1,30 +1,4 @@
-use std::path::Path;
-use std::process::Command;
-
-use serde_json::Value;
-
-fn analyze(path: &Path) -> Value {
-    let output = Command::new(env!("CARGO_BIN_EXE_entanglement"))
-        .args(["--format", "json", "file"])
-        .arg(path)
-        .output()
-        .expect("run file analysis");
-    assert!(
-        output.status.success(),
-        "entanglement failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    serde_json::from_slice(&output.stdout).expect("parse JSON report")
-}
-
-fn function<'a>(report: &'a Value, name: &str) -> &'a Value {
-    report["files"][0]["functions"]
-        .as_array()
-        .expect("function metrics")
-        .iter()
-        .find(|function| function["name"] == name)
-        .unwrap_or_else(|| panic!("missing function {name}"))
-}
+mod support;
 
 #[test]
 fn rust_syntax_cases_match_sonar_cognitive_complexity_examples() {
@@ -110,7 +84,7 @@ fn no_control() {}
     )
     .expect("write Rust source");
 
-    let report = analyze(&source);
+    let report = support::report(&support::run("file", &source, None, None));
     for (name, expected) in [
         ("sumOfPrimes", 7),
         ("getWords", 1),
@@ -127,14 +101,17 @@ fn no_control() {}
         ("no_control", 0),
     ] {
         assert_eq!(
-            function(&report, name)["cognitive_complexity"],
+            support::function(&report["files"][0], name)["cognitive_complexity"],
             expected,
             "unexpected cognitive complexity for {name}"
         );
     }
     assert_eq!(
-        function(&report, "outer_with_nested_function")["cognitive_complexity"],
+        support::function(&report["files"][0], "outer_with_nested_function")["cognitive_complexity"],
         1
     );
-    assert_eq!(function(&report, "inner")["cognitive_complexity"], 3);
+    assert_eq!(
+        support::function(&report["files"][0], "inner")["cognitive_complexity"],
+        3
+    );
 }

@@ -1,5 +1,5 @@
 mod support;
-use support::{file, function, report, run, write};
+use support::{file, function, recursive, report, run, write};
 
 use std::path::Path;
 
@@ -22,12 +22,6 @@ fn change<'a>(report: &'a Value, suffix: &str) -> &'a Value {
                 .is_some_and(|path| path.ends_with(suffix))
         })
         .unwrap_or_else(|| panic!("missing patch for {suffix}"))
-}
-
-fn recursive(function: &Value) -> bool {
-    function["cognitive_contributions"]
-        .as_array()
-        .is_some_and(|items| items.iter().any(|item| item["kind"] == "recursion"))
 }
 
 fn has_resolution(file: &Value, name: &str, status: &str) -> bool {

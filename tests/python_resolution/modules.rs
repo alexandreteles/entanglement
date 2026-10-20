@@ -75,7 +75,7 @@ def exercise(flag):
     );
     write(&&root.join("src/pkg/mod.ts"), "export function leaf() {}\n");
 
-    let project = analyze(&root);
+    let project = support::report(&support::run("repo", &root, None, Some("cogc")));
     let main = file(&project, "/main.py");
     exact_target(main, &["imported_leaf"], "/pkg/mod.py", "leaf");
     exact_target(main, &["pkg", "mod", "leaf"], "/pkg/mod.py", "leaf");
@@ -91,8 +91,8 @@ def exercise(flag):
     );
 
     let package = file(&project, "/__init__.py");
-    assert!(recursive(package, "entry"));
-    assert!(recursive(file(&project, "/pkg/mod.py"), "leaf"));
+    assert!(recursive(function(package, "entry")));
+    assert!(recursive(function(file(&project, "/pkg/mod.py"), "leaf")));
     exact_target(
         file(&project, "/worker.py"),
         &["relative_leaf"],

@@ -1,20 +1,9 @@
 mod support;
 use support::report;
 
-use std::path::Path;
-use std::process::{Command, Output};
+use std::process::Command;
 
 use serde_json::Value;
-
-fn run(arguments: &[&str], path: &Path, diff: &Path) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_entanglement"))
-        .args(arguments)
-        .arg("--diff")
-        .arg(diff)
-        .arg(path)
-        .output()
-        .expect("run patch analysis")
-}
 
 fn function_delta<'a>(report: &'a Value, name: &str) -> &'a Value {
     report["patch"]["files"][0]["functions"]
@@ -50,19 +39,8 @@ fn assert_cognitive_change(report: &Value) {
 
 #[test]
 fn patch_and_candidate_report_cognitive_deltas_and_separate_contributions() {
-    let temp = tempfile::tempdir().expect("create temporary directory");
-    let root = temp.path().join("crate");
-    let source_dir = root.join("src");
-    std::fs::create_dir_all(&source_dir).expect("create source directory");
-    std::fs::write(
-        root.join("Cargo.toml"),
-        "[package]\nname = 'cognitive-fixture'\nversion = '0.1.0'\n",
-    )
-    .expect("write manifest");
-
-    let source = source_dir.join("lib.rs");
     let before = "pub fn target(flag: bool) {\n    if flag {}\n}\n";
-    std::fs::write(&source, before).expect("write Rust source");
+    let (temp, root, source) = support::rust_project(before);
 
     let diff = temp.path().join("change.diff");
     std::fs::write(
@@ -71,10 +49,10 @@ fn patch_and_candidate_report_cognitive_deltas_and_separate_contributions() {
     )
     .expect("write patch");
 
-    let patch = report(&run(&["--format", "json", "patch"], &source, &diff));
+    let patch = report(&support::run("patch", &source, Some(&diff), None));
     assert_cognitive_change(&patch);
 
-    let candidate = report(&run(&["--format", "json", "candidate"], &root, &diff));
+    let candidate = report(&support::run("candidate", &root, Some(&diff), None));
     assert_cognitive_change(&candidate);
     let after = candidate["files"]
         .as_array()

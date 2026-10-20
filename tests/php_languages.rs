@@ -2,9 +2,6 @@ mod support;
 use support::function;
 
 use std::path::Path;
-use std::process::Command;
-
-use serde_json::Value;
 
 fn write(path: &Path, source: &str) {
     let mut parser = tree_sitter::Parser::new();
@@ -18,24 +15,6 @@ fn write(path: &Path, source: &str) {
         tree.root_node().to_sexp()
     );
     std::fs::write(path, source).unwrap();
-}
-
-fn report(mode: &str, path: &Path, diff: Option<&Path>, metrics: Option<&str>) -> Value {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_entanglement"));
-    command.args(["--format", "json", mode]).arg(path);
-    if let Some(metrics) = metrics {
-        command.args(["--metrics", metrics]);
-    }
-    if let Some(diff) = diff {
-        command.arg("--diff").arg(diff);
-    }
-    let output = command.output().expect("run entanglement");
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    serde_json::from_slice(&output.stdout).expect("read report")
 }
 
 #[test]
@@ -62,7 +41,7 @@ class Worker {
 }
 "#,
     );
-    let result = report("file", &path, None, None);
+    let result = support::report(&support::run("file", &path, None, None));
     let file = &result["files"][0];
     assert_eq!(file["language"], "php");
     assert_eq!(function(file, "flow")["cyclomatic_complexity"], 5);
@@ -88,7 +67,7 @@ fn templates_use_html_javascript_and_css_analyzers() {
 <?php } } ?>
 </main>"#,
     );
-    let result = report("file", &path, None, None);
+    let result = support::report(&support::run("file", &path, None, None));
     let file = &result["files"][0];
     assert_eq!(file["language"], "php");
     assert_eq!(function(file, "render")["cyclomatic_complexity"], 2);
@@ -114,14 +93,14 @@ fn repository_patch_and_candidate_commands_select_php_files() {
         "<?php\nfunction changed($value) { return $value; }\n",
     );
     std::fs::write(&diff, "--- a/changed.php\n+++ b/changed.php\n@@ -1,2 +1,2 @@\n <?php\n-function changed($value) { return $value; }\n+function changed($value) { if ($value) { return 1; } return 0; }\n").unwrap();
-    let repo = report("repo", temp.path(), None, None);
+    let repo = support::report(&support::run("repo", temp.path(), None, None));
     assert_eq!(repo["files"][0]["language"], "php");
-    let patch = report("patch", &path, Some(&diff), None);
+    let patch = support::report(&support::run("patch", &path, Some(&diff), None));
     assert_eq!(
         function(&patch["files"][0], "changed")["cyclomatic_complexity"],
         2
     );
-    let candidate = report("candidate", temp.path(), Some(&diff), None);
+    let candidate = support::report(&support::run("candidate", temp.path(), Some(&diff), None));
     assert_eq!(
         function(&candidate["files"][0], "changed")["cyclomatic_complexity"],
         2
@@ -147,7 +126,7 @@ final class Reading {
 function discard($value) { (void) $value; }
 "#,
     );
-    let result = report("file", &path, None, None);
+    let result = support::report(&support::run("file", &path, None, None));
     let file = &result["files"][0];
     for hook in ["get", "set"] {
         assert_eq!(function(file, hook)["cyclomatic_complexity"], 2);
@@ -165,7 +144,7 @@ fn pure_markup_php_templates_keep_their_script_metrics() {
         &path,
         "<script>function plain(value) { return value ? 1 : 0; }</script>",
     );
-    let result = report("file", &path, None, None);
+    let result = support::report(&support::run("file", &path, None, None));
     assert_eq!(
         function(&result["files"][0], "plain")["cyclomatic_complexity"],
         2
@@ -188,7 +167,7 @@ fn selected_metrics_keep_exact_php_line_and_token_counts() {
         ("halstead", "halstead"),
         ("mi", "maintainability_index"),
     ] {
-        let result = report("file", &path, None, Some(metric));
+        let result = support::report(&support::run("file", &path, None, Some(metric)));
         let file = &result["files"][0];
         let leaf = function(file, "leaf");
         assert_eq!(file["nloc"], 2);
@@ -226,14 +205,10 @@ final class Callback {
 
 "#,
     );
-    let result = report("file", &path, None, None);
+    let result = support::report(&support::run("file", &path, None, None));
     for name in ["repeat", "invoke"] {
         assert!(
-            function(&result["files"][0], name)["cognitive_contributions"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|item| item["kind"] == "recursion"),
+            support::recursive(function(&result["files"][0], name)),
             "missing callable recursion for {name}"
         );
     }
@@ -261,7 +236,7 @@ fn mutations_prevent_an_exact_callable_binding() {
                 "<?php\nfunction target() {{}}\nfunction run() {{ $callback = 'target'; {mutation} $callback(); }}\n"
             ),
         );
-        let result = report("file", &path, None, None);
+        let result = support::report(&support::run("file", &path, None, None));
         let references = result["files"][0]["resolution"].as_array().unwrap();
         let callback = references
             .iter()
@@ -291,15 +266,9 @@ final class Chain {
 }
 "#,
     );
-    let result = report("file", &path, None, None);
+    let result = support::report(&support::run("file", &path, None, None));
     let recur = function(&result["files"][0], "recur");
-    assert!(
-        recur["cognitive_contributions"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["kind"] == "recursion")
-    );
+    assert!(support::recursive(recur));
     let references = result["files"][0]["resolution"].as_array().unwrap();
     assert_eq!(
         references
@@ -327,14 +296,10 @@ final class Result {
 }
 "#,
     );
-    let result = report("file", &path, None, None);
+    let result = support::report(&support::run("file", &path, None, None));
     for name in ["arrow_cycle", "closure_cycle", "chain"] {
         assert!(
-            function(&result["files"][0], name)["cognitive_contributions"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|item| item["kind"] == "recursion"),
+            support::recursive(function(&result["files"][0], name)),
             "missing recursion for {name}"
         );
     }
@@ -356,15 +321,9 @@ final class StaticContext {
 }
 "#,
     );
-    let result = report("file", &path, None, None);
+    let result = support::report(&support::run("file", &path, None, None));
     let file = &result["files"][0];
-    assert!(
-        !function(file, "invalid")["cognitive_contributions"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["kind"] == "recursion")
-    );
+    assert!(!support::recursive(function(file, "invalid")));
     assert!(
         file["resolution"]
             .as_array()

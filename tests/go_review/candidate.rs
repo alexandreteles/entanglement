@@ -1,10 +1,5 @@
-use super::{file, report, resolutions, run, status, write};
-
-fn patch(path: &str, before: &str, after: &str) -> String {
-    let diff = diffy::create_patch(before, after).to_string();
-    diff.replacen("--- original", &format!("--- a/{path}"), 1)
-        .replacen("+++ modified", &format!("+++ b/{path}"), 1)
-}
+use super::support;
+use super::{file, report, resolutions, status, write};
 
 #[test]
 fn module_path_edits_use_virtual_manifest_bytes_and_match_fresh_analysis() {
@@ -20,9 +15,10 @@ fn module_path_edits_use_virtual_manifest_bytes_and_match_fresh_analysis() {
     let diff = temp.path().join("change.diff");
     write(
         &diff,
-        &(patch("go.mod", before_mod, after_mod) + &patch("main.go", before_go, &after_go)),
+        &(support::patch("go.mod", before_mod, after_mod)
+            + &support::patch("main.go", before_go, &after_go)),
     );
-    let candidate = report(&run(&["candidate"], &root, Some(&diff)));
+    let candidate = report(&support::run("candidate", &root, Some(&diff), None));
     assert_eq!(
         std::fs::read_to_string(root.join("go.mod")).unwrap(),
         before_mod
@@ -33,7 +29,7 @@ fn module_path_edits_use_virtual_manifest_bytes_and_match_fresh_analysis() {
     );
     write(&root.join("go.mod"), after_mod);
     write(&root.join("main.go"), &after_go);
-    let fresh = report(&run(&["repo"], &root, None));
+    let fresh = report(&support::run("repo", &root, None, None));
     assert_eq!(candidate["files"], fresh["files"]);
 }
 
@@ -52,14 +48,14 @@ fn creating_a_nested_manifest_removes_false_parent_module_targets() {
         &diff,
         "--- /dev/null\n+++ b/sub/go.mod\n@@ -0,0 +1 @@\n+module example.com/other\n",
     );
-    let candidate = report(&run(&["candidate"], &root, Some(&diff)));
+    let candidate = report(&support::run("candidate", &root, Some(&diff), None));
     assert!(!root.join("sub/go.mod").exists());
     assert_eq!(
         status(&resolutions(file(&candidate, "main.go")), "sub.F"),
         ["unresolved"]
     );
     write(&root.join("sub/go.mod"), "module example.com/other\n");
-    let fresh = report(&run(&["repo"], &root, None));
+    let fresh = report(&support::run("repo", &root, None, None));
     assert_eq!(candidate["files"], fresh["files"]);
 }
 
@@ -79,13 +75,13 @@ fn deleting_a_nested_manifest_restores_parent_module_resolution() {
         &diff,
         "--- a/sub/go.mod\n+++ /dev/null\n@@ -1 +0,0 @@\n-module example.com/other\n",
     );
-    let candidate = report(&run(&["candidate"], &root, Some(&diff)));
+    let candidate = report(&support::run("candidate", &root, Some(&diff), None));
     assert!(root.join("sub/go.mod").exists());
     assert_eq!(
         status(&resolutions(file(&candidate, "main.go")), "sub.F"),
         ["exact sub.go:F"]
     );
     std::fs::remove_file(root.join("sub/go.mod")).unwrap();
-    let fresh = report(&run(&["repo"], &root, None));
+    let fresh = report(&support::run("repo", &root, None, None));
     assert_eq!(candidate["files"], fresh["files"]);
 }

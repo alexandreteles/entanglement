@@ -1,13 +1,7 @@
 mod support;
-use support::{file, function, report, run, write};
+use support::{file, function, recursive, report, run, write};
 
 use serde_json::Value;
-
-fn recursive(function: &Value) -> bool {
-    function["cognitive_contributions"]
-        .as_array()
-        .is_some_and(|items| items.iter().any(|item| item["kind"] == "recursion"))
-}
 
 fn injection_count(file: &Value, language: &str, analyzed: bool) -> usize {
     file["injections"]

@@ -2,7 +2,6 @@ mod support;
 use support::{file, function, report};
 
 use std::path::Path;
-use std::process::{Command, Output};
 
 use serde_json::Value;
 
@@ -22,15 +21,6 @@ fn write(path: &Path, source: &str) {
     }
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, source).unwrap();
-}
-
-fn run(args: &[&str], path: &Path, diff: Option<&Path>) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_entanglement"));
-    command.args(["--format", "json"]).args(args).arg(path);
-    if let Some(diff) = diff {
-        command.arg("--diff").arg(diff);
-    }
-    command.output().expect("run entanglement")
 }
 
 fn kinds(function: &Value) -> Vec<(String, u64)> {
@@ -136,7 +126,7 @@ func (t *Tree) Wait(values chan int, done chan bool, value any) {
 }
 "#,
     );
-    let output = report(&run(&["file"], &path, None));
+    let output = report(&support::run("file", &path, None, None));
     let file = &output["files"][0];
     assert_eq!(file["language"], "go");
 
@@ -227,7 +217,7 @@ func main() {
 }
 "#,
     );
-    let output = report(&run(&["--metrics", "cogc", "repo"], &root, None));
+    let output = report(&support::run("repo", &root, None, Some("cogc")));
 
     let main = resolutions(file(&output, "cmd/main.go"));
     assert_eq!(status(&main, "u.IsEven"), ["exact even.go:IsEven"]);
@@ -282,7 +272,7 @@ func shadow(value any) {
 }
 "#,
     );
-    let output = report(&run(&["--metrics", "cogc", "repo"], temp.path(), None));
+    let output = report(&support::run("repo", temp.path(), None, Some("cogc")));
     let scopes = resolutions(&output["files"][0]);
     assert_eq!(status(&scopes, "x"), ["exact scopes.go:x", "unresolved"]);
     assert_eq!(status(&scopes, "strings.ToUpper"), ["external"]);
@@ -307,12 +297,12 @@ fn go_candidate_reports_match_fresh_analysis() {
         &diff,
         "--- a/choose.go\n+++ b/choose.go\n@@ -1,8 +1,8 @@\n package project\n \n func choose(flag bool) int {\n-\tif flag {\n+\tif flag && !flag {\n \t\treturn 1\n \t}\n \treturn 0\n }\n",
     );
-    let candidate = report(&run(&["candidate"], &target, Some(&diff)));
+    let candidate = report(&support::run("candidate", &target, Some(&diff), None));
     let delta = &candidate["patch"]["files"][0]["functions"][0];
     assert_eq!(delta["cyclomatic_complexity"]["delta"], 1);
     assert_eq!(delta["cognitive_complexity"]["delta"], 1);
     write(&target, after);
-    let fresh = report(&run(&["repo"], &root, None));
+    let fresh = report(&support::run("repo", &root, None, None));
     assert_eq!(file(&candidate, "/choose.go"), file(&fresh, "/choose.go"));
 }
 

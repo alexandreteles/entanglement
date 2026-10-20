@@ -1,37 +1,7 @@
 mod support;
 use support::report;
 
-use std::path::Path;
-use std::process::{Command, Output};
-
 use serde_json::Value;
-
-fn run_repo(path: &Path) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_entanglement"))
-        .args(["--format", "json", "repo"])
-        .arg(path)
-        .output()
-        .expect("run entanglement")
-}
-
-fn run_candidate(path: &Path, diff: &Path) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_entanglement"))
-        .args(["--format", "json", "candidate", "--diff"])
-        .arg(diff)
-        .arg(path)
-        .output()
-        .expect("run candidate analysis")
-}
-
-fn write_crate(root: &Path, source: &str) {
-    std::fs::create_dir_all(root.join("src")).expect("create source directory");
-    std::fs::write(
-        root.join("Cargo.toml"),
-        "[package]\nname = 'recursion-fixture'\nversion = '0.1.0'\n",
-    )
-    .expect("write manifest");
-    std::fs::write(root.join("src/lib.rs"), source).expect("write crate root");
-}
 
 fn function<'a>(report: &'a Value, name: &str) -> &'a Value {
     report["files"]
@@ -43,20 +13,9 @@ fn function<'a>(report: &'a Value, name: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("missing function {name}"))
 }
 
-fn is_recursive(function: &Value) -> bool {
-    function["cognitive_contributions"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|contribution| contribution["kind"] == "recursion")
-}
-
 #[test]
 fn marks_only_exact_direct_function_cycles() {
-    let temp = tempfile::tempdir().expect("create temporary directory");
-    let root = temp.path().join("crate");
-    write_crate(
-        &root,
+    let (_temp, root, _) = support::rust_project(
         r#"
 mod child;
 use child::aliased as via_alias;
@@ -106,7 +65,7 @@ pub async fn async_caller() {
     )
     .expect("write child module");
 
-    let report = report(&run_repo(&root));
+    let report = report(&support::run("repo", &root, None, None));
 
     for name in [
         "direct",
@@ -120,7 +79,7 @@ pub async fn async_caller() {
         "aliased",
     ] {
         assert!(
-            is_recursive(function(&report, name)),
+            support::recursive(function(&report, name)),
             "{name} should be recursive"
         );
         assert_eq!(function(&report, name)["cyclomatic_complexity"], 1);
@@ -140,54 +99,39 @@ pub async fn async_caller() {
         "async_caller",
     ] {
         assert!(
-            !is_recursive(function(&report, name)),
+            !support::recursive(function(&report, name)),
             "{name} must stay acyclic"
         );
     }
 }
 
 #[test]
-fn candidate_cycle_introduction_marks_unchanged_peer() {
-    let temp = tempfile::tempdir().expect("create temporary directory");
-    let root = temp.path().join("crate");
-    write_crate(&root, "pub fn left() {}\npub fn right() { left(); }\n");
-    let before = report(&run_repo(&root));
-    assert!(!is_recursive(function(&before, "left")));
-    assert!(!is_recursive(function(&before, "right")));
-
-    let diff = temp.path().join("introduce.diff");
-    std::fs::write(
-        &diff,
-        "--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1,2 +1,2 @@\n-pub fn left() {}\n+pub fn left() { right(); }\n pub fn right() { left(); }\n",
-    )
-    .expect("write cycle introduction patch");
-    let candidate = report(&run_candidate(&root, &diff));
-    assert!(is_recursive(function(&candidate, "left")));
-    assert!(is_recursive(function(&candidate, "right")));
-}
-
-#[test]
-fn candidate_cycle_break_removes_recursion_from_unchanged_peer() {
-    let temp = tempfile::tempdir().expect("create temporary directory");
-    let root = temp.path().join("crate");
-    write_crate(
-        &root,
-        "pub fn left() { right(); }\npub fn right() { left(); }\n",
-    );
-    let before = report(&run_repo(&root));
-    assert!(is_recursive(function(&before, "left")));
-    assert!(is_recursive(function(&before, "right")));
-
-    let diff = temp.path().join("break.diff");
-    std::fs::write(
-        &diff,
-        "--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1,2 +1,2 @@\n-pub fn left() { right(); }\n+pub fn left() {}\n pub fn right() { left(); }\n",
-    )
-    .expect("write cycle break patch");
-    let candidate = report(&run_candidate(&root, &diff));
-    assert!(!is_recursive(function(&candidate, "left")));
-    assert!(
-        !is_recursive(function(&candidate, "right")),
-        "the untouched member must lose recursion after its peer changes"
-    );
+fn candidate_cycle_edits_recompute_recursion_for_both_members() {
+    for (before, after, recursive) in [
+        (
+            "pub fn left() {}\npub fn right() { left(); }\n",
+            "pub fn left() { right(); }\npub fn right() { left(); }\n",
+            false,
+        ),
+        (
+            "pub fn left() { right(); }\npub fn right() { left(); }\n",
+            "pub fn left() {}\npub fn right() { left(); }\n",
+            true,
+        ),
+    ] {
+        let (_temp, root, source) = support::rust_project(before);
+        let previous = report(&support::run("repo", &root, None, None));
+        let diff = root.join("cycle.diff");
+        support::write(&diff, support::patch("src/lib.rs", before, after));
+        let candidate = report(&support::run("candidate", &root, Some(&diff), None));
+        assert_eq!(
+            ["left", "right"].map(|name| support::recursive(function(&previous, name))),
+            [recursive; 2]
+        );
+        assert_eq!(
+            ["left", "right"].map(|name| support::recursive(function(&candidate, name))),
+            [!recursive; 2]
+        );
+        assert_eq!(std::fs::read_to_string(source).unwrap(), before);
+    }
 }

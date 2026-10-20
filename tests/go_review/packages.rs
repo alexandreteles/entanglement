@@ -1,4 +1,5 @@
-use super::{file, report, resolutions, run, status, write};
+use super::support;
+use super::{file, report, resolutions, status, write};
 
 #[test]
 fn production_imports_exclude_test_only_members_not_package_name_suffixes() {
@@ -21,7 +22,7 @@ fn production_imports_exclude_test_only_members_not_package_name_suffixes() {
         &root.join("main.go"),
         "package app\nimport (\"example.com/app/dep\"; \"example.com/app/normal\")\nfunc Use() { dep.Prod(); dep.TestOnly(); normal_test.F() }\n",
     );
-    let output = report(&run(&["repo"], root, None));
+    let output = report(&support::run("repo", root, None, None));
     let main = resolutions(file(&output, "main.go"));
     assert_eq!(status(&main, "dep.Prod"), ["exact dep.go:Prod"]);
     assert_eq!(status(&main, "dep.TestOnly"), ["unresolved"]);
@@ -56,7 +57,7 @@ fn conditional_inventory_never_claims_a_unique_build_dependent_target() {
         &root.join("tagged.go"),
         "//go:build custom\n\npackage app\nfunc Tagged() {}\n",
     );
-    let output = report(&run(&["repo"], root, None));
+    let output = report(&support::run("repo", root, None, None));
     let refs = resolutions(file(&output, "main.go"));
     assert_eq!(status(&refs, "Platform"), ["unresolved"]);
     assert_eq!(status(&refs, "Tagged"), ["unresolved"]);
@@ -81,7 +82,7 @@ fn nested_and_malformed_modules_do_not_inherit_parent_identity() {
         &root.join("main.go"),
         "package app\nimport \"example.com/app/sub\"\nfunc Use() { sub.F() }\n",
     );
-    let output = report(&run(&["repo"], root, None));
+    let output = report(&support::run("repo", root, None, None));
     assert_eq!(
         status(&resolutions(file(&output, "main.go")), "sub.F"),
         ["unresolved"]
@@ -109,7 +110,7 @@ fn escaped_import_paths_and_quoted_module_paths_resolve_by_value() {
             &root.join("main.go"),
             &format!("package app\nimport {import}\nfunc Use() {{ dep.F() }}\n"),
         );
-        let output = report(&run(&["repo"], root, None));
+        let output = report(&support::run("repo", root, None, None));
         assert_eq!(
             status(&resolutions(file(&output, "main.go")), "dep.F"),
             ["exact dep.go:F"]
@@ -134,7 +135,7 @@ func B() { A(); fmt.Println("b") }
 </script>
 "#,
     );
-    let output = report(&run(&["file"], &path, None));
+    let output = report(&support::run("file", &path, None, None));
     let refs = resolutions(&output["files"][0]);
     assert_eq!(status(&refs, "A"), ["unresolved"]);
     let fmt = status(&refs, "fmt.Println");
@@ -159,7 +160,7 @@ fn divergent_logical_package_contexts_cannot_collapse_to_one_exact_target() {
     );
     std::fs::create_dir_all(root.join("b")).unwrap();
     std::os::unix::fs::symlink(root.join("a/shared.go"), root.join("b/shared.go")).unwrap();
-    let output = report(&run(&["repo"], root, None));
+    let output = report(&support::run("repo", root, None, None));
     let refs = resolutions(file(&output, "shared.go"));
     assert_eq!(status(&refs, "Helper"), ["unresolved"]);
 }

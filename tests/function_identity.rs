@@ -1,4 +1,4 @@
-use std::process::Command;
+mod support;
 
 use serde_json::Value;
 
@@ -7,25 +7,15 @@ fn candidate(before: &str, after: &str, metrics: &str) -> Value {
     let file = temp.path().join("main.js");
     std::fs::write(&file, before).unwrap();
     std::fs::write(temp.path().join("package.json"), "{}").unwrap();
-    let diff = diffy::create_patch(before, after)
-        .to_string()
-        .replacen("--- original", "--- a/main.js", 1)
-        .replacen("+++ modified", "+++ b/main.js", 1);
+    let diff = support::patch("main.js", before, after);
     let diff_path = temp.path().join("change.diff");
     std::fs::write(&diff_path, diff).unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_entanglement"))
-        .args(["--format", "json", "--metrics", metrics, "candidate"])
-        .arg(temp.path())
-        .arg("--diff")
-        .arg(diff_path)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    serde_json::from_slice(&output.stdout).unwrap()
+    support::report(&support::run(
+        "candidate",
+        temp.path(),
+        Some(&diff_path),
+        Some(metrics),
+    ))
 }
 
 fn deltas(report: &Value) -> &[Value] {
