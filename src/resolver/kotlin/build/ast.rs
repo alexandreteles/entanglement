@@ -38,6 +38,7 @@ pub(super) fn text<'a>(node: Node<'_>, source: &'a str) -> &'a str {
 pub(super) fn literal<'a>(node: Node<'_>, source: &'a str) -> Option<&'a str> {
     matches!(node.kind(), "string" | "string_literal").then_some(())?;
     let raw = text(node, source);
+    raw.starts_with(['\'', '"']).then_some(())?;
     let width = if raw.starts_with("\"\"\"") || raw.starts_with("'''") {
         3
     } else {

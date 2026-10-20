@@ -224,6 +224,7 @@ fn groovy_literals_and_comments_are_scanned_without_confusing_urls() {
         // include ':comment'
         rootProject.name = 'example'
         include ':app', ':lib'
+        include /:unsupported/
         def message = 'https://example.test/a//b include(\':fake\')'
     "#;
     assert_eq!(
