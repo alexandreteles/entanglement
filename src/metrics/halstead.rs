@@ -121,28 +121,21 @@ impl HalsteadMetrics {
 
     /// Calculate metrics from token occurrences and retain them for reports.
     pub fn from_tokens(tokens: impl IntoIterator<Item = HalsteadToken>) -> Self {
-        let mut operators = Vec::new();
-        let mut operands = Vec::new();
-        let mut distinct_operators = BTreeSet::new();
-        let mut distinct_operands = BTreeSet::new();
-
-        for token in tokens {
-            match token.kind {
-                HalsteadTokenKind::Operator => {
-                    distinct_operators.insert(token.token.clone());
-                    operators.push(token);
-                }
-                HalsteadTokenKind::Operand => {
-                    distinct_operands.insert(token.token.clone());
-                    operands.push(token);
-                }
-            }
-        }
+        let (mut operators, mut operands): (Vec<_>, Vec<_>) = tokens
+            .into_iter()
+            .partition(|token| token.kind == HalsteadTokenKind::Operator);
+        let distinct = |tokens: &[HalsteadToken]| {
+            tokens
+                .iter()
+                .map(|token| token.token.as_str())
+                .collect::<BTreeSet<_>>()
+                .len()
+        };
         operators.sort_by_key(|token| (token.start_byte, token.end_byte));
         operands.sort_by_key(|token| (token.start_byte, token.end_byte));
         let mut result = Self::calculate(
-            distinct_operators.len(),
-            distinct_operands.len(),
+            distinct(&operators),
+            distinct(&operands),
             operators.len(),
             operands.len(),
         );
