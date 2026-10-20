@@ -1,8 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use serde_json::Value;
-
 pub(super) struct Project {
     _temp: tempfile::TempDir,
     pub(super) root: PathBuf,
@@ -83,28 +81,15 @@ pub(super) fn modes(project: &Project) -> [Mode<'_>; 4] {
 
 pub(super) fn run(mode: &Mode<'_>, format: &str, metrics: &[&str], before_command: bool) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_entanglement"));
+    let metric_arguments = metrics.iter().flat_map(|metric| ["--metrics", *metric]);
+    let command_arguments = ["--format", format, mode.command];
     if before_command {
-        for metric in metrics {
-            command.arg("--metrics").arg(metric);
-        }
-    }
-    command.args(["--format", format, mode.command]);
-    if !before_command {
-        for metric in metrics {
-            command.arg("--metrics").arg(metric);
-        }
+        command.args(metric_arguments).args(command_arguments);
+    } else {
+        command.args(command_arguments).args(metric_arguments);
     }
     if let Some(diff) = mode.diff {
         command.arg("--diff").arg(diff);
     }
     command.arg(mode.path).output().expect("run entanglement")
-}
-
-pub(super) fn json(output: &Output) -> Value {
-    assert!(
-        output.status.success(),
-        "entanglement failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    serde_json::from_slice(&output.stdout).expect("parse JSON report")
 }

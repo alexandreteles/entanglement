@@ -20,22 +20,6 @@ fn accepts(source: &str, expected: bool) {
 }
 
 #[test]
-fn php_82_types_and_readonly_classes_parse() {
-    accepts(
-        "readonly class Record { public function __construct(public (A&B)|null $value) {} }\nfunction flag(false|null $value): true { return true; }",
-        true,
-    );
-}
-
-#[test]
-fn php_83_typed_and_dynamic_constants_parse() {
-    accepts(
-        "trait Codes { public const string NAME = 'record'; }\nclass Record { public const int CODE = 1; }\n$name = 'CODE'; $code = Record::{$name};",
-        true,
-    );
-}
-
-#[test]
 fn php_83_final_trait_adaptations_parse() {
     for adaptation in ["final", "final alias", "private", "private alias"] {
         accepts(
@@ -58,22 +42,6 @@ fn php_83_final_trait_adaptations_parse() {
             false,
         );
     }
-}
-
-#[test]
-fn php_84_property_hooks_visibility_and_new_calls_parse() {
-    accepts(
-        "class Record { public private(set) string $name; public string $label { get => $this->name; set { $this->name = $value; } } }\n$result = new Record()->label;",
-        true,
-    );
-}
-
-#[test]
-fn php_85_constant_expressions_pipe_and_clone_parse() {
-    accepts(
-        "#[Example(static function () { return 1; })] function sample() {}\nconst CALLBACK = strlen(...); const INTEGER = (int) 1.5;\n#[Example] const CODE = 1;\nclass Record { public private(set) static string $label; }\n$result = 'abc' |> strlen(...);\n$copy = clone($record, ['label' => 'copy']); $callback = clone(...);",
-        true,
-    );
 }
 
 #[test]
@@ -121,10 +89,15 @@ fn php_85_void_discards_do_not_produce_values() {
 }
 
 #[test]
-fn php_85_clone_declarations_preserve_following_functions() {
-    accepts(
+fn php_82_through_85_valid_syntax_parses_with_both_grammars() {
+    for source in [
+        "readonly class Record { public function __construct(public (A&B)|null $value) {} }\nfunction flag(false|null $value): true { return true; }",
+        "trait Codes { public const string NAME = 'record'; }\nclass Record { public const int CODE = 1; }\n$name = 'CODE'; $code = Record::{$name};",
+        "class Record { public private(set) string $name; public string $label { get => $this->name; set { $this->name = $value; } } }\n$result = new Record()->label;",
+        "#[Example(static function () { return 1; })] function sample() {}\nconst CALLBACK = strlen(...); const INTEGER = (int) 1.5;\n#[Example] const CODE = 1;\nclass Record { public private(set) static string $label; }\n$result = 'abc' |> strlen(...);\n$copy = clone($record, ['label' => 'copy']); $callback = clone(...);",
         "function clone(object $object): object { return $object; }\nfunction following(): int { return 1; }",
-        true,
-    );
+    ] {
+        accepts(source, true);
+    }
     accepts("function class() {}", false);
 }
