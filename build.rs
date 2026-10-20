@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for package in metadata.packages {
         if matches!(
             package.name.as_str(),
-            "tree-sitter-php" | "tree-sitter-groovy"
+            "tree-sitter-php" | "tree-sitter-kotlin" | "tree-sitter-groovy"
         ) && package.source.is_some()
         {
             continue;
@@ -25,6 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let manifest = package.manifest_path.into_std_path_buf();
         let generated_variable = match package.name.as_str() {
             "tree-sitter-php" => Some("DEP_ENTANGLEMENT_PHP_ROOT"),
+            "tree-sitter-kotlin" => Some("DEP_ENTANGLEMENT_KOTLIN_ROOT"),
             "tree-sitter-groovy" => Some("DEP_ENTANGLEMENT_GROOVY_ROOT"),
             _ => None,
         };

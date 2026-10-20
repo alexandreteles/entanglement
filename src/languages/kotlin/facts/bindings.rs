@@ -11,9 +11,6 @@ pub(super) fn collect_locals(
             "parameter" | "class_parameter" | "variable_declaration" => {
                 collect_value_binding(node, source, declared_names, result);
             }
-            "context_parameter" => {
-                collect_context_parameter(node, source, result);
-            }
             _ => {}
         }
     }
@@ -100,55 +97,6 @@ fn is_immutable_binding(node: Node<'_>, source: &[u8]) -> bool {
                 .find(|child| child.kind() == "binding_pattern_kind")
         })
         .is_some_and(|kind| text(kind, source) == "var")
-}
-
-fn collect_context_parameter(node: Node<'_>, source: &[u8], result: &mut Capture) {
-    let Some(scope) = binding_scope(node) else {
-        return;
-    };
-    let name_node = named_children(node)
-        .into_iter()
-        .find(|child| child.kind() == "simple_identifier");
-    let type_node = direct_type_children(node).next_back();
-    if let Some(name_node) = name_node {
-        push_binding(
-            result,
-            BindingType {
-                name: text(name_node, source).trim_matches('`').to_owned(),
-                name_start_byte: name_node.start_byte(),
-                name_end_byte: name_node.end_byte(),
-                scope_start: scope.start,
-                scope_end: scope.end,
-                type_name: type_node.map(|ty| normalized_type(text(ty, source))),
-                alias_target: None,
-                callable_reference: false,
-                immutable: true,
-            },
-        );
-    } else {
-        collect_implicit_context_receiver(node, type_node, source, result);
-    }
-}
-
-fn collect_implicit_context_receiver(
-    node: Node<'_>,
-    type_node: Option<Node<'_>>,
-    source: &[u8],
-    result: &mut Capture,
-) {
-    let Some((ty, owner)) = type_node.zip(nearest_declaration(node)) else {
-        return;
-    };
-    let ty = normalized_type(text(ty, source));
-    let body = executable_body(owner);
-    result.semantic.receivers.push(ReceiverScope {
-        start_byte: body.start,
-        end_byte: body.end,
-        receiver_type: ty.clone(),
-        implicit: true,
-        label: Some(ty),
-        dsl_markers: Vec::new(),
-    });
 }
 
 pub(super) fn collect_context_facts(

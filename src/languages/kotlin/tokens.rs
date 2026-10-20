@@ -4,7 +4,7 @@ use tree_sitter::Node;
 
 use crate::metrics::halstead::{HalsteadToken, HalsteadTokenKind};
 
-use super::syntax::{self, ContextParameters};
+use super::syntax::ContextParameters;
 
 /// Capture Kotlin terminal tokens while treating text segments as normalized
 /// string operands and retaining code tokens inside string interpolation.
@@ -26,6 +26,20 @@ pub(super) fn capture(
         if node.is_missing() || is_comment(kind) {
             continue;
         }
+        if kind == "string_literal"
+            && contexts.iter().any(|context| {
+                context.range.start <= node.start_byte() && node.end_byte() <= context.range.end
+            })
+        {
+            push(
+                &mut tokens,
+                node.byte_range(),
+                "<string>".to_owned(),
+                HalsteadTokenKind::Operand,
+                source,
+            );
+            continue;
+        }
         if kind == "string_literal" {
             capture_string(node, source, &mut tokens, &context_names, &mut pending);
             continue;
@@ -42,7 +56,7 @@ pub(super) fn capture(
         }
         if node.child_count() == 0 {
             let text = node_text(node, source);
-            let (text, token_kind) = normalize_leaf(kind, &text, node.is_named(), &context_names);
+            let (text, token_kind) = normalize_leaf(node, &text, &context_names, contexts);
             push(&mut tokens, node.byte_range(), text, token_kind, source);
             continue;
         }
@@ -53,24 +67,6 @@ pub(super) fn capture(
         );
     }
 
-    for context in contexts {
-        for range in syntax::context_terminal_ranges(source, context) {
-            let raw = source
-                .get(range.clone())
-                .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
-                .unwrap_or_default();
-            let is_parameter_name = context
-                .parameters
-                .iter()
-                .any(|parameter| parameter.name_range.as_ref() == Some(&range));
-            let (text, kind) = if is_parameter_name {
-                (normalize_identifier(&raw), HalsteadTokenKind::Operand)
-            } else {
-                normalize_context_token(&raw)
-            };
-            push(&mut tokens, range, text, kind, source);
-        }
-    }
     tokens.sort_by_key(|token| (token.start_byte, token.end_byte));
     tokens
 }
@@ -106,7 +102,7 @@ fn capture_string<'tree>(
             "interpolated_identifier" => {
                 had_interpolation = true;
                 let (text, kind) =
-                    normalize_leaf(child.kind(), &node_text(child, source), true, context_names);
+                    normalize_leaf(child, &node_text(child, source), context_names, &[]);
                 push(tokens, child.byte_range(), text, kind, source);
             }
             "interpolation_expression_start"
@@ -133,11 +129,21 @@ fn capture_string<'tree>(
 }
 
 fn normalize_leaf(
-    kind: &str,
+    node: Node<'_>,
     raw: &str,
-    is_named: bool,
     context_names: &HashSet<String>,
+    contexts: &[ContextParameters],
 ) -> (String, HalsteadTokenKind) {
+    if let Some(context) = contexts.iter().find(|context| {
+        context.range.start <= node.start_byte() && node.end_byte() <= context.range.end
+    }) {
+        let parameter_name = context
+            .parameters
+            .iter()
+            .any(|parameter| parameter.name_range.as_ref() == Some(&node.byte_range()));
+        return normalize_context_leaf(raw, parameter_name);
+    }
+    let kind = node.kind();
     if matches!(
         kind,
         "interpolation_expression_start" | "interpolation_expression_end"
@@ -159,7 +165,7 @@ fn normalize_leaf(
     }
     (
         raw.to_owned(),
-        if is_named {
+        if node.is_named() {
             HalsteadTokenKind::Operand
         } else {
             HalsteadTokenKind::Operator
@@ -167,29 +173,31 @@ fn normalize_leaf(
     )
 }
 
-fn normalize_context_token(raw: &str) -> (String, HalsteadTokenKind) {
-    if raw.starts_with('"') || raw.starts_with('\'') {
-        return ("<string>".to_owned(), HalsteadTokenKind::Operand);
-    }
-    if raw.starts_with('`') && raw.ends_with('`') && raw.len() >= 2 {
-        return (raw[1..raw.len() - 1].to_owned(), HalsteadTokenKind::Operand);
-    }
-    if raw
+/// Keep context-prefix token classes compatible with the former source scan.
+fn normalize_context_leaf(raw: &str, parameter_name: bool) -> (String, HalsteadTokenKind) {
+    const KEYWORDS: &str = "context in out suspend dynamic where this super fun val var constructor
+        class interface object enum annotation value data final open abstract sealed public private
+        protected internal expect actual external override lateinit const inline noinline crossinline
+        operator infix tailrec reified companion inner get set";
+    let identifier = raw
         .as_bytes()
         .first()
-        .is_some_and(|byte| byte.is_ascii_alphabetic() || *byte == b'_' || *byte >= 0x80)
-    {
-        let kind = if is_keyword(raw) {
-            HalsteadTokenKind::Operator
-        } else {
+        .is_some_and(|byte| byte.is_ascii_alphabetic() || *byte == b'_' || *byte >= 0x80);
+    let operand = parameter_name
+        || raw.starts_with('`')
+        || raw.as_bytes().first().is_some_and(u8::is_ascii_digit)
+        || (identifier
+            && !KEYWORDS
+                .split_ascii_whitespace()
+                .any(|keyword| keyword == raw));
+    (
+        normalize_identifier(raw),
+        if operand {
             HalsteadTokenKind::Operand
-        };
-        return (raw.to_owned(), kind);
-    }
-    if raw.as_bytes().first().is_some_and(u8::is_ascii_digit) {
-        return (raw.to_owned(), HalsteadTokenKind::Operand);
-    }
-    (raw.to_owned(), HalsteadTokenKind::Operator)
+        } else {
+            HalsteadTokenKind::Operator
+        },
+    )
 }
 
 fn normalize_identifier(raw: &str) -> String {
@@ -197,56 +205,6 @@ fn normalize_identifier(raw: &str) -> String {
         .and_then(|value| value.strip_suffix('`'))
         .unwrap_or(raw)
         .to_owned()
-}
-
-fn is_keyword(text: &str) -> bool {
-    matches!(
-        text,
-        "context"
-            | "in"
-            | "out"
-            | "suspend"
-            | "dynamic"
-            | "where"
-            | "this"
-            | "super"
-            | "fun"
-            | "val"
-            | "var"
-            | "constructor"
-            | "class"
-            | "interface"
-            | "object"
-            | "enum"
-            | "annotation"
-            | "value"
-            | "data"
-            | "final"
-            | "open"
-            | "abstract"
-            | "sealed"
-            | "public"
-            | "private"
-            | "protected"
-            | "internal"
-            | "expect"
-            | "actual"
-            | "external"
-            | "override"
-            | "lateinit"
-            | "const"
-            | "inline"
-            | "noinline"
-            | "crossinline"
-            | "operator"
-            | "infix"
-            | "tailrec"
-            | "reified"
-            | "companion"
-            | "inner"
-            | "get"
-            | "set"
-    )
 }
 
 fn is_comment(kind: &str) -> bool {
