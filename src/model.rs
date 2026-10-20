@@ -358,6 +358,13 @@ impl SemanticStore {
     pub(crate) fn context_key(&self) -> (usize, Option<crate::languages::ResolutionFamily>) {
         (self.semantic.context_id, self.semantic.resolution_family)
     }
+
+    /// Read semantic evidence in capture order, without lexical-only bindings.
+    pub(crate) fn semantic_bindings(&self) -> impl Iterator<Item = &LocalBinding> + Clone {
+        self.locals
+            .iter()
+            .filter(|binding| binding.evidence != BindingEvidence::Lexical)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -394,7 +401,19 @@ impl FileFacts {
     }
 }
 
-#[derive(Debug, Clone)]
+/// The evidence streams in which a binding was emitted.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum BindingEvidence {
+    /// Add the lexical scope before language evidence is indexed.
+    #[default]
+    Lexical,
+    /// Add language evidence in logical context order.
+    Semantic,
+    /// Use one owned record in both indexing phases.
+    Both,
+}
+
+#[derive(Debug, Clone, Default)]
 pub(crate) struct LocalBinding {
     pub name: String,
     pub start_byte: usize,
@@ -402,6 +421,11 @@ pub(crate) struct LocalBinding {
     pub scope_start: usize,
     pub scope_end: usize,
     pub context_id: usize,
+    pub type_name: Option<String>,
+    pub alias_target: Option<String>,
+    pub callable_reference: bool,
+    pub immutable: bool,
+    pub evidence: BindingEvidence,
 }
 
 #[derive(Debug, Clone)]

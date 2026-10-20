@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-use crate::graph::{CallFacts, SemanticFacts};
+use crate::graph::CallFacts;
 use crate::languages::ResolutionFamily;
-use crate::model::{Definition, Import, SymbolId};
+use crate::model::{Definition, Import, SemanticStore, SymbolId};
 
 use super::{FileFactsView, ProgramGraph, ProgramSymbol, ProgramSymbolId};
 
@@ -77,19 +77,20 @@ impl<'a> ProgramGraph<'a> {
         file_index: usize,
         context_id: usize,
         family: Option<ResolutionFamily>,
-    ) -> impl Iterator<Item = &'a SemanticFacts> + Clone {
+    ) -> impl Iterator<Item = &'a SemanticStore> + Clone {
         let file = self.file(file_index);
         let first_family = file
             .semantic()
             .find(|semantic| {
-                semantic.context_id == context_id
-                    && family.is_none_or(|family| semantic.resolution_family == Some(family))
+                semantic.semantic.context_id == context_id
+                    && family
+                        .is_none_or(|family| semantic.semantic.resolution_family == Some(family))
             })
-            .map(|semantic| semantic.resolution_family);
+            .map(|semantic| semantic.semantic.resolution_family);
         file.semantic().filter(move |semantic| {
             file.allows(context_id)
-                && semantic.context_id == context_id
-                && Some(semantic.resolution_family) == first_family
+                && semantic.semantic.context_id == context_id
+                && Some(semantic.semantic.resolution_family) == first_family
         })
     }
 
@@ -100,7 +101,7 @@ impl<'a> ProgramGraph<'a> {
         family: Option<ResolutionFamily>,
     ) -> impl Iterator<Item = &'a CallFacts> + Clone {
         self.semantic(file_index, context_id, family)
-            .flat_map(|semantic| &semantic.calls)
+            .flat_map(|semantic| &semantic.semantic.calls)
     }
 
     pub(super) fn unique_symbol_for_target(&self, target: &SymbolId) -> Option<ProgramSymbolId> {

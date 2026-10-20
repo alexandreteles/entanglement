@@ -94,7 +94,7 @@ impl<'a> Index<'a> {
                         Some(ResolutionFamily::PhpNamespaces),
                     )
                     .next()?;
-                let facts = semantic.php.as_ref()?;
+                let facts = semantic.semantic.php.as_ref()?;
                 let declaration = symbol.definition.declaration.as_deref()?;
                 let php = declaration.php.as_ref()?;
                 let namespace = facts.namespace_at(site.position)?;
@@ -138,6 +138,7 @@ impl<'a> Index<'a> {
         self.graph
             .semantic(file, context, Some(ResolutionFamily::PhpNamespaces))
             .next()?
+            .semantic
             .php
             .as_ref()
     }

@@ -16,7 +16,7 @@ impl Index<'_> {
         semantic.clone().next()?;
         Some(
             semantic
-                .flat_map(|semantic| &semantic.receivers)
+                .flat_map(|semantic| &semantic.semantic.receivers)
                 .filter(|scope| {
                     scope.implicit
                         && scope.start_byte <= reference.start_byte
@@ -232,7 +232,7 @@ impl Index<'_> {
     pub(super) fn semantic_package(&self, file: usize, context_id: usize) -> &[String] {
         self.graph
             .semantic(file, context_id, Some(ResolutionFamily::KotlinModules))
-            .find_map(|semantic| semantic.context.as_ref())
+            .find_map(|semantic| semantic.semantic.context.as_ref())
             .map_or(&[], |context| context.package.as_slice())
     }
     pub(super) fn super_receiver_type(&self, file: usize, reference: &Reference) -> Option<String> {

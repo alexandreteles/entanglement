@@ -2,8 +2,8 @@
 
 use tree_sitter::Node;
 
-use crate::graph::BindingType;
 use crate::languages::CapturedTree;
+use crate::model::{BindingEvidence, LocalBinding};
 
 use super::syntax::*;
 
@@ -12,7 +12,7 @@ use mutations::{Mutation, mutations, stable};
 
 pub(super) fn capture(nodes: &[Node<'_>], source: &[u8], captured: &mut CapturedTree) {
     let mutations = mutations(nodes, source);
-    captured.facts.semantic.bindings.extend(
+    captured.facts.locals.extend(
         nodes
             .iter()
             .copied()
@@ -37,7 +37,7 @@ pub(super) fn capture(nodes: &[Node<'_>], source: &[u8], captured: &mut Captured
     }
 }
 
-fn binding(node: Node<'_>, mutations: &[Mutation<'_>], source: &[u8]) -> Option<BindingType> {
+fn binding(node: Node<'_>, mutations: &[Mutation<'_>], source: &[u8]) -> Option<LocalBinding> {
     let assignment = matches!(
         node.kind(),
         "assignment_expression" | "reference_assignment_expression"
@@ -73,10 +73,12 @@ fn binding(node: Node<'_>, mutations: &[Mutation<'_>], source: &[u8]) -> Option<
                         "conditional_expression" | "match_expression" | "try_statement"
                     )
             });
-    Some(BindingType {
+    Some(LocalBinding {
+        evidence: BindingEvidence::Semantic,
+        context_id: 0,
         name: raw_name.to_owned(),
-        name_start_byte: name.start_byte(),
-        name_end_byte: name.end_byte(),
+        start_byte: name.start_byte(),
+        end_byte: name.end_byte(),
         scope_start: if assignment {
             node.end_byte()
         } else {
@@ -166,38 +168,37 @@ fn capture_bindings(
     let outer_owner = scope(closure);
     for variable in variables {
         let name = text(variable, source);
-        let local = captured.facts.semantic.bindings.iter().any(|binding| {
+        let local = captured.facts.locals.iter().any(|binding| {
             binding.name == name
-                && closure.start_byte() <= binding.name_start_byte
-                && binding.name_start_byte < closure.end_byte()
+                && closure.start_byte() <= binding.start_byte
+                && binding.start_byte < closure.end_byte()
         });
         if local {
             continue;
         }
         let binding = captured
             .facts
-            .semantic
-            .bindings
+            .locals
             .iter()
             .filter(|binding| {
                 binding.name == name
                     && binding.scope_start <= closure.start_byte()
                     && closure.end_byte() <= binding.scope_end
-                    && owner_at(binding.name_start_byte, all_nodes) == Some(outer_owner.id())
+                    && owner_at(binding.start_byte, all_nodes) == Some(outer_owner.id())
             })
             .max_by_key(|binding| binding.scope_start)
             .cloned();
         if let Some(mut binding) = binding {
-            binding.name_start_byte = if closure.kind() == "arrow_function" {
+            binding.start_byte = if closure.kind() == "arrow_function" {
                 closure.start_byte()
             } else {
                 variable.start_byte()
             };
-            binding.name_end_byte = variable.end_byte();
+            binding.end_byte = variable.end_byte();
             binding.scope_start = closure.start_byte();
             binding.scope_end = closure.end_byte();
             binding.immutable &= stable(name, closure, mutations, None);
-            captured.facts.semantic.bindings.push(binding);
+            captured.facts.locals.push(binding);
         }
     }
 }

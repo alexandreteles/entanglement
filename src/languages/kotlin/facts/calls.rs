@@ -21,7 +21,7 @@ pub(super) fn nearest_declaration(node: Node<'_>) -> Option<Node<'_>> {
 pub(super) fn collect_calls(
     nodes: &[Node<'_>],
     source: &[u8],
-    bindings: &[BindingType],
+    bindings: &[LocalBinding],
 ) -> Vec<CallFacts> {
     nodes
         .iter()
@@ -82,7 +82,7 @@ pub(super) fn collect_calls(
 pub(super) fn call_argument(
     node: Node<'_>,
     source: &[u8],
-    bindings: &[BindingType],
+    bindings: &[LocalBinding],
     is_trailing_lambda: bool,
 ) -> Option<CallArgumentFact> {
     let (lambda, name, expression, start_byte, end_byte) = if node.kind() == "lambda_literal" {
@@ -227,7 +227,7 @@ pub(super) fn integer_literal_type(literal: &str) -> Option<&'static str> {
 fn argument_binding_type(
     node: Node<'_>,
     source: &[u8],
-    bindings: &[BindingType],
+    bindings: &[LocalBinding],
 ) -> Option<String> {
     // The former enrichment pass chose the first containing value_argument in
     // source order. Keep that choice for nested calls while avoiding a full-tree scan.
@@ -243,12 +243,13 @@ fn argument_binding_type(
     let name = text(expression, source).trim_matches('`').to_owned();
     bindings
         .iter()
+        .filter(|binding| binding.evidence != BindingEvidence::Lexical)
         .filter(|binding| {
             binding.name == name
-                && binding.name_start_byte < expression.start_byte()
+                && binding.start_byte < expression.start_byte()
                 && binding.scope_start <= expression.start_byte()
                 && expression.start_byte() < binding.scope_end
         })
-        .max_by_key(|binding| binding.name_start_byte)
+        .max_by_key(|binding| binding.start_byte)
         .and_then(|binding| binding.type_name.clone())
 }

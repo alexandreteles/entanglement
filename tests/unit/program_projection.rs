@@ -1,11 +1,11 @@
 use crate::graph::ProgramSymbolId;
 use crate::graph::{ReceiverScope, SemanticFacts, program::FileFactsView};
 use crate::languages::ResolutionFamily;
+use crate::model::BindingEvidence;
 use std::sync::Arc;
 use std::{collections::HashSet, path::PathBuf};
 
 use super::*;
-use crate::graph::BindingType;
 use crate::metrics::halstead::HalsteadMetrics;
 use crate::model::{
     DefinitionKind, FileAnalysis, FileFacts, LocalBinding, ModulePath, SemanticStore,
@@ -26,20 +26,21 @@ fn fixture() -> FileFacts {
         external_module: false,
         context_id,
     };
-    let semantic = |context_id, type_name: &str| SemanticFacts {
+    let semantic = |context_id| SemanticFacts {
         context_id,
-        bindings: vec![BindingType {
-            name: "value".into(),
-            name_start_byte: 25,
-            name_end_byte: 30,
-            scope_start: 20,
-            scope_end: 80,
-            type_name: Some(type_name.into()),
-            alias_target: None,
-            callable_reference: false,
-            immutable: true,
-        }],
         ..SemanticFacts::default()
+    };
+    let binding = |context_id, type_name: &str, evidence| LocalBinding {
+        name: "value".into(),
+        start_byte: 25,
+        end_byte: 30,
+        scope_start: 20,
+        scope_end: 80,
+        context_id,
+        type_name: Some(type_name.into()),
+        immutable: true,
+        evidence,
+        ..LocalBinding::default()
     };
     FileFacts {
         context_order: Vec::new(),
@@ -49,21 +50,15 @@ fn fixture() -> FileFacts {
                 ..SemanticStore::default()
             },
             SemanticStore {
-                semantic: semantic(1, "First"),
+                semantic: semantic(1),
                 definitions: vec![definition(1, "included")],
-                locals: vec![LocalBinding {
-                    name: "value".into(),
-                    start_byte: 25,
-                    end_byte: 30,
-                    scope_start: 20,
-                    scope_end: 80,
-                    context_id: 1,
-                }],
+                locals: vec![binding(1, "First", BindingEvidence::Both)],
                 ..SemanticStore::default()
             },
             SemanticStore {
-                semantic: semantic(2, "Second"),
+                semantic: semantic(2),
                 definitions: vec![definition(2, "included")],
+                locals: vec![binding(2, "Second", BindingEvidence::Semantic)],
                 ..SemanticStore::default()
             },
         ],
@@ -163,8 +158,9 @@ fn projections_reuse_indexes_and_preserve_canonical_identity_and_context_evidenc
 #[test]
 fn projections_preserve_conflicting_binding_evidence_within_an_eligible_context() {
     let mut facts = [fixture()];
-    let conflicting = facts[0].contexts[2].semantic.bindings[0].clone();
-    facts[0].contexts[1].semantic.bindings.push(conflicting);
+    let mut conflicting = facts[0].contexts[2].locals[0].clone();
+    conflicting.context_id = 1;
+    facts[0].contexts[1].locals.push(conflicting);
     let graph = ProgramGraph::new(&facts);
     let projected = graph.project(vec![FileFactsView::projected(
         &facts[0],
@@ -180,7 +176,8 @@ fn projections_preserve_conflicting_binding_evidence_within_an_eligible_context(
 fn context_fragments_keep_record_order_and_scope_tie_selection() {
     let mut fact = fixture();
     let mut first = fact.contexts.remove(1);
-    let binding = first.semantic.bindings.pop().unwrap();
+    let mut binding = first.locals.pop().unwrap();
+    binding.evidence = BindingEvidence::Semantic;
     first.locals.clear();
     first.definitions[0].name = "first".into();
     first.semantic.resolution_family = Some(ResolutionFamily::KotlinModules);
@@ -195,10 +192,10 @@ fn context_fragments_keep_record_order_and_scope_tie_selection() {
     let mut middle = first.clone();
     middle.definitions[0].name = "middle".into();
     middle.semantic.resolution_family = Some(ResolutionFamily::PhpNamespaces);
-    middle.semantic.bindings.push(binding.clone());
+    middle.locals.push(binding.clone());
     let mut last = first.clone();
     last.definitions[0].name = "last".into();
-    last.semantic.bindings.push(BindingType {
+    last.locals.push(LocalBinding {
         scope_start: 30,
         scope_end: 90,
         ..binding

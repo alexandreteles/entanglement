@@ -43,20 +43,19 @@ pub(crate) fn capture_primary_constructor_parameters(
                 type_name,
             );
         } else if let Some(body) = class_body.clone() {
-            push_binding(
-                sinks.result,
-                BindingType {
-                    name: text(name_node, source).trim_matches('`').to_owned(),
-                    name_start_byte: name_node.start_byte(),
-                    name_end_byte: name_node.end_byte(),
-                    scope_start: body.start,
-                    scope_end: body.end,
-                    type_name,
-                    alias_target: None,
-                    callable_reference: false,
-                    immutable: true,
-                },
-            );
+            sinks.result.locals.push(LocalBinding {
+                evidence: BindingEvidence::Both,
+                context_id: 0,
+                name: text(name_node, source).trim_matches('`').to_owned(),
+                start_byte: name_node.start_byte(),
+                end_byte: name_node.end_byte(),
+                scope_start: body.start,
+                scope_end: body.end,
+                type_name,
+                alias_target: None,
+                callable_reference: false,
+                immutable: true,
+            });
             record_declared_name(sinks, name_node);
         }
     }

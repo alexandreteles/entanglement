@@ -91,9 +91,9 @@ pub(super) fn resolve(
         .map(|fact| {
             fact.semantic()
                 .filter(|semantic| {
-                    semantic.resolution_family == Some(ResolutionFamily::KotlinModules)
+                    semantic.semantic.resolution_family == Some(ResolutionFamily::KotlinModules)
                 })
-                .map(|semantic| semantic.context_id)
+                .map(|semantic| semantic.semantic.context_id)
                 .collect::<HashSet<_>>()
         })
         .collect::<Vec<_>>();
