@@ -314,6 +314,12 @@ fun contextCall(flag: Boolean) {
         if (it) println(text)
     }
 }
+
+context(`context`: suspend (Int, String) -> Unit)
+@Deprecated("old")
+fun contextFunctionType() { `context`(1, "a") }
+
+context() fun emptyContext() = 1
 "#;
     write(&path, source_text);
 
@@ -322,4 +328,32 @@ fun contextCall(flag: Boolean) {
     assert_reported_scopes(source);
     assert_decision_metrics(source_text, source);
     assert_context_and_token_operands(source_text, source);
+    for (name, prefix) in [
+        ("contextFunctionType", "context(`context`"),
+        ("emptyContext", "context()"),
+    ] {
+        let scope = function(source, name);
+        assert_eq!(scope["start_byte"], source_text.find(prefix).unwrap());
+        assert!(
+            scope["halstead"]["operators"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|token| token["text"] == "context")
+        );
+    }
+    assert!(
+        source["functions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|scope| !scope["name"].as_str().unwrap().starts_with("script@"))
+    );
+    assert!(
+        source["resolution"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|reference| reference["path"] != serde_json::json!(["invoke"]))
+    );
 }

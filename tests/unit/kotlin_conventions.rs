@@ -15,9 +15,7 @@ fn capture_fixture(
     bindings: &[BindingType],
     receivers: &[ReceiverScope],
 ) -> super::ConventionFacts {
-    let contexts = crate::languages::kotlin::syntax::context_parameters(source.as_bytes());
-    let scope_index =
-        crate::languages::kotlin::scopes::ScopeIndex::new(root, source.as_bytes(), &contexts);
+    let scope_index = crate::languages::kotlin::scopes::ScopeIndex::new(root, source.as_bytes());
     capture(bindings, receivers, &scope_index)
 }
 

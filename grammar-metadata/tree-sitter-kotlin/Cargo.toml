@@ -1,0 +1,20 @@
+[package]
+name = "tree-sitter-kotlin"
+version = "0.4.0"
+edition = "2024"
+license = "MIT"
+links = "entanglement_kotlin"
+build = "build.rs"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+tree-sitter-language = "0.1"
+
+[build-dependencies]
+cargo_metadata = "0.23"
+cc = "1.2"
+serde_json = "1"
+tree-sitter-generate = { version = "=0.27.1", default-features = false, features = ["load"] }
+upstream = { package = "tree-sitter-kotlin", git = "https://github.com/fwcd/tree-sitter-kotlin.git", rev = "1852ea17b7f60fb3f9d84e0b1555d56b46b39fb1" }

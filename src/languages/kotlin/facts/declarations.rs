@@ -33,10 +33,9 @@ pub(super) fn collect_definition(
 ) {
     let source = context.source;
     let package = context.package;
-    let contexts = context.contexts;
     let recovered_types = context.recovered_types;
     let kind = declaration_kind(node);
-    let start_byte = crate::languages::kotlin::syntax::context_start(node, contexts);
+    let start_byte = node.start_byte();
     let owner = owner_path(node, source, recovered_types);
     let name_node = declaration_name_node(node);
     let name = name_node

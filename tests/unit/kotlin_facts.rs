@@ -91,7 +91,7 @@ fn qualified_member_reads_writes_and_postfix_updates_are_referenced() {
     parser.set_language(&language).unwrap();
     let tree = parser.parse(source, None).unwrap();
     let root = tree.root_node();
-    let scope_index = super::super::scopes::ScopeIndex::new(root, source.as_bytes(), &[]);
+    let scope_index = super::super::scopes::ScopeIndex::new(root, source.as_bytes());
     let references = collect_references(&scope_index, scope_index.nodes(), &[]);
     let access_for = |member_start: usize| {
         references

@@ -69,10 +69,7 @@ fn property_execution(
             _ => {}
         }
     }
-    if let Some(range) = crate::languages::kotlin::scopes::property_initializer_range(
-        property,
-        scope_index.contexts(),
-    ) {
+    if let Some(range) = crate::languages::kotlin::scopes::property_initializer_range(property) {
         execution.initializers.push(source_range(range));
     }
     if is_callable_property(property, execution.getter.is_some(), scope_index.source()) {
@@ -178,10 +175,9 @@ pub(super) fn collect_type_member_execution(
             }
         }
         "property_declaration" => {
-            if let Some(range) = crate::languages::kotlin::scopes::property_initializer_range(
-                member,
-                scope_index.contexts(),
-            ) {
+            if let Some(range) =
+                crate::languages::kotlin::scopes::property_initializer_range(member)
+            {
                 execution.initializers.push(source_range(range));
             }
         }

@@ -9,23 +9,6 @@ use crate::Result;
 use crate::languages::{CapturedTree, LanguageChoice};
 
 impl Registry {
-    pub(crate) fn incremental_safe(&self, id: &str) -> bool {
-        self.handlers
-            .get(id)
-            .is_some_and(|handler| handler.incremental_safe())
-    }
-
-    pub(crate) fn parser_source<'a>(
-        &self,
-        id: &str,
-        source: &'a [u8],
-    ) -> Result<std::borrow::Cow<'a, [u8]>> {
-        let handler = self.handlers.get(id).ok_or_else(|| {
-            std::io::Error::other(format!("No analyzer is registered for language {id}"))
-        })?;
-        Ok(handler.parser_source(source))
-    }
-
     /// Select a registered language from grammar metadata for a file path.
     pub(crate) fn select_file(&self, path: &Path) -> Result<Option<LanguageChoice>> {
         let selected = self.loader.language_configuration_for_file_name(path)?;

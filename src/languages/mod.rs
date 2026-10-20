@@ -103,18 +103,6 @@ impl CapturedTree {
 }
 
 pub(crate) trait LanguageHandler: Send + Sync {
-    /// Adapters whose normalization can change beyond edited source ranges
-    /// request fresh trees, including for embedded programs.
-    fn incremental_safe(&self) -> bool {
-        true
-    }
-
-    /// Normalize grammar gaps without changing source byte positions. Captures
-    /// and reports always use the original bytes.
-    fn parser_source<'a>(&self, source: &'a [u8]) -> std::borrow::Cow<'a, [u8]> {
-        std::borrow::Cow::Borrowed(source)
-    }
-
     /// Capture syntax facts, optionally collecting Halstead terminal tokens.
     fn capture(&self, tree: &Tree, source: &[u8], include_tokens: bool) -> Result<CapturedTree>;
 }

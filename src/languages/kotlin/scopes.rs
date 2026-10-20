@@ -12,7 +12,7 @@ use crate::metrics::cyclomatic::FunctionScope;
 pub(super) struct ScopeIndex<'tree> {
     root: Node<'tree>,
     source: &'tree [u8],
-    contexts: &'tree [ContextParameters],
+    contexts: Vec<ContextParameters>,
     recovered_types: Vec<syntax::RecoveredType>,
     nodes: Vec<Node<'tree>>,
     executable: HashMap<usize, Range<usize>>,
@@ -25,22 +25,14 @@ struct ScriptScope {
 }
 
 impl<'tree> ScopeIndex<'tree> {
-    pub(super) fn new(
-        root: Node<'tree>,
-        source: &'tree [u8],
-        contexts: &'tree [ContextParameters],
-    ) -> Self {
+    pub(super) fn new(root: Node<'tree>, source: &'tree [u8]) -> Self {
         let nodes = super::all_nodes(root);
+        let contexts = syntax::context_parameters(&nodes, source);
         let recovered_types = syntax::recovered_types(root, source);
         let executable = nodes
             .iter()
             .filter_map(|node| {
-                is_executable(*node, &recovered_types).then(|| {
-                    (
-                        node.id(),
-                        syntax::context_start(*node, contexts)..node.end_byte(),
-                    )
-                })
+                is_executable(*node, &recovered_types).then(|| (node.id(), node.byte_range()))
             })
             .collect();
         let mut script_nodes = (0..root.named_child_count())
@@ -73,8 +65,8 @@ impl<'tree> ScopeIndex<'tree> {
         self.source
     }
 
-    pub(super) fn contexts(&self) -> &'tree [ContextParameters] {
-        self.contexts
+    pub(super) fn contexts(&self) -> &[ContextParameters] {
+        &self.contexts
     }
 
     pub(super) fn nodes(&self) -> &[Node<'tree>] {
@@ -161,12 +153,11 @@ pub(super) fn metric_scope_range_for(
 
 pub(in crate::languages::kotlin) fn property_initializer_range(
     property: Node<'_>,
-    contexts: &[ContextParameters],
 ) -> Option<Range<usize>> {
     (property.kind() == "property_declaration"
         && has_property_initializer(property)
         && bound_function_value(property).is_none())
-    .then(|| syntax::context_start(property, contexts)..property.end_byte())
+    .then(|| property.byte_range())
 }
 
 /// Classify executable nodes once, before query-dependent names are available.

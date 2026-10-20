@@ -40,7 +40,6 @@ struct DefinitionContext<'tree, 'source> {
     nodes: &'source [Node<'tree>],
     source: &'source [u8],
     package: &'source [String],
-    contexts: &'source [super::syntax::ContextParameters],
     recovered_types: &'source [super::syntax::RecoveredType],
     scope_index: &'source super::scopes::ScopeIndex<'tree>,
 }
@@ -68,13 +67,13 @@ pub(super) fn capture(scope_index: &super::scopes::ScopeIndex<'_>) -> Capture {
         .iter()
         .map(|import| import.start_byte..import.end_byte)
         .collect::<Vec<_>>();
+    excluded.extend(contexts.iter().map(|context| context.range.clone()));
     let mut declared_names = HashSet::new();
     let definition_context = DefinitionContext {
         root,
         nodes,
         source,
         package: &package,
-        contexts,
         recovered_types,
         scope_index,
     };

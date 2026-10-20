@@ -1,4 +1,4 @@
-use super::{ScopeIndex, capture, scope, syntax};
+use super::{ScopeIndex, capture, scope};
 
 #[test]
 fn cached_ranges_precede_names_and_preserve_nearest_scope_identity() {
@@ -10,14 +10,12 @@ fn cached_ranges_precede_names_and_preserve_nearest_scope_identity() {
         "}\n",
         "println(scriptCall())\n",
     );
-    let contexts = syntax::context_parameters(source.as_bytes());
-    let masked = syntax::mask_context_parameters(source.as_bytes()).unwrap();
     let mut parser = tree_sitter::Parser::new();
     parser
         .set_language(&tree_sitter_kotlin::LANGUAGE.into())
         .unwrap();
-    let tree = parser.parse(masked, None).unwrap();
-    let index = ScopeIndex::new(tree.root_node(), source.as_bytes(), &contexts);
+    let tree = parser.parse(source, None).unwrap();
+    let index = ScopeIndex::new(tree.root_node(), source.as_bytes());
     let range_of = |text: &str| {
         let start = source.find(text).unwrap();
         start..start + text.len()
