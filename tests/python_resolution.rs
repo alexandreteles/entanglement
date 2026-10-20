@@ -1,25 +1,8 @@
 use support::write;
 mod support;
-use support::file;
-
-use std::path::Path;
-use std::process::Command;
+use support::{file, function, recursive};
 
 use serde_json::Value;
-
-fn analyze(root: &Path) -> Value {
-    let output = Command::new(env!("CARGO_BIN_EXE_entanglement"))
-        .args(["--format", "json", "--metrics", "cogc", "repo"])
-        .arg(root)
-        .output()
-        .expect("run entanglement");
-    assert!(
-        output.status.success(),
-        "entanglement failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    serde_json::from_slice(&output.stdout).expect("parse report")
-}
 
 fn refs(file: &Value) -> &[Value] {
     file["resolution"].as_array().map_or(&[], Vec::as_slice)
@@ -49,17 +32,6 @@ fn exact_target(file: &Value, path: &[&str], suffix: &str, symbol: &str) {
             .as_str()
             .is_some_and(|target| target.ends_with(suffix))
     );
-}
-
-fn recursive(file: &Value, name: &str) -> bool {
-    file["functions"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|item| item["name"] == name)
-        .unwrap_or_else(|| panic!("missing function {name}"))["cognitive_contributions"]
-        .as_array()
-        .is_some_and(|items| items.iter().any(|item| item["kind"] == "recursion"))
 }
 
 #[path = "python_resolution/modules.rs"]

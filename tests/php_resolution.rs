@@ -1,28 +1,8 @@
 use support::write;
 mod support;
-use support::file;
-
-use std::{path::Path, process::Command};
+use support::{file, function, recursive};
 
 use serde_json::Value;
-
-fn analyze(root: &Path, diff: Option<&Path>) -> Value {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_entanglement"));
-    command.args(["--format", "json", "--metrics", "cogc"]);
-    command
-        .arg(if diff.is_some() { "candidate" } else { "repo" })
-        .arg(root);
-    if let Some(diff) = diff {
-        command.arg("--diff").arg(diff);
-    }
-    let output = command.output().unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    serde_json::from_slice(&output.stdout).unwrap()
-}
 
 fn reference<'a>(file: &'a Value, source: &str, needle: &str) -> &'a Value {
     let start = source
@@ -51,20 +31,6 @@ fn exact(file: &Value, source: &str, needle: &str, suffix: &str, name: &str) {
             .is_some_and(|path| path.ends_with(suffix)),
         "{needle}: {target}"
     );
-}
-
-fn recursive(file: &Value, name: &str) -> bool {
-    let function = file["functions"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|function| function["name"] == name)
-        .unwrap_or_else(|| panic!("Missing function {name}: {}", file["functions"]));
-    function["cognitive_contributions"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|contribution| contribution["kind"] == "recursion")
 }
 
 #[path = "php_resolution/autoload.rs"]

@@ -1,4 +1,5 @@
-use super::{file, function, kinds, report, resolutions, run, status, write};
+use super::support;
+use super::{file, function, kinds, report, resolutions, status, write};
 
 #[test]
 fn empty_multiways_and_unconditional_loop_headers_have_no_cc_decision() {
@@ -21,7 +22,7 @@ func Range() { for range 2 {} }
 func Cases(x int) { switch x { case 1, 2: case 3: default: } }
 "#,
     );
-    let output = report(&run(&["file"], &path, None));
+    let output = report(&support::run("file", &path, None, None));
     let f = &output["files"][0];
     for name in [
         "EmptySwitch",
@@ -59,7 +60,7 @@ func Deferred() { defer (Deferred)() }
 func Concurrent() { go (Concurrent)() }
 "#,
     );
-    let output = report(&run(&["file"], &path, None));
+    let output = report(&support::run("file", &path, None, None));
     let f = &output["files"][0];
     assert_eq!(function(f, "F")["cognitive_complexity"], 2);
     for name in ["G", "GP", "Deferred", "Concurrent"] {
@@ -88,7 +89,7 @@ import "example.com/app/dep"
 func Outer() { f := func() { (dep.F)() }; f() }
 "#,
     );
-    let output = report(&run(&["repo"], temp.path(), None));
+    let output = report(&support::run("repo", temp.path(), None, None));
     let f = file(&output, "main.go");
     assert_eq!(status(&resolutions(f), "dep.F"), ["exact dep.go:F"]);
     assert_eq!(function(f, "Outer")["cyclomatic_complexity"], 1);

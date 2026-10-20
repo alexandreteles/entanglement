@@ -1,25 +1,10 @@
 use support::write;
 mod support;
-use support::file;
+use support::{file, function, recursive};
 
 use std::path::Path;
-use std::process::Command;
 
 use serde_json::Value;
-
-fn analyze(root: &Path) -> Value {
-    let output = Command::new(env!("CARGO_BIN_EXE_entanglement"))
-        .args(["--format", "json", "--metrics", "cogc", "repo"])
-        .arg(root)
-        .output()
-        .expect("run entanglement");
-    assert!(
-        output.status.success(),
-        "entanglement failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    serde_json::from_slice(&output.stdout).expect("parse JSON report")
-}
 
 fn resolution_status<'a>(file: &'a Value, name: &str) -> &'a str {
     file["resolution"]
@@ -34,17 +19,6 @@ fn resolution_status<'a>(file: &'a Value, name: &str) -> &'a str {
         .unwrap_or_else(|| panic!("missing reference {name}"))["resolution"]["status"]
         .as_str()
         .expect("resolution status")
-}
-
-fn is_recursive(file: &Value, name: &str) -> bool {
-    file["functions"]
-        .as_array()
-        .expect("function reports")
-        .iter()
-        .find(|function| function["name"] == name)
-        .unwrap_or_else(|| panic!("missing function {name}"))["cognitive_contributions"]
-        .as_array()
-        .is_some_and(|items| items.iter().any(|item| item["kind"] == "recursion"))
 }
 
 fn package(root: &Path) {
@@ -77,7 +51,7 @@ fn cyclic_star_branch_keeps_leaf_resolution_and_recursion_edges() {
         "import { entry } from './main';\nexport function leaf(flag: boolean) { if (flag) entry(false); }\n",
     );
 
-    let report = analyze(&root);
+    let report = support::report(&support::run("repo", &root, None, Some("cogc")));
     let main = file(&report, "/main.ts");
     let leaf = file(&report, "/leaf.ts");
     assert_eq!(resolution_status(main, "leaf"), "exact");
@@ -98,8 +72,8 @@ fn cyclic_star_branch_keeps_leaf_resolution_and_recursion_edges() {
             .is_some_and(|path| path.ends_with("/src/leaf.ts"))
     );
     assert_eq!(resolution_status(leaf, "entry"), "exact");
-    assert!(is_recursive(main, "entry"));
-    assert!(is_recursive(leaf, "leaf"));
+    assert!(recursive(function(main, "entry")));
+    assert!(recursive(function(leaf, "leaf")));
 }
 
 #[test]
@@ -132,7 +106,7 @@ fn pure_star_cycles_stay_unresolved_and_conflicting_stars_stay_ambiguous() {
         "export * from './cycle-a';\nexport * from './first';\nexport * from './second';\n",
     );
 
-    let report = analyze(&root);
+    let report = support::report(&support::run("repo", &root, None, Some("cogc")));
     let main = file(&report, "/main.ts");
     assert_eq!(resolution_status(main, "absent"), "unresolved");
     assert_eq!(resolution_status(main, "duplicate"), "ambiguous");
@@ -157,7 +131,7 @@ fn missing_and_external_star_branches_remain_conservative() {
         "export * from './leaf';\nexport * from 'external-package';\n",
     );
 
-    let report = analyze(&root);
+    let report = support::report(&support::run("repo", &root, None, Some("cogc")));
     let main = file(&report, "/main.ts");
     assert_eq!(resolution_status(main, "missingBranch"), "unresolved");
     assert_eq!(resolution_status(main, "externalBranch"), "unresolved");

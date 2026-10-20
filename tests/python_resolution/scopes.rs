@@ -66,7 +66,7 @@ def outer():
 "#,
     );
 
-    let project = analyze(&root);
+    let project = support::report(&support::run("repo", &root, None, Some("cogc")));
     let scopes = file(&project, "/scopes.py");
     let mut calls: Vec<_> = refs(scopes)
         .iter()
@@ -180,7 +180,7 @@ class C:
         class_global()
 "#;
     write(&&root.join("deceptive.py"), source);
-    let report = analyze(&root);
+    let report = support::report(&support::run("repo", &root, None, Some("cogc")));
     let deceptive = file(&report, "/deceptive.py");
     for name in [
         "before_assignment",
@@ -191,7 +191,10 @@ class C:
         "attr",
         "global_directive",
     ] {
-        assert!(!recursive(deceptive, name), "false recursion for {name}");
+        assert!(
+            !recursive(function(deceptive, name)),
+            "false recursion for {name}"
+        );
         assert!(
             refs(deceptive)
                 .iter()
@@ -205,5 +208,5 @@ class C:
         "/deceptive.py",
         "class_global",
     );
-    assert!(!recursive(deceptive, "method"));
+    assert!(!recursive(function(deceptive, "method")));
 }

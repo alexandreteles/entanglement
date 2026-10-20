@@ -14,14 +14,17 @@ class Open {
 final class Closed { public function closedCall() { $this->closedCall(); } }
 "#;
     write(&temp.path().join("dispatch.php"), source);
-    let report = analyze(temp.path(), None);
+    let report = support::report(&support::run("repo", temp.path(), None, Some("cogc")));
     let target = file(&report, "/dispatch.php");
     for name in ["privateCall", "finalCall", "staticCall", "closedCall"] {
-        assert!(recursive(target, name), "Missing exact cycle for {name}");
+        assert!(
+            recursive(function(target, name)),
+            "Missing exact cycle for {name}"
+        );
     }
     for name in ["virtualCall", "lateCall"] {
         assert!(
-            !recursive(target, name),
+            !recursive(function(target, name)),
             "Unproved dispatch created a cycle for {name}"
         );
     }
@@ -46,9 +49,12 @@ fn php_inherited_constructor_execution_joins_the_call_cycle() {
         &temp.path().join("factory.php"),
         "<?php function build() { return new \\App\\ChildRecord(); }\n",
     );
-    let report = analyze(temp.path(), None);
-    assert!(recursive(file(&report, "/factory.php"), "build"));
-    assert!(recursive(file(&report, "/ParentRecord.php"), "__construct"));
+    let report = support::report(&support::run("repo", temp.path(), None, Some("cogc")));
+    assert!(recursive(function(file(&report, "/factory.php"), "build")));
+    assert!(recursive(function(
+        file(&report, "/ParentRecord.php"),
+        "__construct"
+    )));
 }
 
 #[test]
@@ -68,12 +74,12 @@ function exercise() {
 }
 "#;
     write(&temp.path().join("traits.php"), source);
-    let report = analyze(temp.path(), None);
+    let report = support::report(&support::run("repo", temp.path(), None, Some("cogc")));
     let target = file(&report, "/traits.php");
     exact(target, source, "step();", "/traits.php", "step");
     exact(target, source, "again();", "/traits.php", "step");
     assert_ne!(reference(target, source, "hidden();")["status"], "exact");
-    assert!(recursive(target, "step"));
+    assert!(recursive(function(target, "step")));
 }
 
 #[test]
@@ -86,12 +92,12 @@ function closureCalled() { $callback = function () { closureCalled(); }; $callba
 function closureEscaped() { return function () { closureEscaped(); }; }
 "#;
     write(&temp.path().join("callables.php"), source);
-    let report = analyze(temp.path(), None);
+    let report = support::report(&support::run("repo", temp.path(), None, Some("cogc")));
     let target = file(&report, "/callables.php");
-    assert!(recursive(target, "called"));
-    assert!(recursive(target, "closureCalled"));
-    assert!(!recursive(target, "escaped"));
-    assert!(!recursive(target, "closureEscaped"));
+    assert!(recursive(function(target, "called")));
+    assert!(recursive(function(target, "closureCalled")));
+    assert!(!recursive(function(target, "escaped")));
+    assert!(!recursive(function(target, "closureEscaped")));
 }
 
 #[test]
@@ -106,10 +112,10 @@ function readValue() { return new Record()->value; }
 function writeValue(int $value) { $record = new Record(); $record->value = $value; }
 "#;
     write(&temp.path().join("hooks.php"), source);
-    let report = analyze(temp.path(), None);
+    let report = support::report(&support::run("repo", temp.path(), None, Some("cogc")));
     let target = file(&report, "/hooks.php");
-    assert!(recursive(target, "readValue"));
-    assert!(recursive(target, "writeValue"));
+    assert!(recursive(function(target, "readValue")));
+    assert!(recursive(function(target, "writeValue")));
     let hooks = target["functions"]
         .as_array()
         .unwrap()
@@ -120,11 +126,7 @@ function writeValue(int $value) { $record = new Record(); $record->value = $valu
     assert_eq!(
         hooks
             .iter()
-            .filter(|function| function["cognitive_contributions"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|contribution| contribution["kind"] == "recursion"))
+            .filter(|function| support::recursive(function))
             .count(),
         2
     );
@@ -141,7 +143,7 @@ function outer(Record $record) {
 }
 "#;
     write(&temp.path().join("bindings.php"), source);
-    let report = analyze(temp.path(), None);
+    let report = support::report(&support::run("repo", temp.path(), None, Some("cogc")));
     let target = file(&report, "/bindings.php");
     assert_ne!(reference(target, source, "leaf();")["status"], "exact");
 }
@@ -164,12 +166,12 @@ final class ProtectedChild extends ProtectedParent {
 }
 "#;
     write(&temp.path().join("constructors.php"), source);
-    let report = analyze(temp.path(), None);
+    let report = support::report(&support::run("repo", temp.path(), None, Some("cogc")));
     let target = file(&report, "/constructors.php");
-    assert!(recursive(target, "__construct"));
-    assert!(recursive(target, "make"));
-    assert!(!recursive(target, "denied"));
-    assert!(recursive(target, "buildProtected"));
+    assert!(recursive(function(target, "__construct")));
+    assert!(recursive(function(target, "make")));
+    assert!(!recursive(function(target, "denied")));
+    assert!(recursive(function(target, "buildProtected")));
 }
 
 #[test]
@@ -185,11 +187,11 @@ final class Closed { use Calls; }
 class Open { use FinalCalls { fixed as final; } }
 "#;
     write(&temp.path().join("trait_calls.php"), source);
-    let report = analyze(temp.path(), None);
+    let report = support::report(&support::run("repo", temp.path(), None, Some("cogc")));
     let target = file(&report, "/trait_calls.php");
-    assert!(recursive(target, "hidden"));
-    assert!(recursive(target, "run"));
-    assert!(recursive(target, "fixed"));
+    assert!(recursive(function(target, "hidden")));
+    assert!(recursive(function(target, "run")));
+    assert!(recursive(function(target, "fixed")));
 }
 
 #[test]
@@ -203,10 +205,10 @@ final class Record {
 }
 "#;
     write(&temp.path().join("trait_factory.php"), source);
-    let report = analyze(temp.path(), None);
+    let report = support::report(&support::run("repo", temp.path(), None, Some("cogc")));
     let target = file(&report, "/trait_factory.php");
-    assert!(recursive(target, "make"));
-    assert!(recursive(target, "__construct"));
+    assert!(recursive(function(target, "make")));
+    assert!(recursive(function(target, "__construct")));
 }
 
 #[test]
@@ -223,9 +225,12 @@ function exercise() { $record = new Record(); $record->step(); }
         let temp = tempfile::tempdir().unwrap();
         let source = template.replace("MODIFIER", modifier);
         write(&temp.path().join("trait_adaptations.php"), &source);
-        let report = analyze(temp.path(), None);
+        let report = support::report(&support::run("repo", temp.path(), None, Some("cogc")));
         let target = file(&report, "/trait_adaptations.php");
-        assert!(recursive(target, "step"), "Missing {modifier} adaptation");
+        assert!(
+            recursive(function(target, "step")),
+            "Missing {modifier} adaptation"
+        );
         assert_eq!(
             reference(target, &source, "step();")["status"] == "exact",
             modifier == "final"
@@ -242,6 +247,9 @@ final class Closed { use Calls; }
 class Open { use Calls; }
 "#;
     write(&temp.path().join("shared_trait.php"), source);
-    let report = analyze(temp.path(), None);
-    assert!(!recursive(file(&report, "/shared_trait.php"), "step"));
+    let report = support::report(&support::run("repo", temp.path(), None, Some("cogc")));
+    assert!(!recursive(function(
+        file(&report, "/shared_trait.php"),
+        "step"
+    )));
 }

@@ -35,7 +35,7 @@ function exercise() {
 }
 "#;
     write(&root.join("client.php"), source);
-    let report = analyze(root, None);
+    let report = support::report(&support::run("repo", root, None, Some("cogc")));
     let client = file(&report, "/client.php");
     exact(client, source, "iTeM()", "/api/Record.php", "Record");
     exact(client, source, "ITEM()", "/api/functions.php", "transform");
@@ -70,7 +70,7 @@ fn php_namespaced_and_fully_qualified_calls_form_cross_file_cycles() {
     let second = "<?php namespace Cycle; function second() { \\Cycle\\first(); }\n";
     write(&root.join("a.php"), first);
     write(&root.join("b.php"), second);
-    let report = analyze(root, None);
+    let report = support::report(&support::run("repo", root, None, Some("cogc")));
     exact(
         file(&report, "/a.php"),
         first,
@@ -85,9 +85,9 @@ fn php_namespaced_and_fully_qualified_calls_form_cross_file_cycles() {
         "/a.php",
         "first",
     );
-    assert!(recursive(file(&report, "/a.php"), "first"));
-    assert!(recursive(file(&report, "/a.php"), "direct"));
-    assert!(recursive(file(&report, "/b.php"), "second"));
+    assert!(recursive(function(file(&report, "/a.php"), "first")));
+    assert!(recursive(function(file(&report, "/a.php"), "direct")));
+    assert!(recursive(function(file(&report, "/b.php"), "second")));
 }
 
 #[test]
@@ -101,7 +101,7 @@ namespace Second {
 }
 "#;
     write(&temp.path().join("regions.php"), source);
-    let report = analyze(temp.path(), None);
+    let report = support::report(&support::run("repo", temp.path(), None, Some("cogc")));
     let target = file(&report, "/regions.php");
     exact(target, source, "Record();", "/regions.php", "Record");
     assert_eq!(
@@ -123,9 +123,9 @@ namespace App {
 }
 "#;
     write(&temp.path().join("pipe.php"), source);
-    let report = analyze(temp.path(), None);
+    let report = support::report(&support::run("repo", temp.path(), None, Some("cogc")));
     let target = file(&report, "/pipe.php");
-    assert!(recursive(target, "pipeline"));
+    assert!(recursive(function(target, "pipeline")));
     exact(target, source, "$callback();", "/pipe.php", "leaf");
     assert_eq!(
         reference(target, source, "$callback();")["symbols"]["module"],
@@ -142,9 +142,9 @@ class Record { public function instance() { factory(); } }
 function factory() { Record::instance(); }
 "#;
     write(&temp.path().join("uncertain.php"), source);
-    let report = analyze(temp.path(), None);
+    let report = support::report(&support::run("repo", temp.path(), None, Some("cogc")));
     let target = file(&report, "/uncertain.php");
-    assert!(!recursive(target, "uncertain"));
-    assert!(!recursive(target, "instance"));
-    assert!(!recursive(target, "factory"));
+    assert!(!recursive(function(target, "uncertain")));
+    assert!(!recursive(function(target, "instance")));
+    assert!(!recursive(function(target, "factory")));
 }

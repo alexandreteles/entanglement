@@ -2,7 +2,6 @@ mod support;
 use support::{file, function};
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
 
 use serde_json::Value;
 
@@ -10,28 +9,6 @@ fn fixture(relative: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/baseline")
         .join(relative)
-}
-
-fn run(arguments: &[&str], path: &Path, diff: Option<&Path>) -> Value {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_entanglement"));
-    command.args(["--format", "json"]);
-    command.args(arguments);
-    command.arg(path);
-    if let Some(diff) = diff {
-        command.arg("--diff").arg(diff);
-    }
-
-    let output = command.output().expect("run entanglement");
-    assert_success(&output);
-    serde_json::from_slice(&output.stdout).expect("parse JSON report")
-}
-
-fn assert_success(output: &Output) {
-    assert!(
-        output.status.success(),
-        "entanglement failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
 }
 
 fn resolution(reference: &Value) -> &Value {
@@ -99,7 +76,7 @@ fn assert_patch_metrics(report: &Value) {
 
 #[test]
 fn file_mode_preserves_rust_metrics_without_inferred_html_macro_language() {
-    let report = run(&["file"], &fixture("file.rs"), None);
+    let report = support::report(&support::run("file", &fixture("file.rs"), None, None));
     assert_eq!(report["files"].as_array().unwrap().len(), 1);
 
     let source = file(&report, "/file.rs");
@@ -154,7 +131,7 @@ fn file_mode_preserves_rust_metrics_without_inferred_html_macro_language() {
 
 #[test]
 fn repository_mode_preserves_import_shadowing_and_shared_root_resolution() {
-    let report = run(&["repo"], &fixture("repo"), None);
+    let report = support::report(&support::run("repo", &fixture("repo"), None, None));
     assert_eq!(report["files"].as_array().unwrap().len(), 5);
 
     let client = file(&report, "/src/client.rs");
@@ -186,7 +163,7 @@ fn patch_and_candidate_modes_preserve_metric_deltas() {
     let diff = fixture("patches/client.diff");
     let client = fixture("repo/src/client.rs");
     let original_source = std::fs::read(&client).expect("read fixture source");
-    let patch = run(&["patch"], &client, Some(&diff));
+    let patch = support::report(&support::run("patch", &client, Some(&diff), None));
     assert_eq!(
         std::fs::read(&client).expect("read fixture source"),
         original_source
@@ -202,7 +179,12 @@ fn patch_and_candidate_modes_preserve_metric_deltas() {
         3
     );
 
-    let candidate = run(&["candidate"], &fixture("repo"), Some(&diff));
+    let candidate = support::report(&support::run(
+        "candidate",
+        &fixture("repo"),
+        Some(&diff),
+        None,
+    ));
     assert_eq!(
         std::fs::read(&client).expect("read fixture source"),
         original_source

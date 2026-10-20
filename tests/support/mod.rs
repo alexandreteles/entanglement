@@ -74,3 +74,53 @@ pub fn source_report(source: &str) -> Value {
     write(&path, source);
     report(&run("file", &path, None, None))
 }
+
+/// Return true if the function has a recursion contribution.
+pub fn recursive(function: &Value) -> bool {
+    function["cognitive_contributions"]
+        .as_array()
+        .expect("cognitive contributions")
+        .iter()
+        .any(|item| item["kind"] == "recursion")
+}
+
+/// Create a Rust package with the source in `src/lib.rs`.
+/// Return the temporary directory, package root, and source path.
+pub fn rust_project(source: &str) -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
+    let temp = tempfile::tempdir().expect("create temporary directory");
+    let root = temp.path().join("crate");
+    write(
+        &root.join("Cargo.toml"),
+        "[package]\nname = 'fixture'\nversion = '0.1.0'\n",
+    );
+    let path = root.join("src/lib.rs");
+    write(&path, source);
+    (temp, root, path)
+}
+
+/// Create a unified patch with repository-relative paths.
+pub fn patch(path: &str, before: &str, after: &str) -> String {
+    diffy::create_patch(before, after)
+        .to_string()
+        .replacen("--- original", &format!("--- a/{path}"), 1)
+        .replacen("+++ modified", &format!("+++ b/{path}"), 1)
+}
+
+/// Check the command status and all required human report labels.
+pub fn assert_human(mode: &str, path: &Path, diff: Option<&Path>, labels: &[&str]) {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_entanglement"));
+    command.args(["--format", "human", mode]).arg(path);
+    if let Some(diff) = diff {
+        command.arg("--diff").arg(diff);
+    }
+    let output = command.output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8(output.stdout).unwrap();
+    for label in labels {
+        assert!(text.contains(label), "missing human report label {label}");
+    }
+}

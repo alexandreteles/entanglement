@@ -1,4 +1,5 @@
-use super::{report, resolutions, run, status, write};
+use super::support;
+use super::{report, resolutions, status, write};
 
 #[test]
 fn ordinary_parameters_do_not_shadow_signature_types() {
@@ -13,7 +14,7 @@ func G() (T T) { return }
 func External(T T) T
 "#,
     );
-    let output = report(&run(&["file"], &path, None));
+    let output = report(&support::run("file", &path, None, None));
     let refs = resolutions(&output["files"][0]);
     let t = status(&refs, "T");
     assert_eq!(
@@ -40,7 +41,7 @@ func (b *Box[T]) Pointer() T { var x T; return x }
 func F[T any](x T) T { return x }
 "#,
     );
-    let output = report(&run(&["file"], &path, None));
+    let output = report(&support::run("file", &path, None, None));
     let refs = resolutions(&output["files"][0]);
     let t = status(&refs, "T");
     assert!(!t.is_empty());
@@ -67,7 +68,7 @@ func Inspect(value any) {
 }
 "#,
     );
-    let output = report(&run(&["file"], &path, None));
+    let output = report(&support::run("file", &path, None, None));
     let refs = resolutions(&output["files"][0]);
     let t = status(&refs, "T");
     assert_eq!(
@@ -90,7 +91,7 @@ func F() int { return 0 }
 func Use() { { F := F(); _ = F }; F() }
 "#,
     );
-    let output = report(&run(&["file"], &path, None));
+    let output = report(&support::run("file", &path, None, None));
     let refs = resolutions(&output["files"][0]);
     assert_eq!(
         status(&refs, "F")

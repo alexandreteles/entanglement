@@ -13,7 +13,7 @@ fn php_candidate_recomputes_composer_autoload_without_source_edits() {
     );
     let source = "<?php function make() { return new \\Api\\Record(); }\n";
     write(&root.join("client.php"), source);
-    let initial = analyze(root, None);
+    let initial = support::report(&support::run("repo", root, None, Some("cogc")));
     assert_ne!(
         reference(file(&initial, "/client.php"), source, "\\Api\\Record()")["status"],
         "exact"
@@ -24,7 +24,7 @@ fn php_candidate_recomputes_composer_autoload_without_source_edits() {
         .replacen("+++ modified", "+++ b/composer.json", 1);
     let patch = root.join("change.diff");
     std::fs::write(&patch, diff).unwrap();
-    let candidate = analyze(root, Some(&patch));
+    let candidate = support::report(&support::run("candidate", root, Some(&patch), Some("cogc")));
     exact(
         file(&candidate, "/client.php"),
         source,
@@ -37,7 +37,10 @@ fn php_candidate_recomputes_composer_autoload_without_source_edits() {
         before
     );
     write(&root.join("composer.json"), after);
-    assert_eq!(candidate["files"], analyze(root, None)["files"]);
+    assert_eq!(
+        candidate["files"],
+        support::report(&support::run("repo", root, None, Some("cogc")))["files"]
+    );
 }
 
 #[test]
@@ -67,7 +70,7 @@ fn php_composer_routes_keep_classmap_exclusions_separate() {
     );
     let source = "<?php function exercise() { new \\Api\\Allowed(); helper(); new Legacy(); new Excluded(); new \\Old_Ns\\Thing_Name(); }\n";
     write(&root.join("client.php"), source);
-    let report = analyze(root, None);
+    let report = support::report(&support::run("repo", root, None, Some("cogc")));
     let target = file(&report, "/client.php");
     exact(
         target,
@@ -108,7 +111,7 @@ fn php_candidate_manifest_addition_and_deletion_use_the_snapshot() {
         );
         let source = "<?php function make() { return new \\Api\\Record(); }\n";
         write(&root.join("client.php"), source);
-        let initial = analyze(root, None);
+        let initial = support::report(&support::run("repo", root, None, Some("cogc")));
         assert_eq!(
             reference(file(&initial, "/client.php"), source, "\\Api\\Record()")["status"]
                 == "exact",
@@ -136,7 +139,8 @@ fn php_candidate_manifest_addition_and_deletion_use_the_snapshot() {
             );
         let diff = root.join("change.diff");
         std::fs::write(&diff, patch).unwrap();
-        let candidate = analyze(root, Some(&diff));
+        let candidate =
+            support::report(&support::run("candidate", root, Some(&diff), Some("cogc")));
         assert_eq!(
             reference(file(&candidate, "/client.php"), source, "\\Api\\Record()")["status"]
                 == "exact",
@@ -148,7 +152,10 @@ fn php_candidate_manifest_addition_and_deletion_use_the_snapshot() {
         } else {
             std::fs::remove_file(root.join("composer.json")).unwrap();
         }
-        assert_eq!(candidate["files"], analyze(root, None)["files"]);
+        assert_eq!(
+            candidate["files"],
+            support::report(&support::run("repo", root, None, Some("cogc")))["files"]
+        );
     }
 }
 
@@ -169,7 +176,7 @@ fn php_nested_composer_projects_need_a_declared_dependency() {
     );
     let source = "<?php function make() { return new \\Lib\\Record(); }\n";
     write(&root.join("client.php"), source);
-    let initial = analyze(root, None);
+    let initial = support::report(&support::run("repo", root, None, Some("cogc")));
     assert_ne!(
         reference(file(&initial, "/client.php"), source, "\\Lib\\Record()")["status"],
         "exact"
@@ -180,7 +187,7 @@ fn php_nested_composer_projects_need_a_declared_dependency() {
         .replacen("+++ modified", "+++ b/composer.json", 1);
     let diff = root.join("change.diff");
     std::fs::write(&diff, patch).unwrap();
-    let candidate = analyze(root, Some(&diff));
+    let candidate = support::report(&support::run("candidate", root, Some(&diff), Some("cogc")));
     exact(
         file(&candidate, "/client.php"),
         source,
@@ -223,7 +230,7 @@ fn php_composer_development_requirements_apply_only_to_the_starting_project() {
     }
     let source = "<?php function exercise() { new \\A\\Entry(); new \\Production\\Record(); new \\OwnDev\\Record(); new \\TestOnly\\Record(); }\n";
     write(&root.join("client.php"), source);
-    let report = analyze(root, None);
+    let report = support::report(&support::run("repo", root, None, Some("cogc")));
     let target = file(&report, "/client.php");
     exact(target, source, "\\A\\Entry()", "/a/src/Entry.php", "Entry");
     exact(
@@ -283,7 +290,7 @@ fn php_composer_lock_graphs_do_not_merge_across_projects() {
         &root.join("extra/src/Record.php"),
         "<?php namespace Extra; class Record {}\n",
     );
-    let report = analyze(root, None);
+    let report = support::report(&support::run("repo", root, None, Some("cogc")));
     exact(
         file(&report, "/first/client.php"),
         source,
@@ -321,7 +328,7 @@ fn php_composer_path_repositories_select_duplicate_local_package_names() {
     }
     let source = "<?php function make() { return new \\Api\\Record(); }\n";
     write(&root.join("client.php"), source);
-    let report = analyze(root, None);
+    let report = support::report(&support::run("repo", root, None, Some("cogc")));
     exact(
         file(&report, "/client.php"),
         source,
@@ -333,7 +340,7 @@ fn php_composer_path_repositories_select_duplicate_local_package_names() {
         &root.join("composer.json"),
         r#"{"require":{"lib/record":"*"}}"#,
     );
-    let ambiguous = analyze(root, None);
+    let ambiguous = support::report(&support::run("repo", root, None, Some("cogc")));
     assert_ne!(
         reference(file(&ambiguous, "/client.php"), source, "\\Api\\Record()")["status"],
         "exact"
@@ -364,7 +371,7 @@ fn php_literal_include_crosses_a_composer_boundary_but_conditional_include_does_
             }
         );
         write(&root.join("main.php"), &source);
-        let report = analyze(root, None);
+        let report = support::report(&support::run("repo", root, None, Some("cogc")));
         let target = file(&report, "/main.php");
         if conditional {
             assert_ne!(reference(target, &source, "helper();")["status"], "exact");

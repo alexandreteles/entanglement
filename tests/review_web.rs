@@ -1,24 +1,7 @@
 mod support;
 use support::{file, function, write};
 
-use std::path::Path;
-use std::process::Command;
-
 use serde_json::Value;
-
-fn repo(root: &Path) -> Value {
-    let output = Command::new(env!("CARGO_BIN_EXE_entanglement"))
-        .args(["--format", "json", "repo"])
-        .arg(root)
-        .output()
-        .expect("run entanglement");
-    assert!(
-        output.status.success(),
-        "entanglement failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    serde_json::from_slice(&output.stdout).expect("parse report")
-}
 
 fn default_target<'a>(file: &'a Value, local: &str, suffix: &str) -> &'a Value {
     let item = file["resolution"]
@@ -36,12 +19,6 @@ fn default_target<'a>(file: &'a Value, local: &str, suffix: &str) -> &'a Value {
     assert_eq!(target["name"], "default");
     assert!(target["file"].as_str().unwrap().ends_with(suffix));
     target
-}
-
-fn recursive(function: &Value) -> bool {
-    function["cognitive_contributions"]
-        .as_array()
-        .is_some_and(|items| items.iter().any(|item| item["kind"] == "recursion"))
 }
 
 #[test]
@@ -114,7 +91,7 @@ export default wrap(() => { function helper() { return 1; } });
         write(&temp.path().join(path), source);
     }
 
-    let report = repo(temp.path());
+    let report = support::report(&support::run("repo", temp.path(), None, None));
     let consumer = file(&report, "/consumer.ts");
     let arrow_default = default_target(consumer, "arrowDefault", "/arrow.ts");
     for (local, path) in [
@@ -145,9 +122,9 @@ export default wrap(() => { function helper() { return 1; } });
         .iter()
         .find(|item| item["start_byte"] == arrow_default["start_byte"])
         .expect("default symbol identifies the outer arrow");
-    assert!(recursive(outer));
-    assert!(recursive(function(consumer, "run")));
-    assert!(!recursive(function(arrow, "helper")));
+    assert!(support::recursive(outer));
+    assert!(support::recursive(function(consumer, "run")));
+    assert!(!support::recursive(function(arrow, "helper")));
 }
 
 fn injection_count(file: &Value, language: &str, analyzed: bool) -> usize {
@@ -180,7 +157,7 @@ function textTs(flag: boolean): boolean { return flag ? textTs(false) : false; }
 "#,
     );
 
-    let report = repo(temp.path());
+    let report = support::report(&support::run("repo", temp.path(), None, None));
     let html = file(&report, "/page.html");
     assert_eq!(html["language"], "html");
     assert_eq!(injection_count(html, "typescript", true), 3);
