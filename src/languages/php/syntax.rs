@@ -179,5 +179,6 @@ pub(super) fn is_branch(node: Node<'_>) -> bool {
             | "while_statement"
             | "do_statement"
             | "catch_clause"
+            | "try_statement"
     )
 }
