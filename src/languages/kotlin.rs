@@ -130,8 +130,8 @@ impl LanguageHandler for Analyzer {
 
         let semantic = facts::capture(&scope_index);
         let mut captured = CapturedTree::from(shared).with_semantics(semantic);
-        captured.semantic.resolution_family = Some(ResolutionFamily::KotlinModules);
-        captured.semantic.file_module_rules = LANGUAGE_SPEC.file_module_rules;
+        captured.facts.semantic.resolution_family = Some(ResolutionFamily::KotlinModules);
+        captured.facts.semantic.file_module_rules = LANGUAGE_SPEC.file_module_rules;
         Ok(captured)
     }
 }

@@ -12,7 +12,7 @@ use mutations::{Mutation, mutations, stable};
 
 pub(super) fn capture(nodes: &[Node<'_>], source: &[u8], captured: &mut CapturedTree) {
     let mutations = mutations(nodes, source);
-    captured.semantic.bindings.extend(
+    captured.facts.semantic.bindings.extend(
         nodes
             .iter()
             .copied()
@@ -166,7 +166,7 @@ fn capture_bindings(
     let outer_owner = scope(closure);
     for variable in variables {
         let name = text(variable, source);
-        let local = captured.semantic.bindings.iter().any(|binding| {
+        let local = captured.facts.semantic.bindings.iter().any(|binding| {
             binding.name == name
                 && closure.start_byte() <= binding.name_start_byte
                 && binding.name_start_byte < closure.end_byte()
@@ -175,6 +175,7 @@ fn capture_bindings(
             continue;
         }
         let binding = captured
+            .facts
             .semantic
             .bindings
             .iter()
@@ -196,7 +197,7 @@ fn capture_bindings(
             binding.scope_start = closure.start_byte();
             binding.scope_end = closure.end_byte();
             binding.immutable &= stable(name, closure, mutations, None);
-            captured.semantic.bindings.push(binding);
+            captured.facts.semantic.bindings.push(binding);
         }
     }
 }

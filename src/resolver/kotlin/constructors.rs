@@ -84,7 +84,7 @@ impl Index<'_> {
             .copied()
             .filter(|range| {
                 !secondary_constructors.iter().any(|candidate| {
-                    candidate.start == range.start_byte && candidate.end == range.end_byte
+                    candidate.start_byte == range.start_byte && candidate.end_byte == range.end_byte
                 })
             })
             .take(1)
@@ -110,7 +110,7 @@ impl Index<'_> {
             })
             .filter_map(|candidate| {
                 ranges.iter().copied().find(|range| {
-                    range.start_byte == candidate.start && range.end_byte == candidate.end
+                    range.start_byte == candidate.start_byte && range.end_byte == candidate.end_byte
                 })
             })
             .collect()

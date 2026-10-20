@@ -184,9 +184,9 @@ pub(super) fn collect_context_facts(
             let type_name = normalized_type(parameter.type_name.clone());
             if parameter.name.is_none() {
                 let markers = result
-                    .semantic
-                    .declarations
+                    .definitions
                     .iter()
+                    .filter_map(|definition| definition.declaration.as_deref())
                     .find(|fact| {
                         fact.kind == DeclarationKind::Class
                             && fact.start_byte < declaration.start_byte()

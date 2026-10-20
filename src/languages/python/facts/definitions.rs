@@ -45,6 +45,7 @@ fn add_named_definition(
     let scope = symbol_scope(node, root, module_level);
     let start = node.start_byte();
     facts.definitions.push(Definition {
+        declaration: None,
         name: name_text.clone(),
         kind: kind.clone(),
         module: module_path(),
@@ -141,6 +142,7 @@ fn add_lambda_definition(
 ) {
     let start = lambda.start_byte();
     facts.definitions.push(Definition {
+        declaration: None,
         name: name.clone(),
         kind: DefinitionKind::Function,
         module: module_path(),

@@ -125,7 +125,7 @@ fn indexed_candidates<'a>(
                 continue;
             };
             by_name
-                .entry(candidate.name.to_owned())
+                .entry(candidate.name.clone())
                 .or_default()
                 .push(candidate.candidate_index);
             candidates.push(candidate);
@@ -137,39 +137,27 @@ fn indexed_candidates<'a>(
 fn candidate_for_symbol<'a>(
     candidate_index: usize,
     file: usize,
-    symbol: &'a crate::graph::ProgramSymbol,
+    symbol: &'a crate::graph::ProgramSymbol<'a>,
     graph: &'a ProgramGraph<'a>,
 ) -> Option<Candidate<'a>> {
     let context_id = symbol.scope.context_id;
     let semantic = graph.semantic(file, context_id, Some(ResolutionFamily::KotlinModules))?;
-    let definition = graph.definition(symbol.id)?;
+    let definition = symbol.definition;
     let package = semantic
         .context
         .as_ref()
         .map_or(definition.module.0.as_slice(), |context| {
             context.package.as_slice()
         });
-    let declaration = graph.declaration(
-        file,
-        context_id,
-        definition.start_byte,
-        Some(ResolutionFamily::KotlinModules),
-    );
+    let declaration = definition.declaration.as_deref();
     Some(Candidate {
         candidate_index,
         graph_id: symbol.id,
         symbol: &symbol.semantic_id,
         file,
-        context_id,
-        name: &symbol.name,
+        definition,
         package,
         owner: declaration.map_or(&[][..], |declaration| declaration.owner.as_slice()),
-        kind: symbol.kind.clone(),
         declaration,
-        public: symbol.is_public,
-        start: definition.start_byte,
-        end: definition.end_byte,
-        scope_start: definition.scope_start,
-        scope_end: definition.scope_end,
     })
 }

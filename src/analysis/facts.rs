@@ -13,16 +13,13 @@ use crate::metrics::{
     SyntaxEvent, cyclomatic::FunctionScope, halstead::HalsteadToken,
     maintainability::MaintainabilityIndex, nloc,
 };
-use crate::model::{
-    Definition, Export, FileAnalysis, FileFacts, FunctionAnalysis, Import, InjectionAnalysis,
-    LocalBinding, ModulePath, Reference,
-};
+use crate::model::{FileAnalysis, FileFacts, FunctionAnalysis, InjectionAnalysis, ModulePath};
 
 use super::injections::{self, ParsedInjection};
 use super::metrics;
 
 pub(super) struct TreeSummary {
-    pub(super) semantic: crate::graph::SemanticFacts,
+    pub(super) facts: crate::languages::CapturedSemantics,
     metric_id: String,
     resolution_family: ResolutionFamily,
     file_module_rules: Option<&'static FileModuleRules>,
@@ -33,11 +30,6 @@ pub(super) struct TreeSummary {
     functions: Vec<FunctionScope>,
     pub(super) tokens: Vec<HalsteadToken>,
     pub(super) excluded: Vec<Range<usize>>,
-    pub(super) definitions: Vec<Definition>,
-    pub(super) imports: Vec<Import>,
-    pub(super) exports: Vec<Export>,
-    references: Vec<Reference>,
-    locals: Vec<LocalBinding>,
 }
 
 pub(super) struct SummaryContext<'a> {
@@ -119,7 +111,8 @@ pub(super) fn build_facts(
     let mut references = Vec::new();
     let mut locals = Vec::new();
     let mut semantic = Vec::<crate::graph::SemanticFacts>::new();
-    for item in summaries {
+    for summary in summaries {
+        let item = summary.facts;
         definitions.extend(item.definitions);
         imports.extend(item.imports);
         exports.extend(item.exports);
@@ -129,7 +122,6 @@ pub(super) fn build_facts(
             layer.context_id == item.semantic.context_id
                 && layer.resolution_family == item.semantic.resolution_family
         }) {
-            layer.declarations.extend(item.semantic.declarations);
             layer.bindings.extend(item.semantic.bindings);
             layer.receivers.extend(item.semantic.receivers);
             layer.calls.extend(item.semantic.calls);
@@ -221,22 +213,27 @@ fn summary_descriptor(
 
 fn summary_context_is_consistent(summary: &TreeSummary) -> bool {
     summary
+        .facts
         .definitions
         .iter()
         .all(|item| item.context_id == summary.semantic_context)
         && summary
+            .facts
             .imports
             .iter()
             .all(|item| item.context_id == summary.semantic_context)
         && summary
+            .facts
             .exports
             .iter()
             .all(|item| item.context_id == summary.semantic_context)
         && summary
+            .facts
             .references
             .iter()
             .all(|item| item.context_id == summary.semantic_context)
         && summary
+            .facts
             .locals
             .iter()
             .all(|item| item.context_id == summary.semantic_context)

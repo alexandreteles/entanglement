@@ -11,6 +11,7 @@ impl CaptureFacts {
         };
         let range = callable.byte_range();
         self.semantic.definitions.push(Definition {
+            declaration: None,
             name: "default".to_owned(),
             kind: DefinitionKind::Function,
             module: ModulePath::default(),

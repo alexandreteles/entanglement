@@ -106,6 +106,7 @@ impl CaptureFacts {
         self.occupied.push(name.byte_range());
         let name = text(name, source);
         self.semantic.definitions.push(Definition {
+            declaration: None,
             is_public: is_exported(&name),
             kind: match kind {
                 DefinitionKind::Other => type_kind(node),

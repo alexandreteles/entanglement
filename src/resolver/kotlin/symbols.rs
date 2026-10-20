@@ -40,7 +40,7 @@ pub(super) fn candidate_type_segments<'a>(candidate: &Candidate<'a>) -> Vec<&'a 
         .iter()
         .chain(candidate.owner)
         .map(String::as_str)
-        .chain(std::iter::once(candidate.name))
+        .chain(std::iter::once(candidate.definition.name.as_str()))
         .collect()
 }
 
@@ -141,7 +141,7 @@ pub(super) fn owner_paths(classes: &[&Candidate]) -> BTreeSet<(Vec<String>, Vec<
         .map(|class| {
             (
                 class.package.to_vec(),
-                extended_owner(class.owner, class.name),
+                extended_owner(class.owner, &class.name),
             )
         })
         .collect()
@@ -204,7 +204,7 @@ pub(super) fn matches_convention(
 pub(super) fn candidate_visibility(candidate: &Candidate) -> SemanticVisibility {
     candidate.declaration.map_or_else(
         || {
-            if candidate.public {
+            if candidate.is_public {
                 SemanticVisibility::Public
             } else {
                 SemanticVisibility::Private

@@ -93,10 +93,7 @@ impl<'a> Index<'a> {
                     Some(ResolutionFamily::PhpNamespaces),
                 )?;
                 let facts = semantic.php.as_ref()?;
-                let declaration = semantic
-                    .declarations
-                    .iter()
-                    .find(|item| item.start_byte == site.position)?;
+                let declaration = symbol.definition.declaration.as_deref()?;
                 let php = declaration.php.as_ref()?;
                 let namespace = facts.namespace_at(site.position)?;
                 let name = namespace.qualify(&symbol.name);

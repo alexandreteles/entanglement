@@ -43,7 +43,7 @@ pub(super) fn capture(root: Node<'_>, source: &[u8], captured: &mut CapturedTree
         capture.reference(node);
     }
     super::bindings::capture(&nodes, source, captured);
-    captured.semantic.php = Some(php);
+    captured.facts.semantic.php = Some(php);
 }
 
 fn namespaces(root: Node<'_>, nodes: &[Node<'_>], source: &[u8]) -> Vec<PhpNamespace> {

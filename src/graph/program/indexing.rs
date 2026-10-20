@@ -6,8 +6,8 @@ use crate::model::{Definition, DefinitionKind, FileFacts, SymbolId};
 
 use super::bindings::binding_identity;
 use super::{
-    FileFactsView, ProgramBinding, ProgramGraph, ProgramIndexes, ProgramScope, ProgramScopeId,
-    ProgramSymbol, ProgramSymbolId,
+    CallEdge, ExecutionGraph, FileFactsView, ProgramBinding, ProgramFunctionId, ProgramGraph,
+    ProgramIndexes, ProgramScope, ProgramScopeId, ProgramSymbol, ProgramSymbolId,
 };
 
 impl<'a> ProgramGraph<'a> {
@@ -56,7 +56,7 @@ impl<'a> ProgramGraph<'a> {
         }
     }
 
-    fn index_file(&mut self, file_index: usize, fact: &FileFacts) {
+    fn index_file(&mut self, file_index: usize, fact: &'a FileFacts) {
         for alias in &fact.aliases {
             self.aliases
                 .entry(alias.clone())
@@ -70,7 +70,7 @@ impl<'a> ProgramGraph<'a> {
     }
 }
 impl<'a> ProgramGraph<'a> {
-    fn index_definitions(&mut self, file_index: usize, fact: &FileFacts) {
+    fn index_definitions(&mut self, file_index: usize, fact: &'a FileFacts) {
         for (definition_index, definition) in fact.definitions.iter().enumerate() {
             let id = ProgramSymbolId {
                 file_index,
@@ -92,10 +92,8 @@ impl<'a> ProgramGraph<'a> {
             self.symbols.push(ProgramSymbol {
                 id,
                 semantic_id,
-                name: definition.name.clone(),
-                kind: definition.kind.clone(),
+                definition,
                 scope,
-                is_public: definition.is_public,
             });
             self.symbols_by_file[file_index].push(symbol_index);
             self.symbols_by_name[file_index]
@@ -280,4 +278,33 @@ impl<'a> ProgramGraph<'a> {
 
 fn conflicting_option<T: PartialEq>(left: &Option<T>, right: &Option<T>) -> bool {
     matches!((left, right), (Some(left), Some(right)) if left != right)
+}
+
+impl ProgramGraph<'_> {
+    /// Index reported functions and proven execution edges for shared graph consumers.
+    pub(super) fn index_execution_relations(&self, calls: Vec<CallEdge>) -> ExecutionGraph {
+        let mut graph = ExecutionGraph::new();
+        let mut nodes = std::collections::BTreeMap::new();
+        for (file_index, fact) in self.facts.iter().enumerate() {
+            for (function_index, function) in fact.analysis.functions.iter().enumerate() {
+                nodes
+                    .entry((file_index, function.start_byte))
+                    .or_insert_with(|| {
+                        graph.add_node(ProgramFunctionId {
+                            file_index,
+                            function_index,
+                        })
+                    });
+            }
+        }
+        for edge in calls {
+            if let (Some(&caller), Some(&callee)) = (
+                nodes.get(&(edge.caller_file, edge.caller_start_byte)),
+                nodes.get(&(edge.callee_file, edge.callee_start_byte)),
+            ) {
+                graph.add_edge(caller, callee, edge);
+            }
+        }
+        graph
+    }
 }

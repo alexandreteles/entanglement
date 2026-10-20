@@ -4,13 +4,15 @@ use crate::model::{
     ExecutionTarget, Reference, ReferenceAnalysis, ReferenceKind, Resolution, SourceRange,
 };
 
-use super::{CallEdge, ProgramGraph, ProgramScopeId, ProgramSymbolId};
+use super::{
+    CallEdge, ExecutionGraph, ExecutionRelation, ProgramGraph, ProgramScopeId, ProgramSymbolId,
+};
 
 impl<'a> ProgramGraph<'a> {
     pub(crate) fn confirmed_relations(
         &self,
         resolutions: &[Vec<ReferenceAnalysis>],
-    ) -> Vec<CallEdge> {
+    ) -> ExecutionGraph {
         let mut calls = Vec::new();
         for (file_index, fact) in self.facts.iter().enumerate() {
             let Some(analyses) = resolutions.get(file_index) else {
@@ -27,7 +29,7 @@ impl<'a> ProgramGraph<'a> {
         calls.extend(self.implicit_initialization_edges());
         calls.sort();
         calls.dedup();
-        calls
+        self.index_execution_relations(calls)
     }
 
     fn resolved_reference_target(
@@ -71,6 +73,7 @@ impl<'a> ProgramGraph<'a> {
                         )
                 })
                 .map(|execution| CallEdge {
+                    relation: ExecutionRelation::Invocation,
                     caller_file: file_index,
                     caller_start_byte: execution.caller_start_byte,
                     callee_file: execution.file_index,
@@ -107,6 +110,7 @@ impl<'a> ProgramGraph<'a> {
             && callable_is_reported
             && self.is_reported_caller(file_index, reference, caller))
         .then_some(CallEdge {
+            relation: ExecutionRelation::Invocation,
             caller_file: file_index,
             caller_start_byte: caller,
             callee_file: symbol.id.file_index,
@@ -146,9 +150,9 @@ impl<'a> ProgramGraph<'a> {
                         context_id,
                         function.start_byte..function.end_byte,
                     )) || self.facts[file_index]
-                        .semantic()
-                        .filter(|semantic| semantic.context_id == context_id)
-                        .flat_map(|semantic| &semantic.declarations)
+                        .definitions()
+                        .filter(|definition| definition.context_id == context_id)
+                        .filter_map(|definition| definition.declaration.as_deref())
                         .filter_map(|declaration| declaration.execution.as_ref())
                         .flat_map(execution_ranges)
                         .any(|range| {
@@ -215,14 +219,7 @@ impl<'a> ProgramGraph<'a> {
                 target.file_index == symbol.id.file_index
                     && target.context_id == symbol.scope.context_id
             })
-            .and_then(|symbol| {
-                self.declaration(
-                    symbol.id.file_index,
-                    symbol.scope.context_id,
-                    symbol.semantic_id.start_byte,
-                    None,
-                )
-            })
+            .and_then(|symbol| symbol.definition.declaration.as_deref())
             .and_then(|declaration| declaration.execution.as_ref())
             .is_some_and(|execution| {
                 execution_ranges(execution).any(|range| range == target.range)
@@ -253,15 +250,15 @@ impl<'a> ProgramGraph<'a> {
             .iter()
             .enumerate()
             .flat_map(|(file_index, fact)| {
-                fact.semantic().flat_map(move |semantic| {
-                    semantic.declarations.iter().flat_map(move |declaration| {
-                        self.declaration_initialization_edges(
+                fact.definitions()
+                    .filter_map(move |definition| {
+                        Some(self.declaration_initialization_edges(
                             file_index,
-                            semantic.context_id,
-                            declaration,
-                        )
+                            definition.context_id,
+                            definition.declaration.as_deref()?,
+                        ))
                     })
-                })
+                    .flatten()
             })
             .collect()
     }
@@ -289,6 +286,7 @@ impl<'a> ProgramGraph<'a> {
                     .iter()
                     .copied()
                     .map(move |initializer| CallEdge {
+                        relation: ExecutionRelation::Initialization,
                         caller_file: file_index,
                         caller_start_byte: constructor.start_byte,
                         callee_file: file_index,

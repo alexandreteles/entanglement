@@ -93,7 +93,7 @@ impl Index<'_> {
         objects
             .chain(companions)
             .flat_map(|class| {
-                let owner = extended_owner(class.owner, class.name);
+                let owner = extended_owner(class.owner, &class.name);
                 self.named(name)
                     .filter(move |candidate| {
                         candidate.package == class.package && candidate.owner == owner

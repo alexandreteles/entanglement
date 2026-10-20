@@ -26,7 +26,6 @@ impl LanguageHandler for SyntaxOnly {
 impl From<QueryFacts> for CapturedTree {
     fn from(query: QueryFacts) -> Self {
         Self {
-            semantic: Default::default(),
             events: query.events,
             parents: query.parents,
             functions: query.functions,

@@ -11,6 +11,7 @@ use crate::model::{DefinitionKind, FileAnalysis, FileFacts, LocalBinding, Module
 
 fn fixture() -> FileFacts {
     let definition = |context_id, module: &str| Definition {
+        declaration: None,
         name: "shared".into(),
         kind: DefinitionKind::Function,
         module: ModulePath(vec![module.into()]),

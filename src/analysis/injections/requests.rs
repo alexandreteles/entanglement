@@ -33,7 +33,7 @@ pub(super) fn injection_contexts(
             cognitive_parent: cognitive_parent(&captured.events, &request.range),
             module: inherited_module_for_range(
                 inherited_module,
-                &captured.definitions,
+                &captured.facts.definitions,
                 &request.range,
             ),
             scope: injection_scope(
