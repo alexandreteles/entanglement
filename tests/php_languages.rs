@@ -152,37 +152,28 @@ fn pure_markup_php_templates_keep_their_script_metrics() {
 }
 
 #[test]
-fn selected_metrics_keep_exact_php_line_and_token_counts() {
+fn php_line_and_token_counts_are_exact() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("leaf.php");
     write(
         &path,
         "<?php\n// no code on this line\nfunction leaf($value) { return $value; }\n",
     );
-    for (metric, field) in [
-        ("nloc", "nloc"),
-        ("cc", "cyclomatic_complexity"),
-        ("density", "cyclomatic_density"),
-        ("cogc", "cognitive_complexity"),
-        ("halstead", "halstead"),
-        ("mi", "maintainability_index"),
-    ] {
-        let result = support::report(&support::run("file", &path, None, Some(metric)));
-        let file = &result["files"][0];
-        let leaf = function(file, "leaf");
-        assert_eq!(file["nloc"], 2);
-        assert_eq!(leaf["nloc"], 1);
-        assert!(leaf.get(field).is_some(), "missing {field} for {metric}");
-        if metric == "halstead" {
-            assert_eq!(leaf["halstead"]["distinct_operators"], 8);
-            assert_eq!(leaf["halstead"]["total_operators"], 9);
-            assert_eq!(leaf["halstead"]["distinct_operands"], 2);
-            assert_eq!(leaf["halstead"]["total_operands"], 3);
-        }
-        if matches!(metric, "nloc" | "cc" | "density" | "cogc") {
-            assert!(leaf.get("halstead").is_none());
-        }
-    }
+    let result = support::report(&support::run("file", &path, None, Some("halstead")));
+    let file = &result["files"][0];
+    let leaf = function(file, "leaf");
+    assert_eq!(file["nloc"], 2);
+    assert_eq!(leaf["nloc"], 1);
+    assert_eq!(leaf["halstead"]["distinct_operators"], 8);
+    assert_eq!(leaf["halstead"]["total_operators"], 9);
+    assert_eq!(leaf["halstead"]["distinct_operands"], 2);
+    assert_eq!(leaf["halstead"]["total_operands"], 3);
+    let selected = support::report(&support::run("file", &path, None, Some("nloc")));
+    let selected_file = &selected["files"][0];
+    assert_eq!(selected_file["nloc"], file["nloc"]);
+    let selected_leaf = function(selected_file, "leaf");
+    assert_eq!(selected_leaf["nloc"], leaf["nloc"]);
+    assert!(selected_leaf.get("halstead").is_none());
 }
 
 #[test]

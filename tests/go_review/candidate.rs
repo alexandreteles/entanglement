@@ -15,8 +15,8 @@ fn module_path_edits_use_virtual_manifest_bytes_and_match_fresh_analysis() {
     let diff = temp.path().join("change.diff");
     write(
         &diff,
-        &(support::patch("go.mod", before_mod, after_mod)
-            + &support::patch("main.go", before_go, &after_go)),
+        &(support::patch("go.mod", Some(before_mod), Some(after_mod))
+            + &support::patch("main.go", Some(before_go), Some(&after_go))),
     );
     let candidate = report(&support::run("candidate", &root, Some(&diff), None));
     assert_eq!(

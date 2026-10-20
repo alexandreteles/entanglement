@@ -122,7 +122,10 @@ fn candidate_cycle_edits_recompute_recursion_for_both_members() {
         let (_temp, root, source) = support::rust_project(before);
         let previous = report(&support::run("repo", &root, None, None));
         let diff = root.join("cycle.diff");
-        support::write(&diff, support::patch("src/lib.rs", before, after));
+        support::write(
+            &diff,
+            support::patch("src/lib.rs", Some(before), Some(after)),
+        );
         let candidate = report(&support::run("candidate", &root, Some(&diff), None));
         assert_eq!(
             ["left", "right"].map(|name| support::recursive(function(&previous, name))),

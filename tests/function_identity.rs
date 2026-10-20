@@ -7,7 +7,7 @@ fn candidate(before: &str, after: &str, metrics: &str) -> Value {
     let file = temp.path().join("main.js");
     std::fs::write(&file, before).unwrap();
     std::fs::write(temp.path().join("package.json"), "{}").unwrap();
-    let diff = support::patch("main.js", before, after);
+    let diff = support::patch("main.js", Some(before), Some(after));
     let diff_path = temp.path().join("change.diff");
     std::fs::write(&diff_path, diff).unwrap();
     support::report(&support::run(
