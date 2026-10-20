@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::super::{SyntaxEvent, SyntaxRole};
-use super::{Context, contribution};
+use super::{Context, ancestors, contribution};
 
 impl Context<'_> {
     pub(super) fn logical_contributions(
@@ -61,15 +61,8 @@ fn logical_root(
     parentheses: &std::collections::HashSet<usize>,
     parents: &HashMap<usize, Option<usize>>,
 ) -> usize {
-    let mut current = expression;
-    loop {
-        let Some(parent) = parents.get(&current).copied().flatten() else {
-            return current;
-        };
-        if logical_expressions.contains(&parent) || parentheses.contains(&parent) {
-            current = parent;
-        } else {
-            return current;
-        }
-    }
+    ancestors(expression, parents)
+        .take_while(|parent| logical_expressions.contains(parent) || parentheses.contains(parent))
+        .last()
+        .unwrap_or(expression)
 }

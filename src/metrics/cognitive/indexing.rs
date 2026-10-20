@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::super::{SyntaxEvent, SyntaxRole, cyclomatic::FunctionScope};
-use super::Context;
+use super::{Context, ancestors};
 
 impl<'a> Context<'a> {
     /// Build indexes for one syntax tree.
@@ -55,13 +55,17 @@ impl<'a> Context<'a> {
         }
         let mut else_if_parent = HashMap::new();
         for boundary in &else_if_boundaries {
-            if let Some(parent_if) = nearest_ancestor(*boundary, parents, &if_nodes) {
+            if let Some(parent_if) =
+                ancestors(*boundary, parents).find(|node| if_nodes.contains(node))
+            {
                 else_if_parent.insert(*boundary, parent_if);
             }
         }
         let mut condition_parent = HashMap::new();
         for boundary in &condition_boundaries {
-            if let Some(control) = nearest_ancestor(*boundary, parents, &pre_nesting_controls) {
+            if let Some(control) =
+                ancestors(*boundary, parents).find(|node| pre_nesting_controls.contains(node))
+            {
                 condition_parent.insert(*boundary, control);
             }
         }
@@ -90,11 +94,9 @@ impl<'a> Context<'a> {
             .copied()
             .into_iter()
             .collect::<Vec<_>>();
-        let mut current = self.parents.get(&event.node_id).copied().flatten();
-        while let Some(node) = current {
+        for node in ancestors(event.node_id, self.parents) {
             suppressed.extend(self.else_if_parent.get(&node).copied());
             suppressed.extend(self.condition_parent.get(&node).copied());
-            current = self.parents.get(&node).copied().flatten();
         }
         suppressed
     }
@@ -106,8 +108,7 @@ impl<'a> Context<'a> {
         suppressed: &[usize],
     ) -> usize {
         let mut result = 0;
-        let mut current = self.parents.get(&event.node_id).copied().flatten();
-        while let Some(node) = current {
+        for node in ancestors(event.node_id, self.parents) {
             match self.roles.get(&node) {
                 Some(
                     SyntaxRole::CognitiveIf
@@ -128,23 +129,7 @@ impl<'a> Context<'a> {
                 }
                 _ => {}
             }
-            current = self.parents.get(&node).copied().flatten();
         }
         result
     }
-}
-
-fn nearest_ancestor(
-    node_id: usize,
-    parents: &HashMap<usize, Option<usize>>,
-    targets: &HashSet<usize>,
-) -> Option<usize> {
-    let mut current = parents.get(&node_id).copied().flatten();
-    while let Some(node) = current {
-        if targets.contains(&node) {
-            return Some(node);
-        }
-        current = parents.get(&node).copied().flatten();
-    }
-    None
 }
