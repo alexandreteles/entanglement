@@ -34,54 +34,38 @@ fn module_path_edits_use_virtual_manifest_bytes_and_match_fresh_analysis() {
 }
 
 #[test]
-fn creating_a_nested_manifest_removes_false_parent_module_targets() {
-    let temp = tempfile::tempdir().unwrap();
-    let root = temp.path().join("app");
-    write(&root.join("go.mod"), "module example.com/app\n");
-    write(&root.join("sub/sub.go"), "package sub\nfunc F() {}\n");
-    write(
-        &root.join("main.go"),
-        "package app\nimport \"example.com/app/sub\"\nfunc Use() { sub.F() }\n",
-    );
-    let diff = temp.path().join("change.diff");
-    write(
-        &diff,
-        "--- /dev/null\n+++ b/sub/go.mod\n@@ -0,0 +1 @@\n+module example.com/other\n",
-    );
-    let candidate = report(&support::run("candidate", &root, Some(&diff), None));
-    assert!(!root.join("sub/go.mod").exists());
-    assert_eq!(
-        status(&resolutions(file(&candidate, "main.go")), "sub.F"),
-        ["unresolved"]
-    );
-    write(&root.join("sub/go.mod"), "module example.com/other\n");
-    let fresh = report(&support::run("repo", &root, None, None));
-    assert_eq!(candidate["files"], fresh["files"]);
-}
-
-#[test]
-fn deleting_a_nested_manifest_restores_parent_module_resolution() {
-    let temp = tempfile::tempdir().unwrap();
-    let root = temp.path().join("app");
-    write(&root.join("go.mod"), "module example.com/app\n");
-    write(&root.join("sub/go.mod"), "module example.com/other\n");
-    write(&root.join("sub/sub.go"), "package sub\nfunc F() {}\n");
-    write(
-        &root.join("main.go"),
-        "package app\nimport \"example.com/app/sub\"\nfunc Use() { sub.F() }\n",
-    );
-    let diff = temp.path().join("change.diff");
-    write(
-        &diff,
-        "--- a/sub/go.mod\n+++ /dev/null\n@@ -1 +0,0 @@\n-module example.com/other\n",
-    );
-    let candidate = report(&support::run("candidate", &root, Some(&diff), None));
-    assert!(root.join("sub/go.mod").exists());
-    assert_eq!(
-        status(&resolutions(file(&candidate, "main.go")), "sub.F"),
-        ["exact sub.go:F"]
-    );
-    std::fs::remove_file(root.join("sub/go.mod")).unwrap();
-    let fresh = report(&support::run("repo", &root, None, None));
-    assert_eq!(candidate["files"], fresh["files"]);
+fn nested_manifest_creation_and_deletion_use_the_candidate_snapshot() {
+    const MODULE: &str = "module example.com/other\n";
+    for (before, after, expected) in [
+        (None, Some(MODULE), "unresolved"),
+        (Some(MODULE), None, "exact sub.go:F"),
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("app");
+        write(&root.join("go.mod"), "module example.com/app\n");
+        write(&root.join("sub/sub.go"), "package sub\nfunc F() {}\n");
+        write(
+            &root.join("main.go"),
+            "package app\nimport \"example.com/app/sub\"\nfunc Use() { sub.F() }\n",
+        );
+        let manifest = root.join("sub/go.mod");
+        if let Some(source) = before {
+            write(&manifest, source);
+        }
+        let diff = temp.path().join("change.diff");
+        write(&diff, &support::patch("sub/go.mod", before, after));
+        let candidate = report(&support::run("candidate", &root, Some(&diff), None));
+        assert_eq!(manifest.exists(), before.is_some());
+        assert_eq!(std::fs::read_to_string(&manifest).ok().as_deref(), before);
+        assert_eq!(
+            status(&resolutions(file(&candidate, "main.go")), "sub.F"),
+            [expected]
+        );
+        match after {
+            Some(source) => write(&manifest, source),
+            None => std::fs::remove_file(&manifest).unwrap(),
+        }
+        let fresh = report(&support::run("repo", &root, None, None));
+        assert_eq!(candidate["files"], fresh["files"]);
+    }
 }

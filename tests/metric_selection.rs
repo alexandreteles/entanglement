@@ -1,3 +1,6 @@
+mod support;
+use support::report as json;
+
 #[path = "metric_selection/assertions.rs"]
 mod assertions;
 #[path = "metric_selection/fixture.rs"]
@@ -9,30 +12,20 @@ use fixture::*;
 const METRICS: &[&str] = &["nloc", "cc", "density", "cogc", "halstead", "mi"];
 
 #[test]
-fn every_metric_projects_consistently_in_json_across_all_commands() {
+fn each_command_projects_selected_metrics_in_json_and_human_reports() {
     let project = project();
     for mode in modes(&project) {
         let all = json(&run(&mode, "json", &["all"], true));
         for metric in METRICS {
             let selected = json(&run(&mode, "json", &[*metric], false));
             assert_json_selection(&all, &selected, metric);
-        }
-    }
-}
-
-#[test]
-fn human_reports_show_nloc_and_only_the_selected_metric_for_each_command() {
-    let project = project();
-    for mode in modes(&project) {
-        for metric in METRICS {
-            let output = run(&mode, "human", &[*metric], true);
+            let human = run(&mode, "human", &[*metric], true);
             assert!(
-                output.status.success(),
+                human.status.success(),
                 "{}",
-                String::from_utf8_lossy(&output.stderr)
+                String::from_utf8_lossy(&human.stderr)
             );
-            let output = String::from_utf8(output.stdout).expect("human report is UTF-8");
-            assert_human_selection(&output, metric);
+            assert_human_selection(&String::from_utf8(human.stdout).unwrap(), metric);
         }
     }
 }
