@@ -145,7 +145,7 @@ fn candidate_for_symbol<'a>(
     semantic.clone().next()?;
     let definition = symbol.definition;
     let package = semantic
-        .find_map(|semantic| semantic.context.as_ref())
+        .find_map(|semantic| semantic.semantic.context.as_ref())
         .map_or(definition.module.0.as_slice(), |context| {
             context.package.as_slice()
         });

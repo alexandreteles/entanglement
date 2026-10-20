@@ -110,20 +110,19 @@ impl Index<'_> {
         file: usize,
         reference: &Reference,
         name: &str,
-    ) -> Option<&crate::graph::BindingType> {
+    ) -> Option<&crate::model::LocalBinding> {
         let semantic = self.graph.semantic(
             file,
             reference.context_id,
             Some(ResolutionFamily::PhpNamespaces),
         );
         let mut bindings = semantic
-            .flat_map(|semantic| &semantic.bindings)
+            .flat_map(crate::model::SemanticStore::semantic_bindings)
             .filter(|binding| {
                 binding.name == name
                     && binding.scope_start <= reference.start_byte
                     && reference.start_byte < binding.scope_end
-                    && self.callable_owner(file, binding.name_start_byte)
-                        == reference.execution_owner
+                    && self.callable_owner(file, binding.start_byte) == reference.execution_owner
             });
         let binding = bindings
             .clone()

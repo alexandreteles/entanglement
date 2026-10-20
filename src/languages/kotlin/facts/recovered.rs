@@ -80,6 +80,7 @@ pub(in crate::languages::kotlin::facts) fn collect_recovered_type_definitions(
                 scope_start: local_scope.start,
                 scope_end: local_scope.end,
                 context_id: 0,
+                ..LocalBinding::default()
             });
         }
 

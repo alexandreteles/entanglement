@@ -128,6 +128,7 @@ fn add_module_assignment(
                 scope_start: root.start_byte(),
                 scope_end: root.end_byte(),
                 context_id: 0,
+                ..LocalBinding::default()
             });
         }
     }

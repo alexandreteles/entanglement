@@ -86,6 +86,7 @@ fn add_local(statement: Node<'_>, item: &ImportedName, facts: &mut SemanticFacts
         scope_start: scope.start_byte(),
         scope_end: scope.end_byte(),
         context_id: 0,
+        ..LocalBinding::default()
     });
 }
 

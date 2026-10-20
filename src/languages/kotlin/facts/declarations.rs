@@ -161,20 +161,19 @@ pub(super) fn capture_local_binding(
         .unwrap_or_else(|| executable_body(outer_callable));
     let (type_name, alias_target, callable_reference, immutable) =
         local_property_metadata(node, source, declared_type);
-    push_binding(
-        result,
-        BindingType {
-            name: name.to_owned(),
-            name_start_byte: name_range.0,
-            name_end_byte: name_range.1,
-            scope_start: local_scope.start,
-            scope_end: local_scope.end,
-            type_name,
-            alias_target,
-            callable_reference,
-            immutable,
-        },
-    );
+    result.locals.push(LocalBinding {
+        evidence: BindingEvidence::Both,
+        context_id: 0,
+        name: name.to_owned(),
+        start_byte: name_range.0,
+        end_byte: name_range.1,
+        scope_start: local_scope.start,
+        scope_end: local_scope.end,
+        type_name,
+        alias_target,
+        callable_reference,
+        immutable,
+    });
 }
 
 pub(super) fn record_declared_name(sinks: &mut DefinitionSinks<'_>, name_node: Node<'_>) {

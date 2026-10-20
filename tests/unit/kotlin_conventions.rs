@@ -1,5 +1,7 @@
 use super::{all_nodes, capture};
-use crate::graph::{BindingType, CallConvention, ReceiverScope};
+use crate::graph::{CallConvention, ReceiverScope};
+use crate::model::BindingEvidence;
+use crate::model::LocalBinding;
 use tree_sitter::Node;
 
 fn parse(source: &str) -> tree_sitter::Tree {
@@ -12,7 +14,7 @@ fn parse(source: &str) -> tree_sitter::Tree {
 fn capture_fixture(
     root: Node<'_>,
     source: &str,
-    bindings: &[BindingType],
+    bindings: &[LocalBinding],
     receivers: &[ReceiverScope],
 ) -> super::ConventionFacts {
     let scope_index = crate::languages::kotlin::scopes::ScopeIndex::new(root, source.as_bytes());
@@ -90,10 +92,12 @@ fn infix_operator_is_selected_between_identifier_operands() {
     let source = "fun combine(value: Box, other: Box) = value merge other";
     let tree = parse(source);
     let value_start = source.find("value:").unwrap();
-    let binding = BindingType {
+    let binding = LocalBinding {
+        evidence: BindingEvidence::Both,
+        context_id: 0,
         name: "value".into(),
-        name_start_byte: value_start,
-        name_end_byte: value_start + "value".len(),
+        start_byte: value_start,
+        end_byte: value_start + "value".len(),
         scope_start: 0,
         scope_end: source.len(),
         type_name: Some("Box".into()),
@@ -133,10 +137,12 @@ fn typed_index_and_object_call_emit_get_set_and_invoke() {
     let box_start = source.find("box:").unwrap();
     let action_start = source.find("action:").unwrap();
     let bindings = [
-        BindingType {
+        LocalBinding {
+            evidence: BindingEvidence::Both,
+            context_id: 0,
             name: "box".into(),
-            name_start_byte: box_start,
-            name_end_byte: box_start + 3,
+            start_byte: box_start,
+            end_byte: box_start + 3,
             scope_start: 0,
             scope_end: source.len(),
             type_name: Some("Box".into()),
@@ -144,10 +150,12 @@ fn typed_index_and_object_call_emit_get_set_and_invoke() {
             callable_reference: false,
             immutable: true,
         },
-        BindingType {
+        LocalBinding {
+            evidence: BindingEvidence::Both,
+            context_id: 0,
             name: "action".into(),
-            name_start_byte: action_start,
-            name_end_byte: action_start + 6,
+            start_byte: action_start,
+            end_byte: action_start + 6,
             scope_start: 0,
             scope_end: source.len(),
             type_name: Some("Action".into()),

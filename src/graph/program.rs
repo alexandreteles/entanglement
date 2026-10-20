@@ -3,8 +3,8 @@ use std::path::PathBuf;
 
 use crate::languages::{FileModuleRules, ResolutionFamily};
 use crate::model::{
-    Definition, Export, FileAnalysis, FileFacts, Import, LocalBinding, ModulePath, Reference,
-    SymbolId,
+    BindingEvidence, Definition, Export, FileAnalysis, FileFacts, Import, LocalBinding, ModulePath,
+    Reference, SemanticStore, SymbolId,
 };
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
@@ -116,15 +116,17 @@ impl<'a> FileFactsView<'a> {
             .contexts
             .iter()
             .flat_map(|store| &store.locals)
-            .filter(|item| self.allows(item.context_id))
+            .filter(|item| {
+                item.evidence != BindingEvidence::Semantic && self.allows(item.context_id)
+            })
     }
 
-    pub(crate) fn semantic(&self) -> impl Iterator<Item = &'a super::SemanticFacts> + Clone + '_ {
+    pub(crate) fn semantic(&self) -> impl Iterator<Item = &'a SemanticStore> + Clone + '_ {
         self.canonical
             .context_order
             .iter()
-            .map(|index| &self.canonical.contexts[*index].semantic)
-            .filter(|item| self.allows(item.context_id))
+            .map(|index| &self.canonical.contexts[*index])
+            .filter(|item| self.allows(item.semantic.context_id))
     }
 }
 
@@ -182,26 +184,26 @@ pub(crate) struct ProgramScope {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct ProgramBinding {
-    pub name: String,
-    pub start_byte: usize,
-    pub end_byte: usize,
+pub(crate) struct ProgramBinding<'a> {
+    local: &'a LocalBinding,
     pub scope: ProgramScopeId,
-    pub type_name: Option<String>,
-    pub alias_target: Option<String>,
+    pub type_name: Option<&'a str>,
+    pub alias_target: Option<&'a str>,
     pub callable_reference: bool,
     pub immutable: bool,
     semantic_evidence: bool,
     conflicting_evidence: bool,
 }
 
-impl ProgramBinding {
-    fn new(scope: ProgramScopeId, name: String, range: std::ops::Range<usize>) -> Self {
+impl<'a> ProgramBinding<'a> {
+    fn new(file_index: usize, local: &'a LocalBinding) -> Self {
         Self {
-            name,
-            start_byte: range.start,
-            end_byte: range.end,
-            scope,
+            local,
+            scope: ProgramScopeId::new(
+                file_index,
+                local.context_id,
+                local.scope_start..local.scope_end,
+            ),
             type_name: None,
             alias_target: None,
             callable_reference: false,
@@ -232,8 +234,8 @@ pub(crate) struct ProgramIndexes<'a> {
     scopes: Vec<ProgramScope>,
     scopes_by_file: Vec<Vec<usize>>,
     scope_by_id: HashMap<ProgramScopeId, usize>,
-    bindings: Vec<ProgramBinding>,
-    bindings_by_file_name: Vec<HashMap<String, Vec<usize>>>,
+    bindings: Vec<ProgramBinding<'a>>,
+    bindings_by_file_name: Vec<HashMap<&'a str, Vec<usize>>>,
     aliases: BTreeMap<PathBuf, BTreeSet<usize>>,
 }
 

@@ -84,7 +84,7 @@ impl<'a> ProgramGraph<'a> {
         name: &str,
         context_id: usize,
         position: usize,
-    ) -> impl Iterator<Item = &ProgramBinding> {
+    ) -> impl Iterator<Item = &ProgramBinding<'a>> {
         self.bindings_by_file_name[file_index]
             .get(name)
             .into_iter()
@@ -93,7 +93,7 @@ impl<'a> ProgramGraph<'a> {
             .filter(move |binding| {
                 self.file(file_index).allows(binding.scope.context_id)
                     && binding.scope.context_id == context_id
-                    && binding.start_byte <= position
+                    && binding.local.start_byte <= position
                     && binding.scope.start_byte <= position
                     && position < binding.scope.end_byte
             })
@@ -109,7 +109,7 @@ impl<'a> ProgramGraph<'a> {
         name: &str,
         context_id: usize,
         position: usize,
-    ) -> Option<&ProgramBinding> {
+    ) -> Option<&ProgramBinding<'a>> {
         let mut nearest = self
             .bindings_named(file_index, name, context_id, position)
             .collect::<Vec<_>>();
@@ -121,10 +121,13 @@ impl<'a> ProgramGraph<'a> {
         }) {
             return None;
         }
-        let latest = nearest.iter().map(|binding| binding.start_byte).max()?;
+        let latest = nearest
+            .iter()
+            .map(|binding| binding.local.start_byte)
+            .max()?;
         let mut winners = nearest
             .into_iter()
-            .filter(|binding| binding.start_byte == latest);
+            .filter(|binding| binding.local.start_byte == latest);
         let winner = winners.next()?;
         (winners.next().is_none() && !winner.conflicting_evidence).then_some(winner)
     }
@@ -142,12 +145,14 @@ impl<'a> ProgramGraph<'a> {
     }
 }
 
-pub(super) fn binding_identity(binding: &ProgramBinding) -> (ProgramScopeId, &str, usize, usize) {
+pub(super) fn binding_identity<'a>(
+    binding: &ProgramBinding<'a>,
+) -> (ProgramScopeId, &'a str, usize, usize) {
     (
         binding.scope,
-        &binding.name,
-        binding.start_byte,
-        binding.end_byte,
+        binding.local.name.as_str(),
+        binding.local.start_byte,
+        binding.local.end_byte,
     )
 }
 impl<'a> ProgramGraph<'a> {
@@ -214,7 +219,7 @@ impl<'a> ProgramGraph<'a> {
         let mut callable_reference = false;
         loop {
             if let Some(type_name) = current.type_name.as_ref().filter(|_| resolve_type) {
-                return Some(BindingAlias::Type(type_name.clone()));
+                return Some(BindingAlias::Type((*type_name).to_owned()));
             }
             if !current.immutable || !seen.insert(binding_identity(current)) {
                 return None;
@@ -222,7 +227,7 @@ impl<'a> ProgramGraph<'a> {
             callable_reference |= current.callable_reference;
             let target = current.alias_target.as_deref()?;
             let next = (!target.is_empty() && !target.contains('.'))
-                .then(|| self.binding_at(file_index, target, context_id, current.end_byte))
+                .then(|| self.binding_at(file_index, target, context_id, current.local.end_byte))
                 .flatten()
                 .filter(|binding| {
                     resolve_type || (binding.immutable && binding.alias_target.is_some())
@@ -232,7 +237,7 @@ impl<'a> ProgramGraph<'a> {
                     file_index,
                     target.split('.').next()?,
                     context_id,
-                    current.end_byte,
+                    current.local.end_byte,
                 ))
                 .then(|| BindingAlias::Path {
                     path: target.to_owned(),

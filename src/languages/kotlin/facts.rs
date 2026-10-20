@@ -8,13 +8,13 @@ use tree_sitter::Node;
 use super::{all_nodes, named_children};
 
 use crate::graph::{
-    BindingType, CallArgumentFact, CallFacts, CallableParameter, CallableSignature,
-    CallableTypeParameter, DeclarationExecutionFacts, DeclarationFacts, DeclarationKind,
-    DeclarationModifiers, ReceiverScope, SemanticContext, SemanticVisibility,
+    CallArgumentFact, CallFacts, CallableParameter, CallableSignature, CallableTypeParameter,
+    DeclarationExecutionFacts, DeclarationFacts, DeclarationKind, DeclarationModifiers,
+    ReceiverScope, SemanticContext, SemanticVisibility,
 };
 use crate::model::{
-    Definition, DefinitionKind, Import, LocalBinding, ModulePath, Reference, ReferenceAccess,
-    ReferenceKind, SourceRange,
+    BindingEvidence, Definition, DefinitionKind, Import, LocalBinding, ModulePath, Reference,
+    ReferenceAccess, ReferenceKind, SourceRange,
 };
 
 mod bindings;
@@ -99,13 +99,10 @@ pub(super) fn capture(scope_index: &super::scopes::ScopeIndex<'_>) -> Capture {
     result.imports = imports;
     collect_locals(source, nodes, &declared_names, &mut result);
     collect_context_facts(nodes, contexts, &mut result);
-    result.semantic.calls = collect_calls(nodes, source, &result.semantic.bindings);
+    result.semantic.calls = collect_calls(nodes, source, &result.locals);
     result.references = collect_references(scope_index, nodes, &excluded);
-    let conventions = super::conventions::capture(
-        &result.semantic.bindings,
-        &result.semantic.receivers,
-        scope_index,
-    );
+    let conventions =
+        super::conventions::capture(&result.locals, &result.semantic.receivers, scope_index);
     let convention_ranges = conventions
         .references
         .iter()

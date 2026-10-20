@@ -4,7 +4,7 @@ mod facts;
 mod program;
 
 pub(crate) use facts::{
-    BindingType, CallArgumentFact, CallConvention, CallDispatch, CallFacts, CallableParameter,
+    CallArgumentFact, CallConvention, CallDispatch, CallFacts, CallableParameter,
     CallableSignature, CallableTypeParameter, DeclarationExecutionFacts, DeclarationFacts,
     DeclarationKind, DeclarationModifiers, PhpDeclaration, PhpFacts, PhpImport, PhpInclude,
     PhpNamespace, PhpReference, PhpReferenceKind, PhpSymbolKind, PhpTraitAdaptation, PhpTraitUse,

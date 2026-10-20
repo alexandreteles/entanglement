@@ -134,6 +134,7 @@ impl Extras {
                 scope_start: scope.start,
                 scope_end: scope.end,
                 context_id: 0,
+                ..LocalBinding::default()
             }));
     }
 

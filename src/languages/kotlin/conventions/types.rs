@@ -3,7 +3,7 @@ use super::*;
 pub(super) fn expression_type(
     node: Node<'_>,
     source: &[u8],
-    bindings: &[BindingType],
+    bindings: &[LocalBinding],
     receivers: &[ReceiverScope],
 ) -> Option<String> {
     if node.kind() == "this_expression" {
@@ -26,16 +26,17 @@ pub(super) fn expression_type(
     let name = name.trim_matches('`');
     bindings
         .iter()
+        .filter(|binding| binding.evidence != BindingEvidence::Lexical)
         .filter(|binding| {
             binding.name == name
-                && binding.name_start_byte <= node.start_byte()
+                && binding.start_byte <= node.start_byte()
                 && binding.scope_start <= node.start_byte()
                 && node.end_byte() <= binding.scope_end
         })
         .min_by_key(|binding| {
             (
                 binding.scope_end - binding.scope_start,
-                usize::MAX - binding.name_start_byte,
+                usize::MAX - binding.start_byte,
             )
         })
         .and_then(|binding| binding.type_name.clone())

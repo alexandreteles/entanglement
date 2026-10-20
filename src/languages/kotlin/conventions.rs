@@ -4,8 +4,10 @@ use std::ops::Range;
 
 use tree_sitter::Node;
 
-use crate::graph::{BindingType, CallArgumentFact, CallConvention, CallFacts, ReceiverScope};
-use crate::model::{ModulePath, Reference, ReferenceKind, SourceRange};
+use crate::graph::{CallArgumentFact, CallConvention, CallFacts, ReceiverScope};
+use crate::model::{
+    BindingEvidence, LocalBinding, ModulePath, Reference, ReferenceKind, SourceRange,
+};
 
 use super::{all_nodes, ancestors, named_children};
 
@@ -23,12 +25,12 @@ pub(in crate::languages::kotlin) struct ConventionFacts {
 
 pub(super) struct CaptureContext<'borrow, 'tree> {
     pub(super) scope_index: &'borrow super::scopes::ScopeIndex<'tree>,
-    pub(super) bindings: &'borrow [BindingType],
+    pub(super) bindings: &'borrow [LocalBinding],
     pub(super) receivers: &'borrow [ReceiverScope],
 }
 
 pub(in crate::languages::kotlin) fn capture(
-    bindings: &[BindingType],
+    bindings: &[LocalBinding],
     receivers: &[ReceiverScope],
     scope_index: &super::scopes::ScopeIndex<'_>,
 ) -> ConventionFacts {

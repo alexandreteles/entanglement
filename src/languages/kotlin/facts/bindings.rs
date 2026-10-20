@@ -38,20 +38,19 @@ fn collect_value_binding(
         .next_back()
         .map(|ty| normalized_type(text(ty, source)));
     let (alias_target, callable_reference) = local_alias(node, source);
-    push_binding(
-        result,
-        BindingType {
-            name: text(name_node, source).trim_matches('`').to_owned(),
-            name_start_byte: name_node.start_byte(),
-            name_end_byte: name_node.end_byte(),
-            scope_start: scope.start,
-            scope_end: scope.end,
-            type_name,
-            alias_target,
-            callable_reference,
-            immutable: is_immutable_binding(node, source),
-        },
-    );
+    result.locals.push(LocalBinding {
+        evidence: BindingEvidence::Both,
+        context_id: 0,
+        name: text(name_node, source).trim_matches('`').to_owned(),
+        start_byte: name_node.start_byte(),
+        end_byte: name_node.end_byte(),
+        scope_start: scope.start,
+        scope_end: scope.end,
+        type_name,
+        alias_target,
+        callable_reference,
+        immutable: is_immutable_binding(node, source),
+    });
 }
 
 fn local_alias(node: Node<'_>, source: &[u8]) -> (Option<String>, bool) {
@@ -155,37 +154,24 @@ pub(super) fn collect_context_facts(
                     });
                 }
                 (Some(name), Some(name_range)) => {
-                    push_binding(
-                        result,
-                        BindingType {
-                            name: name.clone(),
-                            name_start_byte: name_range.start,
-                            name_end_byte: name_range.end,
-                            scope_start: scope.start,
-                            scope_end: scope.end,
-                            type_name: Some(type_name),
-                            alias_target: None,
-                            callable_reference: false,
-                            immutable: true,
-                        },
-                    );
+                    result.locals.push(LocalBinding {
+                        evidence: BindingEvidence::Both,
+                        context_id: 0,
+                        name: name.clone(),
+                        start_byte: name_range.start,
+                        end_byte: name_range.end,
+                        scope_start: scope.start,
+                        scope_end: scope.end,
+                        type_name: Some(type_name),
+                        alias_target: None,
+                        callable_reference: false,
+                        immutable: true,
+                    });
                 }
                 _ => {}
             }
         }
     }
-}
-
-pub(super) fn push_binding(result: &mut Capture, binding: BindingType) {
-    result.locals.push(LocalBinding {
-        name: binding.name.clone(),
-        start_byte: binding.name_start_byte,
-        end_byte: binding.name_end_byte,
-        scope_start: binding.scope_start,
-        scope_end: binding.scope_end,
-        context_id: 0,
-    });
-    result.semantic.bindings.push(binding);
 }
 
 pub(super) fn binding_scope(node: Node<'_>) -> Option<Range<usize>> {

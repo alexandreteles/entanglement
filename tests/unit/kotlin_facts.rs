@@ -1,6 +1,7 @@
 use super::{
     all_nodes, collect_calls, collect_references, integer_literal_type, real_literal_type,
 };
+use crate::model::BindingEvidence;
 use crate::model::{ReferenceAccess, ReferenceKind};
 
 #[test]
@@ -56,10 +57,12 @@ fn binding_argument_types_keep_containing_argument_precedence() {
     parser.set_language(&language).unwrap();
     let tree = parser.parse(source, None).unwrap();
     let name_start = source.find("value:").unwrap();
-    let bindings = [crate::graph::BindingType {
+    let bindings = [crate::model::LocalBinding {
+        evidence: BindingEvidence::Both,
+        context_id: 0,
         name: "value".to_owned(),
-        name_start_byte: name_start,
-        name_end_byte: name_start + "value".len(),
+        start_byte: name_start,
+        end_byte: name_start + "value".len(),
         scope_start: 0,
         scope_end: source.len(),
         type_name: Some("Box".to_owned()),

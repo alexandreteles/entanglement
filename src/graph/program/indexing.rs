@@ -2,7 +2,7 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 
-use crate::model::{DefinitionKind, FileFacts, SourceRange, SymbolId};
+use crate::model::{DefinitionKind, FileFacts, SemanticStore, SourceRange, SymbolId};
 
 use super::bindings::binding_identity;
 use super::execution::execution_ranges;
@@ -212,46 +212,28 @@ impl<'a> ProgramGraph<'a> {
     }
 }
 impl<'a> ProgramGraph<'a> {
-    fn index_bindings(&mut self, file_index: usize, fact: &FileFacts) {
+    fn index_bindings(&mut self, file_index: usize, fact: &'a FileFacts) {
         let view = FileFactsView::new(fact);
-        let locals = view.locals().map(|local| {
-            ProgramBinding::new(
-                ProgramScopeId::new(
-                    file_index,
-                    local.context_id,
-                    local.scope_start..local.scope_end,
-                ),
-                local.name.clone(),
-                local.start_byte..local.end_byte,
-            )
-        });
-        for binding in locals {
-            self.add_binding(binding);
+        // Lexical scopes must precede all language evidence, including typed-only scopes.
+        for local in view.locals() {
+            self.add_binding(ProgramBinding::new(file_index, local));
         }
         for group in fact.context_order.chunk_by(|left, right| {
             fact.contexts[*left].context_key() == fact.contexts[*right].context_key()
         }) {
             let context_id = fact.contexts[group[0]].semantic.context_id;
-            let stores = group.iter().map(|index| &fact.contexts[*index].semantic);
-            for binding in stores.clone().flat_map(|store| &store.bindings) {
+            let stores = group.iter().map(|index| &fact.contexts[*index]);
+            for binding in stores.clone().flat_map(SemanticStore::semantic_bindings) {
                 self.add_binding(ProgramBinding {
-                    type_name: binding.type_name.clone(),
-                    alias_target: binding.alias_target.clone(),
+                    type_name: binding.type_name.as_deref(),
+                    alias_target: binding.alias_target.as_deref(),
                     callable_reference: binding.callable_reference,
                     immutable: binding.immutable,
                     semantic_evidence: true,
-                    ..ProgramBinding::new(
-                        ProgramScopeId::new(
-                            file_index,
-                            context_id,
-                            binding.scope_start..binding.scope_end,
-                        ),
-                        binding.name.clone(),
-                        binding.name_start_byte..binding.name_end_byte,
-                    )
+                    ..ProgramBinding::new(file_index, binding)
                 });
             }
-            for receiver in stores.flat_map(|store| &store.receivers) {
+            for receiver in stores.flat_map(|store| &store.semantic.receivers) {
                 self.add_scope(ProgramScopeId::new(
                     file_index,
                     context_id,
@@ -260,10 +242,10 @@ impl<'a> ProgramGraph<'a> {
             }
         }
     }
-    fn add_binding(&mut self, binding: ProgramBinding) {
+    fn add_binding(&mut self, binding: ProgramBinding<'a>) {
         self.add_scope(binding.scope);
         let existing = self.bindings_by_file_name[binding.scope.file_index]
-            .get(&binding.name)
+            .get(binding.local.name.as_str())
             .into_iter()
             .flatten()
             .copied()
@@ -278,8 +260,8 @@ impl<'a> ProgramGraph<'a> {
                             || conflicting_option(&existing.alias_target, &binding.alias_target)
                             || existing.callable_reference != binding.callable_reference
                             || existing.immutable != binding.immutable;
-                    existing.type_name = existing.type_name.take().or(binding.type_name);
-                    existing.alias_target = existing.alias_target.take().or(binding.alias_target);
+                    existing.type_name = existing.type_name.or(binding.type_name);
+                    existing.alias_target = existing.alias_target.or(binding.alias_target);
                     existing.callable_reference |= binding.callable_reference;
                     existing.immutable &= binding.immutable;
                 }
@@ -289,7 +271,7 @@ impl<'a> ProgramGraph<'a> {
         }
         let index = self.bindings.len();
         self.bindings_by_file_name[binding.scope.file_index]
-            .entry(binding.name.clone())
+            .entry(binding.local.name.as_str())
             .or_default()
             .push(index);
         self.bindings.push(binding);

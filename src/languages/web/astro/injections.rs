@@ -76,6 +76,7 @@ fn define_vars(opening: Node<'_>, source: &[u8], body: &Range<usize>) -> Vec<Loc
             scope_start: body.start,
             scope_end: body.end,
             context_id: 0,
+            ..LocalBinding::default()
         })
         .collect()
 }

@@ -18,8 +18,6 @@ pub(crate) struct SemanticFacts {
     /// Resolution policy for this layer; grammar details stay in adapters.
     pub resolution_family: Option<crate::languages::ResolutionFamily>,
     pub file_module_rules: Option<&'static crate::languages::FileModuleRules>,
-    /// Statically declared or narrowly inferred local binding types.
-    pub bindings: Vec<BindingType>,
     /// Receiver types that are in scope at a source range.
     pub receivers: Vec<ReceiverScope>,
     /// Type evidence for individual call expressions.
@@ -136,25 +134,6 @@ pub(crate) struct CallableParameter {
     pub type_name: Option<String>,
     pub has_default: bool,
     pub is_vararg: bool,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct BindingType {
-    /// Bound source name and the byte range of the name token.
-    pub name: String,
-    pub name_start_byte: usize,
-    pub name_end_byte: usize,
-    /// Lexical scope in which the binding shadows package declarations.
-    pub scope_start: usize,
-    pub scope_end: usize,
-    /// Explicit type or a type inferred from a direct, unambiguous initializer.
-    pub type_name: Option<String>,
-    /// A simple value alias, retained only when the initializer is a bare path.
-    pub alias_target: Option<String>,
-    /// The initializer is an explicit callable reference such as `::handler`.
-    pub callable_reference: bool,
-    /// `val`/parameter bindings are immutable; `var` bindings are not.
-    pub immutable: bool,
 }
 
 #[derive(Clone, Debug)]

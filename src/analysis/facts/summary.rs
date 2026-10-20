@@ -45,22 +45,11 @@ pub(in crate::analysis) fn summary(
         });
     }
     semantic
-        .bindings
-        .retain(|item| !inside_any(item.name_start_byte..item.name_end_byte, &excluded));
-    semantic
         .receivers
         .retain(|item| !inside_any(item.start_byte..item.end_byte, &excluded));
     semantic
         .calls
         .retain(|item| !inside_any(item.start_byte..item.end_byte, &excluded));
-    for binding in &mut semantic.bindings {
-        inherit_scope(
-            &mut binding.scope_start,
-            &mut binding.scope_end,
-            owner_range,
-            inherited_scope,
-        );
-    }
     let definitions = &mut facts.definitions;
     definitions.retain(|item| !inside_any(item.start_byte..item.end_byte, &excluded));
     for definition in definitions.iter_mut() {

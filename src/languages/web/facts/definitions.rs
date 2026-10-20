@@ -118,6 +118,7 @@ impl CaptureFacts {
                 scope_start,
                 scope_end,
                 context_id: 0,
+                ..LocalBinding::default()
             });
         }
     }
