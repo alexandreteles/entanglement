@@ -103,30 +103,37 @@ impl<'a> CaptureFacts<'a> {
         captures: &[tree_sitter::QueryCapture<'a>],
         source: &[u8],
     ) {
+        let call = captures
+            .iter()
+            .any(|item| item.index == query.reference_call);
+        let implementation = captures
+            .iter()
+            .any(|item| item.index == query.reference_implementation);
         for name in captures.iter().filter(|item| item.index == query.name) {
             let name_node = name.node;
-            for (definition_id, kind) in &query.definitions {
-                if let Some(definition) = captures.iter().find(|item| {
-                    item.index == *definition_id
-                        && item.node.start_byte() <= name_node.start_byte()
-                        && name_node.end_byte() <= item.node.end_byte()
-                }) {
-                    self.definitions
-                        .push(raw_definition(definition.node, name_node, kind));
-                }
+            self.definitions.extend(query.definitions.iter().filter_map(
+                |(definition_id, kind)| {
+                    captures
+                        .iter()
+                        .find(|item| {
+                            item.index == *definition_id
+                                && item.node.start_byte() <= name_node.start_byte()
+                                && name_node.end_byte() <= item.node.end_byte()
+                        })
+                        .map(|definition| raw_definition(definition.node, name_node, kind))
+                },
+            ));
+            if call {
+                let kind = if name_node.kind() == "field_identifier" {
+                    ReferenceKind::Method
+                } else {
+                    ReferenceKind::Call
+                };
+                self.references.push(raw_reference(name_node, kind, source));
             }
-            for (capture_id, kind) in [
-                (query.reference_call, None),
-                (query.reference_implementation, Some(ReferenceKind::Type)),
-            ] {
-                if captures.iter().any(|item| item.index == capture_id) {
-                    let kind = kind.unwrap_or(if name_node.kind() == "field_identifier" {
-                        ReferenceKind::Method
-                    } else {
-                        ReferenceKind::Call
-                    });
-                    self.references.push(raw_reference(name_node, kind, source));
-                }
+            if implementation {
+                self.references
+                    .push(raw_reference(name_node, ReferenceKind::Type, source));
             }
         }
     }
