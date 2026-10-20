@@ -159,3 +159,13 @@ fn contribution(event: &SyntaxEvent, kind: &str, value: usize) -> ComplexityCont
 fn contains_range(outer: &std::ops::Range<usize>, inner: &std::ops::Range<usize>) -> bool {
     outer.start <= inner.start && inner.end <= outer.end
 }
+
+/// Iterate from the immediate parent to the root of one syntax node.
+fn ancestors(
+    node: usize,
+    parents: &HashMap<usize, Option<usize>>,
+) -> impl Iterator<Item = usize> + '_ {
+    std::iter::successors(parents.get(&node).copied().flatten(), |node| {
+        parents.get(node).copied().flatten()
+    })
+}
