@@ -1,8 +1,9 @@
 use std::ops::Range;
+use tree_sitter::Node;
 
 use super::super::capture::has_visibility;
 use super::super::scopes::{lexical_scope, relative_module};
-use super::super::{CaptureFacts, ModuleSpan, NodeGraph, RawImport};
+use super::super::{CaptureFacts, ModuleSpan, RawImport, node_text};
 use super::paths::{is_path_node, is_use_node, path_segments};
 use crate::model::Import;
 
@@ -13,23 +14,23 @@ impl CaptureFacts<'_> {
         root: &Range<usize>,
     ) -> Vec<Import> {
         let mut raw = Vec::new();
-        for id in &self.import_roots {
-            flatten_import(*id, has_visibility(*id, &self.graph), &self.graph, &mut raw);
+        for node in &self.import_roots {
+            if let Some(argument) = node.child_by_field_name("argument") {
+                flatten_use_node(argument, &[], has_visibility(*node), self.source, &mut raw);
+            }
         }
         raw.into_iter()
             .map(|import| {
-                let module = relative_module(import.range.start, modules);
-                let (scope_start, scope_end) =
-                    lexical_scope(import.node_id, false, &self.graph, root);
+                let (scope_start, scope_end) = lexical_scope(import.node, false, root);
                 Import {
                     path: import.path,
                     alias: import.alias,
                     source: None,
                     imported_name: None,
                     namespace: false,
-                    start_byte: import.range.start,
-                    end_byte: import.range.end,
-                    module,
+                    start_byte: import.node.start_byte(),
+                    end_byte: import.node.end_byte(),
+                    module: relative_module(import.node.start_byte(), modules),
                     scope_start,
                     scope_end,
                     is_public: import.is_public,
@@ -40,118 +41,76 @@ impl CaptureFacts<'_> {
     }
 }
 
-fn flatten_import(
-    root: usize,
-    is_public: bool,
-    graph: &NodeGraph<'_>,
-    imports: &mut Vec<RawImport>,
-) {
-    let Some(argument) = graph.child_by_field(root, "argument") else {
-        return;
-    };
-    flatten_use_node(argument, &[], is_public, graph, imports);
-}
-
-fn flatten_use_node(
-    node_id: usize,
+fn flatten_use_node<'tree>(
+    node: Node<'tree>,
     prefix: &[String],
     is_public: bool,
-    graph: &NodeGraph<'_>,
-    imports: &mut Vec<RawImport>,
+    source: &[u8],
+    imports: &mut Vec<RawImport<'tree>>,
 ) {
-    let Some(node) = graph.node(node_id) else {
-        return;
-    };
     match node.kind() {
-        "scoped_use_list" => flatten_scoped_use_list(node_id, prefix, is_public, graph, imports),
-        "use_list" => flatten_use_list(node, prefix, is_public, graph, imports),
-        "use_as_clause" => {
-            let path = field_path(node_id, prefix, graph);
-            let alias = graph
-                .child_by_field(node_id, "alias")
-                .and_then(|alias| graph.text(alias));
-            push_import(node_id, node, path, alias, is_public, imports);
+        "scoped_use_list" => {
+            let path = field_path(node, prefix, source);
+            if let Some(list) = node.child_by_field_name("list") {
+                flatten_use_node(list, &path, is_public, source, imports);
+            }
         }
-        "use_wildcard" => flatten_wildcard(node, prefix, is_public, graph, imports),
+        "use_list" => {
+            let mut cursor = node.walk();
+            node.children(&mut cursor)
+                .filter(|child| is_use_node(*child))
+                .for_each(|child| flatten_use_node(child, prefix, is_public, source, imports));
+        }
+        "use_as_clause" => {
+            let path = field_path(node, prefix, source);
+            let alias = node
+                .child_by_field_name("alias")
+                .map(|alias| node_text(alias, source));
+            push_import(node, path, alias, is_public, imports);
+        }
+        "use_wildcard" => {
+            let mut path = prefix.to_vec();
+            let mut cursor = node.walk();
+            path.extend(
+                node.children(&mut cursor)
+                    .filter(|child| is_path_node(*child))
+                    .flat_map(|child| path_segments(child, source)),
+            );
+            path.push("*".into());
+            push_import(node, path, None, is_public, imports);
+        }
         "self" if !prefix.is_empty() => {
-            push_import(node_id, node, prefix.to_vec(), None, is_public, imports);
+            push_import(node, prefix.to_vec(), None, is_public, imports)
         }
         _ => {
             let mut path = prefix.to_vec();
-            path.extend(path_segments(node_id, graph));
-            push_import(node_id, node, path, None, is_public, imports);
+            path.extend(path_segments(node, source));
+            push_import(node, path, None, is_public, imports);
         }
     }
 }
 
-fn flatten_scoped_use_list(
-    node_id: usize,
-    prefix: &[String],
-    is_public: bool,
-    graph: &NodeGraph<'_>,
-    imports: &mut Vec<RawImport>,
-) {
-    let path = field_path(node_id, prefix, graph);
-    if let Some(list) = graph.child_by_field(node_id, "list") {
-        flatten_use_node(list, &path, is_public, graph, imports);
-    }
-}
-
-fn flatten_use_list(
-    node: tree_sitter::Node<'_>,
-    prefix: &[String],
-    is_public: bool,
-    graph: &NodeGraph<'_>,
-    imports: &mut Vec<RawImport>,
-) {
-    let mut cursor = node.walk();
-    node.children(&mut cursor)
-        .filter(|child| is_use_node(child.id(), graph))
-        .for_each(|child| flatten_use_node(child.id(), prefix, is_public, graph, imports));
-}
-
-fn flatten_wildcard(
-    node: tree_sitter::Node<'_>,
-    prefix: &[String],
-    is_public: bool,
-    graph: &NodeGraph<'_>,
-    imports: &mut Vec<RawImport>,
-) {
+fn field_path(node: Node<'_>, prefix: &[String], source: &[u8]) -> Vec<String> {
     let mut path = prefix.to_vec();
-    let mut cursor = node.walk();
-    path.extend(
-        node.children(&mut cursor)
-            .filter(|child| is_path_node(child.id(), graph))
-            .flat_map(|child| path_segments(child.id(), graph)),
-    );
-    path.push("*".into());
-    push_import(node.id(), node, path, None, is_public, imports);
-}
-
-fn field_path(node_id: usize, prefix: &[String], graph: &NodeGraph<'_>) -> Vec<String> {
-    let mut path = prefix.to_vec();
-    if let Some(path_node) = graph.child_by_field(node_id, "path") {
-        path.extend(path_segments(path_node, graph));
+    if let Some(path_node) = node.child_by_field_name("path") {
+        path.extend(path_segments(path_node, source));
     }
     path
 }
 
-fn push_import(
-    node_id: usize,
-    node: tree_sitter::Node<'_>,
+fn push_import<'tree>(
+    node: Node<'tree>,
     path: Vec<String>,
     alias: Option<String>,
     is_public: bool,
-    imports: &mut Vec<RawImport>,
+    imports: &mut Vec<RawImport<'tree>>,
 ) {
-    if path.is_empty() {
-        return;
+    if !path.is_empty() {
+        imports.push(RawImport {
+            node,
+            path,
+            alias,
+            is_public,
+        });
     }
-    imports.push(RawImport {
-        node_id,
-        path,
-        alias,
-        range: node.byte_range(),
-        is_public,
-    });
 }

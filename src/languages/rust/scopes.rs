@@ -1,46 +1,35 @@
 use std::ops::Range;
+use tree_sitter::Node;
 
-use super::{LocalScopeKind, ModuleSpan, NodeGraph, RawLocal};
+use super::{LocalScopeKind, ModuleSpan, RawLocal, node_text};
+use crate::languages::syntax::ancestors;
 use crate::model::{LocalBinding, ModulePath};
 
-pub(super) fn local_bindings(local: &RawLocal, graph: &NodeGraph<'_>) -> Vec<LocalBinding> {
-    let names = local.pattern.map_or_else(
-        || {
-            graph
-                .node(local.owner)
-                .map(|node| vec![("self".to_owned(), node.byte_range())])
-                .unwrap_or_default()
-        },
-        |pattern| binding_names(pattern, graph),
-    );
+pub(super) fn local_bindings(local: &RawLocal<'_>) -> Vec<LocalBinding> {
     let scope = match local.scope {
-        LocalScopeKind::Function => nearest_kind(local.owner, "function_item", graph)
-            .and_then(|id| graph.child_by_field(id, "body"))
-            .and_then(|id| graph.range(id)),
+        LocalScopeKind::Function => nearest_kind(local.owner, "function_item")
+            .and_then(|node| node.child_by_field_name("body"))
+            .map(|node| node.byte_range()),
         LocalScopeKind::Block => {
-            let Some(declaration) = graph.node(local.owner) else {
-                return Vec::new();
-            };
-            let end = nearest_kind(local.owner, "block", graph)
-                .and_then(|id| graph.node(id))
-                .map_or(declaration.end_byte(), |node| node.end_byte());
-            Some(declaration.end_byte()..end)
+            let end = nearest_kind(local.owner, "block")
+                .map_or(local.owner.end_byte(), |node| node.end_byte());
+            Some(local.owner.end_byte()..end)
         }
-        LocalScopeKind::Condition => {
-            condition_scope(local.owner, graph).and_then(|id| graph.range(id))
-        }
-        LocalScopeKind::Match => graph.range(local.owner),
-        LocalScopeKind::Loop | LocalScopeKind::Closure => graph
-            .child_by_field(local.owner, "body")
-            .and_then(|id| graph.range(id)),
+        LocalScopeKind::Condition => condition_scope(local.owner).map(|node| node.byte_range()),
+        LocalScopeKind::Match => Some(local.owner.byte_range()),
+        LocalScopeKind::Loop | LocalScopeKind::Closure => local
+            .owner
+            .child_by_field_name("body")
+            .map(|node| node.byte_range()),
     };
     let Some(scope) = scope else {
         return Vec::new();
     };
-    names
-        .into_iter()
+    local
+        .names
+        .iter()
         .map(|(name, range)| LocalBinding {
-            name,
+            name: name.clone(),
             start_byte: range.start,
             end_byte: range.end,
             scope_start: scope.start,
@@ -50,44 +39,43 @@ pub(super) fn local_bindings(local: &RawLocal, graph: &NodeGraph<'_>) -> Vec<Loc
         .collect()
 }
 
-pub(super) fn binding_names(root: usize, graph: &NodeGraph<'_>) -> Vec<(String, Range<usize>)> {
+pub(super) fn binding_names(root: Node<'_>, source: &[u8]) -> Vec<(String, Range<usize>)> {
     let mut names = Vec::new();
     let mut pending = vec![root];
-    while let Some(id) = pending.pop() {
-        let Some(node) = graph.node(id) else {
-            continue;
-        };
-        if (matches!(node.kind(), "identifier" | "self")
-            || node.kind() == "shorthand_field_identifier" && graph.is_field(id, "name"))
-            && let Some(name) = graph.text(id)
+    while let Some(node) = pending.pop() {
+        if matches!(node.kind(), "identifier" | "self")
+            || node.kind() == "shorthand_field_identifier" && is_field(node, "name")
         {
-            names.push((name, node.byte_range()));
+            names.push((node_text(node, source), node.byte_range()));
         }
         let mut cursor = node.walk();
         pending.extend(
             node.children(&mut cursor)
-                .map(|child| child.id())
-                .filter(|child| {
-                    !graph.is_field(*child, "type") && !graph.is_field(*child, "condition")
-                }),
+                .filter(|child| !is_field(*child, "type") && !is_field(*child, "condition")),
         );
     }
     names
 }
 
-fn nearest_kind(id: usize, kind: &str, graph: &NodeGraph<'_>) -> Option<usize> {
-    graph.nearest(id, |_, node| node.kind() == kind)
+pub(super) fn is_field(node: Node<'_>, field: &str) -> bool {
+    node.parent()
+        .and_then(|parent| parent.child_by_field_name(field))
+        == Some(node)
 }
 
-fn condition_scope(id: usize, graph: &NodeGraph<'_>) -> Option<usize> {
-    let condition = graph.nearest(id, |_, node| {
-        matches!(node.kind(), "if_expression" | "while_expression")
-    })?;
-    match graph.kind(condition)? {
-        "if_expression" => graph.child_by_field(condition, "consequence"),
-        "while_expression" => graph.child_by_field(condition, "body"),
-        _ => None,
-    }
+fn nearest_kind<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
+    ancestors(node).find(|node| node.kind() == kind)
+}
+
+fn condition_scope(node: Node<'_>) -> Option<Node<'_>> {
+    let condition =
+        ancestors(node).find(|node| matches!(node.kind(), "if_expression" | "while_expression"))?;
+    let field = match condition.kind() {
+        "if_expression" => "consequence",
+        "while_expression" => "body",
+        _ => unreachable!("the selected node is an if or while expression"),
+    };
+    condition.child_by_field_name(field)
 }
 
 pub(super) fn contains(outer: &Range<usize>, inner: &Range<usize>) -> bool {
@@ -105,20 +93,18 @@ pub(super) fn relative_module(position: usize, modules: &[ModuleSpan]) -> Module
 }
 
 pub(super) fn lexical_scope(
-    node_id: usize,
+    node: Node<'_>,
     skip_self: bool,
-    graph: &NodeGraph<'_>,
     root: &Range<usize>,
 ) -> (usize, usize) {
     let start = if skip_self {
-        graph.parent(node_id).unwrap_or(node_id)
+        node.parent().unwrap_or(node)
     } else {
-        node_id
+        node
     };
-    graph
-        .nearest(start, |_, node| {
-            matches!(node.kind(), "block" | "declaration_list" | "source_file")
+    ancestors(start)
+        .find(|node| matches!(node.kind(), "block" | "declaration_list" | "source_file"))
+        .map_or((root.start, root.end), |node| {
+            (node.start_byte(), node.end_byte())
         })
-        .and_then(|id| graph.range(id))
-        .map_or((root.start, root.end), |range| (range.start, range.end))
 }

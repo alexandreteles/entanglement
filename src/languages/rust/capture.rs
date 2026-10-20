@@ -1,10 +1,9 @@
 use tree_sitter::Language;
 
-use super::node_text;
 use super::references::raw_reference;
 use super::{
-    ANALYSIS_QUERY, Analyzer, CaptureFacts, Captures, LocalScopeKind, NodeGraph, RawDefinition,
-    RawLocal, RawPath,
+    ANALYSIS_QUERY, Analyzer, CaptureFacts, Captures, LocalScopeKind, RawDefinition, RawLocal,
+    RawPath,
 };
 use crate::Result;
 use crate::languages::query::QueryAnalyzer;
@@ -77,7 +76,7 @@ impl<'a> CaptureFacts<'a> {
             let node = capture.node;
             if capture.index == query.reference_path {
                 self.paths.push(RawPath {
-                    node_id: node.id(),
+                    node,
                     kind: if node.kind() == "scoped_type_identifier" {
                         ReferenceKind::Type
                     } else {
@@ -89,10 +88,11 @@ impl<'a> CaptureFacts<'a> {
                 self.references.push(raw_reference(node, *kind, source));
             }
             if capture.index == query.import {
-                self.import_roots.push(node.id());
+                self.import_roots.push(node);
             }
             if let Some(scope) = query.local_scopes.get(&capture.index) {
-                self.locals.push(raw_local(captures, node, query, *scope));
+                self.locals
+                    .push(raw_local(captures, node, query, *scope, source));
             }
         }
     }
@@ -100,7 +100,7 @@ impl<'a> CaptureFacts<'a> {
     pub(super) fn record_tags(
         &mut self,
         query: &Captures,
-        captures: &[tree_sitter::QueryCapture<'_>],
+        captures: &[tree_sitter::QueryCapture<'a>],
         source: &[u8],
     ) {
         for name in captures.iter().filter(|item| item.index == query.name) {
@@ -112,7 +112,7 @@ impl<'a> CaptureFacts<'a> {
                         && name_node.end_byte() <= item.node.end_byte()
                 }) {
                     self.definitions
-                        .push(raw_definition(definition.node, name_node, kind, source));
+                        .push(raw_definition(definition.node, name_node, kind));
                 }
             }
             for (capture_id, kind) in [
@@ -132,17 +132,14 @@ impl<'a> CaptureFacts<'a> {
     }
 }
 
-fn raw_definition(
-    node: tree_sitter::Node<'_>,
-    name: tree_sitter::Node<'_>,
+fn raw_definition<'tree>(
+    node: tree_sitter::Node<'tree>,
+    name: tree_sitter::Node<'tree>,
     kind: &DefinitionKind,
-    source: &[u8],
-) -> RawDefinition {
+) -> RawDefinition<'tree> {
     RawDefinition {
-        node_id: node.id(),
-        range: node.start_byte()..node.end_byte(),
-        name_range: name.start_byte()..name.end_byte(),
-        name: node_text(name, source),
+        node,
+        name,
         kind: if is_method(node) {
             DefinitionKind::Method
         } else if *kind == DefinitionKind::Method {
@@ -150,23 +147,25 @@ fn raw_definition(
         } else {
             definition_kind(kind, node.kind())
         },
-        body: node
-            .child_by_field_name("body")
-            .map(|body| body.start_byte()..body.end_byte()),
-        inline_module: node.kind() == "mod_item" && node.child_by_field_name("body").is_some(),
-        external_module: node.kind() == "mod_item" && node.child_by_field_name("body").is_none(),
     }
 }
 
-fn raw_local(
-    captures: &[tree_sitter::QueryCapture<'_>],
-    node: tree_sitter::Node<'_>,
+fn raw_local<'tree>(
+    captures: &[tree_sitter::QueryCapture<'tree>],
+    node: tree_sitter::Node<'tree>,
     query: &Captures,
     scope: LocalScopeKind,
-) -> RawLocal {
+    source: &[u8],
+) -> RawLocal<'tree> {
     RawLocal {
-        owner: node.id(),
-        pattern: capture_node_id(captures, query.local_pattern),
+        owner: node,
+        names: captures
+            .iter()
+            .find(|capture| capture.index == query.local_pattern)
+            .map_or_else(
+                || vec![("self".to_owned(), node.byte_range())],
+                |capture| super::scopes::binding_names(capture.node, source),
+            ),
         scope,
     }
 }
@@ -193,18 +192,8 @@ fn is_method(node: tree_sitter::Node<'_>) -> bool {
     })
 }
 
-pub(super) fn has_visibility(node_id: usize, graph: &NodeGraph<'_>) -> bool {
-    let Some(node) = graph.node(node_id) else {
-        return false;
-    };
+pub(super) fn has_visibility(node: tree_sitter::Node<'_>) -> bool {
     let mut cursor = node.walk();
     node.children(&mut cursor)
         .any(|child| child.kind() == "visibility_modifier")
-}
-
-fn capture_node_id(captures: &[tree_sitter::QueryCapture<'_>], id: u32) -> Option<usize> {
-    captures
-        .iter()
-        .find(|capture| capture.index == id)
-        .map(|capture| capture.node.id())
 }

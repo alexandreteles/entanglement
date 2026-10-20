@@ -8,13 +8,11 @@ use scopes::{lexical_scope, local_bindings, relative_module};
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
-use tree_sitter::{Language, Tree};
+use tree_sitter::{Language, Node, Tree};
 
-use super::query::QueryAnalyzer;
-use super::{CapturedTree, InjectionRequest, LanguageHandler, LanguageSpec, ResolutionFamily};
+use super::query::{QueryAnalyzer, QueryFacts};
+use super::{CapturedTree, LanguageHandler, LanguageSpec, ResolutionFamily};
 use crate::Result;
-use crate::graph::SyntaxGraph;
-use crate::metrics::{SyntaxEvent, cyclomatic::FunctionScope};
 use crate::model::{Definition, DefinitionKind, ReferenceKind};
 
 const ANALYSIS_QUERY: &str = include_str!("../queries/rust.scm");
@@ -48,42 +46,33 @@ struct Captures {
     reference_implementation: u32,
 }
 
-pub(super) type NodeGraph<'a> = SyntaxGraph<'a>;
-
-struct RawDefinition {
-    node_id: usize,
-    range: Range<usize>,
-    name_range: Range<usize>,
-    name: String,
+struct RawDefinition<'tree> {
+    node: Node<'tree>,
+    name: Node<'tree>,
     kind: DefinitionKind,
-    body: Option<Range<usize>>,
-    inline_module: bool,
-    external_module: bool,
 }
 
-struct RawImport {
-    node_id: usize,
+struct RawImport<'tree> {
+    node: Node<'tree>,
     path: Vec<String>,
     alias: Option<String>,
-    range: Range<usize>,
     is_public: bool,
 }
 
-struct RawReference {
-    node_id: usize,
+struct RawReference<'tree> {
+    node: Node<'tree>,
     path: Vec<String>,
-    range: Range<usize>,
     kind: ReferenceKind,
 }
 
-struct RawPath {
-    node_id: usize,
+struct RawPath<'tree> {
+    node: Node<'tree>,
     kind: ReferenceKind,
 }
 
-struct RawLocal {
-    owner: usize,
-    pattern: Option<usize>,
+struct RawLocal<'tree> {
+    owner: Node<'tree>,
+    names: Vec<(String, Range<usize>)>,
     scope: LocalScopeKind,
 }
 
@@ -104,75 +93,57 @@ struct ModuleSpan {
 
 #[derive(Default)]
 struct CaptureFacts<'a> {
-    events: Vec<SyntaxEvent>,
-    parents: HashMap<usize, Option<usize>>,
-    graph: NodeGraph<'a>,
-    functions: Vec<FunctionScope>,
-    definitions: Vec<RawDefinition>,
-    import_roots: Vec<usize>,
-    references: Vec<RawReference>,
-    paths: Vec<RawPath>,
-    locals: Vec<RawLocal>,
-    injections: Vec<InjectionRequest>,
+    source: &'a [u8],
+    definitions: Vec<RawDefinition<'a>>,
+    import_roots: Vec<Node<'a>>,
+    references: Vec<RawReference<'a>>,
+    paths: Vec<RawPath<'a>>,
+    locals: Vec<RawLocal<'a>>,
 }
 
 impl LanguageHandler for Analyzer {
     fn capture(&self, tree: &Tree, source: &[u8], include_tokens: bool) -> Result<CapturedTree> {
-        let syntax = SyntaxGraph::from_tree(tree.root_node(), source);
-        let mut facts = CaptureFacts::default();
+        let mut facts = CaptureFacts {
+            source,
+            ..Default::default()
+        };
         let common = self
             .query
             .capture_with(tree, source, false, |_, captures, source| {
                 facts.record_semantics(&self.captures, captures, source);
                 facts.record_tags(&self.captures, captures, source);
             });
-        facts.graph = syntax;
-        facts.events = common.events;
-        facts.parents = common.parents;
-        facts.functions = common.functions;
-        facts.injections = common.injections;
-        facts.normalize(tree, include_tokens)
+        Ok(facts.finish(tree, common, include_tokens))
     }
 }
 
 impl<'a> CaptureFacts<'a> {
-    fn normalize(mut self, tree: &Tree, include_tokens: bool) -> Result<CapturedTree> {
+    fn finish(mut self, tree: &Tree, mut common: QueryFacts, include_tokens: bool) -> CapturedTree {
         deduplicate(&mut self.definitions, |item| {
-            (item.range.start, item.range.end)
+            (item.node.start_byte(), item.node.end_byte())
         });
         let mut modules: Vec<_> = self
             .definitions
             .iter()
-            .filter(|item| item.inline_module)
+            .filter(|item| item.node.kind() == "mod_item")
             .filter_map(|item| {
                 Some(ModuleSpan {
-                    name: item.name.clone(),
-                    body: item.body.clone()?,
+                    name: node_text(item.name, self.source),
+                    body: item.node.child_by_field_name("body")?.byte_range(),
                 })
             })
             .collect();
         modules.sort_by_key(|module| (module.body.end - module.body.start, module.body.start));
         modules.reverse();
         let root_range = tree.root_node().start_byte()..tree.root_node().end_byte();
-        let mut definitions = self.normalize_definitions(&modules, &root_range)?;
+        let definitions = self.normalize_definitions(&modules, &root_range);
         let mut imports = self.normalize_imports(&modules, &root_range);
         let mut references = self.normalize_references(&modules, &root_range);
-        let locals = self
-            .locals
-            .iter()
-            .flat_map(|local| local_bindings(local, &self.graph))
-            .collect();
+        let locals = self.locals.iter().flat_map(local_bindings).collect();
 
-        deduplicate(&mut self.events, |event| (event.role, event.node_id));
+        deduplicate(&mut common.events, |event| (event.role, event.node_id));
         deduplicate(&mut references, |reference| {
             (reference.start_byte, reference.path.clone(), reference.kind)
-        });
-        deduplicate(&mut definitions, |definition| {
-            (
-                definition.start_byte,
-                definition.end_byte,
-                definition.kind.clone(),
-            )
         });
         deduplicate(&mut imports, |import| {
             (
@@ -182,24 +153,17 @@ impl<'a> CaptureFacts<'a> {
             )
         });
 
-        let tokens = if include_tokens {
-            super::rust_tokens::capture(tree.root_node(), self.graph.source())
+        common.tokens = if include_tokens {
+            super::rust_tokens::capture(tree.root_node(), self.source)
         } else {
             Vec::new()
         };
-        Ok(CapturedTree {
-            facts: super::CapturedSemantics {
-                definitions,
-                imports,
-                references,
-                locals,
-                ..Default::default()
-            },
-            events: self.events,
-            parents: self.parents,
-            functions: self.functions,
-            tokens,
-            injections: self.injections,
+        CapturedTree::from(common).with_semantics(super::CapturedSemantics {
+            definitions,
+            imports,
+            references,
+            locals,
+            ..Default::default()
         })
     }
 
@@ -207,33 +171,30 @@ impl<'a> CaptureFacts<'a> {
         &self,
         modules: &[ModuleSpan],
         root: &Range<usize>,
-    ) -> Result<Vec<Definition>> {
+    ) -> Vec<Definition> {
         self.definitions
             .iter()
             .map(|item| {
-                self.graph.node(item.node_id)?;
-                let module = relative_module(item.range.start, modules);
-                let (scope_start, scope_end) = lexical_scope(item.node_id, true, &self.graph, root);
-                Some(Definition {
+                let node = item.node;
+                let (scope_start, scope_end) = lexical_scope(node, true, root);
+                Definition {
                     declaration: None,
-                    name: item.name.clone(),
+                    name: node_text(item.name, self.source),
                     kind: item.kind.clone(),
-                    module,
-                    start_byte: item.range.start,
-                    end_byte: item.range.end,
+                    module: relative_module(node.start_byte(), modules),
+                    start_byte: node.start_byte(),
+                    end_byte: node.end_byte(),
                     scope_start,
                     scope_end,
-                    is_public: has_visibility(item.node_id, &self.graph),
-                    inline_module: item.inline_module,
-                    external_module: item.external_module,
+                    is_public: has_visibility(node),
+                    inline_module: node.kind() == "mod_item"
+                        && node.child_by_field_name("body").is_some(),
+                    external_module: node.kind() == "mod_item"
+                        && node.child_by_field_name("body").is_none(),
                     context_id: 0,
-                })
+                }
             })
-            .collect::<Option<Vec<_>>>()
-            .ok_or_else(|| -> crate::Error {
-                std::io::Error::other("A definition node is missing from the query capture graph")
-                    .into()
-            })
+            .collect()
     }
 }
 

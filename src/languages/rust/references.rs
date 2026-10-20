@@ -2,11 +2,12 @@ mod calls;
 mod imports;
 mod paths;
 
+use calls::call_owner;
 use paths::path_segments;
 
 use std::ops::Range;
 
-use super::scopes::{binding_names, contains, lexical_scope, relative_module};
+use super::scopes::{contains, lexical_scope, relative_module};
 use super::{CaptureFacts, ModuleSpan, RawReference};
 use crate::model::{Reference, ReferenceKind};
 
@@ -14,29 +15,14 @@ impl<'a> CaptureFacts<'a> {
     fn use_ranges(&self) -> Vec<Range<usize>> {
         self.import_roots
             .iter()
-            .filter_map(|id| self.graph.range(*id))
+            .map(|node| node.byte_range())
             .collect()
     }
 
     fn binding_ranges(&self) -> Vec<Range<usize>> {
         self.locals
             .iter()
-            .flat_map(|local| {
-                local.pattern.map_or_else(
-                    || {
-                        self.graph
-                            .range(local.owner)
-                            .map(|range| vec![range])
-                            .unwrap_or_default()
-                    },
-                    |pattern| {
-                        binding_names(pattern, &self.graph)
-                            .into_iter()
-                            .map(|(_, range)| range)
-                            .collect()
-                    },
-                )
-            })
+            .flat_map(|local| local.names.iter().map(|(_, range)| range.clone()))
             .collect()
     }
 
@@ -50,7 +36,7 @@ impl<'a> CaptureFacts<'a> {
         let definition_ranges = self
             .definitions
             .iter()
-            .map(|definition| definition.name_range.clone())
+            .map(|definition| definition.name.byte_range())
             .collect::<Vec<_>>();
         let call_ranges = self
             .references
@@ -58,7 +44,7 @@ impl<'a> CaptureFacts<'a> {
             .filter(|reference| {
                 matches!(reference.kind, ReferenceKind::Call | ReferenceKind::Method)
             })
-            .map(|reference| reference.range.clone())
+            .map(|reference| reference.node.byte_range())
             .collect::<Vec<_>>();
         let mut references = std::mem::take(&mut self.references);
         references.extend(self.qualified_paths(&use_ranges));
@@ -70,7 +56,7 @@ impl<'a> CaptureFacts<'a> {
                     ReferenceKind::Qualified | ReferenceKind::Type
                 )
             })
-            .map(|reference| reference.range.clone())
+            .map(|reference| reference.node.byte_range())
             .collect::<Vec<_>>();
         references.retain(|reference| {
             !matches!(reference.kind, ReferenceKind::Value | ReferenceKind::Type)
@@ -79,25 +65,25 @@ impl<'a> CaptureFacts<'a> {
                     .chain(&use_ranges)
                     .chain(&binding_ranges)
                     .chain(&call_ranges)
-                    .any(|range| contains(range, &reference.range))
-                    && !qualified_ranges
-                        .iter()
-                        .any(|range| range != &reference.range && contains(range, &reference.range))
+                    .any(|range| contains(range, &reference.node.byte_range()))
+                    && !qualified_ranges.iter().any(|range| {
+                        range != &reference.node.byte_range()
+                            && contains(range, &reference.node.byte_range())
+                    })
         });
         references
             .into_iter()
             .map(|reference| {
-                let module = relative_module(reference.range.start, modules);
-                let (scope_start, scope_end) =
-                    lexical_scope(reference.node_id, false, &self.graph, root);
+                let module = relative_module(reference.node.start_byte(), modules);
+                let (scope_start, scope_end) = lexical_scope(reference.node, false, root);
                 let call_owner =
-                    self.call_owner(reference.node_id, &reference.range, reference.kind);
+                    call_owner(reference.node, &reference.node.byte_range(), reference.kind);
                 Reference {
                     path: reference.path,
                     module,
                     kind: reference.kind,
-                    start_byte: reference.range.start,
-                    end_byte: reference.range.end,
+                    start_byte: reference.node.start_byte(),
+                    end_byte: reference.node.end_byte(),
                     scope_start,
                     scope_end,
                     call_owner,
@@ -109,50 +95,47 @@ impl<'a> CaptureFacts<'a> {
             .collect()
     }
 
-    fn qualified_paths(&self, use_ranges: &[Range<usize>]) -> Vec<RawReference> {
+    fn qualified_paths(&self, use_ranges: &[Range<usize>]) -> Vec<RawReference<'a>> {
         let candidates = self
             .paths
             .iter()
             .filter_map(|path| {
-                let range = self.graph.range(path.node_id)?;
-                let segments = path_segments(path.node_id, &self.graph);
+                let segments = path_segments(path.node, self.source);
                 (!segments.is_empty()).then_some(RawReference {
-                    node_id: path.node_id,
+                    node: path.node,
                     path: segments,
-                    range,
                     kind: path.kind,
                 })
             })
             .filter(|reference| {
                 !use_ranges
                     .iter()
-                    .any(|range| contains(range, &reference.range))
+                    .any(|range| contains(range, &reference.node.byte_range()))
             })
             .collect::<Vec<_>>();
         let ranges = candidates
             .iter()
-            .map(|reference| reference.range.clone())
+            .map(|reference| reference.node.byte_range())
             .collect::<Vec<_>>();
         candidates
             .into_iter()
             .filter(|inner| {
-                !ranges
-                    .iter()
-                    .any(|outer| outer != &inner.range && contains(outer, &inner.range))
+                !ranges.iter().any(|outer| {
+                    outer != &inner.node.byte_range() && contains(outer, &inner.node.byte_range())
+                })
             })
             .collect()
     }
 }
 
-pub(super) fn raw_reference(
-    node: tree_sitter::Node<'_>,
+pub(super) fn raw_reference<'tree>(
+    node: tree_sitter::Node<'tree>,
     kind: ReferenceKind,
     source: &[u8],
-) -> RawReference {
+) -> RawReference<'tree> {
     RawReference {
-        node_id: node.id(),
+        node,
         path: vec![super::node_text(node, source)],
-        range: node.start_byte()..node.end_byte(),
         kind,
     }
 }
