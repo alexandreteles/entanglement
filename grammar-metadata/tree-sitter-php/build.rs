@@ -1,32 +1,19 @@
-use cargo_metadata::MetadataCommand;
 use serde_json::{Value, json};
-use std::{env, error::Error, fs, path::Path};
-use tree_sitter_generate::{OptLevel, generate_parser_in_directory};
+use std::{error::Error, fs};
+
+#[path = "../build_support.rs"]
+mod build_support;
+use build_support::GrammarBuild;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let metadata = MetadataCommand::new()
-        .manifest_path(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Cargo.toml"))
-        .cargo_path(env::var_os("CARGO").ok_or("CARGO is absent")?)
-        .other_options(vec!["--locked".into()])
-        .exec()?;
-    let upstream = metadata
-        .packages
-        .iter()
-        .find(|package| package.name.as_str() == "tree-sitter-php" && package.source.is_some())
-        .ok_or("The pinned PHP grammar is absent")?;
-    let source = upstream
-        .manifest_path
-        .parent()
-        .ok_or("No PHP source directory")?
-        .as_std_path();
-    let root = std::path::PathBuf::from(env::var_os("OUT_DIR").ok_or("No output directory")?)
-        .join("grammar");
-    fs::create_dir_all(root.join("common"))?;
+    let mut build = GrammarBuild::new("tree-sitter-php")?;
+    fs::create_dir_all(build.root.join("common"))?;
     fs::copy(
-        source.join("common/scanner.h"),
-        root.join("common/scanner.h"),
+        build.source.join("common/scanner.h"),
+        build.root.join("common/scanner.h"),
     )?;
-    let mut metadata: Value = serde_json::from_slice(&fs::read(source.join("tree-sitter.json"))?)?;
+    let mut metadata: Value =
+        serde_json::from_slice(&fs::read(build.root.join("tree-sitter.json"))?)?;
     let grammars = metadata["grammars"]
         .as_array_mut()
         .ok_or("No PHP grammar metadata")?;
@@ -43,56 +30,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         .ok_or("No PHP-only grammar metadata")?;
     php_only["scope"] = json!("source.php_only");
     fs::write(
-        root.join("tree-sitter.json"),
+        build.root.join("tree-sitter.json"),
         serde_json::to_vec_pretty(&metadata)?,
     )?;
-    for entry in fs::read_dir(source)? {
-        let entry = entry?;
-        if entry.file_name().to_string_lossy().starts_with("LICENSE") {
-            fs::copy(entry.path(), root.join(entry.file_name()))?;
-        }
-    }
-    fs::create_dir_all(root.join("queries"))?;
-    for entry in fs::read_dir(source.join("queries"))? {
-        let entry = entry?;
-        if entry.file_type()?.is_file() {
-            fs::copy(entry.path(), root.join("queries").join(entry.file_name()))?;
-        }
-    }
-    let mut compiler = cc::Build::new();
-    compiler.std("c11");
     for dialect in ["php", "php_only"] {
-        let directory = root.join(dialect);
-        let src = directory.join("src");
-        fs::create_dir_all(&src)?;
-        let mut grammar: Value =
-            serde_json::from_slice(&fs::read(source.join(dialect).join("src/grammar.json"))?)?;
-        correct_grammar(&mut grammar)?;
-        let input = src.join("grammar.json");
-        fs::write(&input, serde_json::to_vec_pretty(&grammar)?)?;
-        generate_parser_in_directory(
-            &directory,
-            None::<&Path>,
-            Some(&input),
-            15,
-            None,
-            None,
-            true,
-            OptLevel::default(),
-            &mut Vec::new(),
-        )?;
-        fs::copy(
-            source.join(dialect).join("src/scanner.c"),
-            src.join("scanner.c"),
-        )?;
-        compiler
-            .include(&src)
-            .file(src.join("parser.c"))
-            .file(src.join("scanner.c"));
+        build.parser(dialect, correct_grammar)?;
     }
-    compiler.compile("entanglement-php");
-    println!("cargo:root={}", root.display());
-    println!("cargo:rerun-if-changed=build.rs");
+    build.finish("entanglement-php");
     Ok(())
 }
 
