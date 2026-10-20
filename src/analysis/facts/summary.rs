@@ -146,9 +146,6 @@ pub(in crate::analysis) fn summary(
     TreeSummary {
         facts,
         metric_id,
-        resolution_family: choice.resolution_family,
-        file_module_rules: choice.file_module_rules,
-        semantic_context,
         events: captured.events,
         parents: captured.parents,
         cognitive_parent: None,
@@ -174,7 +171,7 @@ impl TreeSummary {
         self.facts
             .locals
             .extend(bindings.into_iter().map(|mut binding| {
-                binding.context_id = self.semantic_context;
+                binding.context_id = self.facts.semantic.context_id;
                 binding
             }));
     }
@@ -199,7 +196,7 @@ impl TreeSummary {
                 .cloned()
                 .map(|mut item| {
                     item.declaration = None;
-                    item.context_id = target.semantic_context;
+                    item.context_id = target.facts.semantic.context_id;
                     item.scope_start = target_scope.start;
                     item.scope_end = target_scope.end;
                     item
@@ -214,7 +211,7 @@ impl TreeSummary {
                 })
                 .cloned()
                 .map(|mut item| {
-                    item.context_id = target.semantic_context;
+                    item.context_id = target.facts.semantic.context_id;
                     item.scope_start = target_scope.start;
                     item.scope_end = target_scope.end;
                     item
