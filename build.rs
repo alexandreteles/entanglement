@@ -15,15 +15,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut assets = String::from("pub const GRAMMAR_ASSETS: &[(&str, &str, &[u8])] = &[\n");
     let mut roots = HashSet::new();
     for package in metadata.packages {
-        if package.name.as_str() == "tree-sitter-php" && package.source.is_some() {
+        if matches!(
+            package.name.as_str(),
+            "tree-sitter-php" | "tree-sitter-groovy"
+        ) && package.source.is_some()
+        {
             continue;
         }
         let manifest = package.manifest_path.into_std_path_buf();
-        let generated_root = (package.name.as_str() == "tree-sitter-php")
-            .then(|| {
-                env::var_os("DEP_ENTANGLEMENT_PHP_ROOT")
+        let generated_variable = match package.name.as_str() {
+            "tree-sitter-php" => Some("DEP_ENTANGLEMENT_PHP_ROOT"),
+            "tree-sitter-groovy" => Some("DEP_ENTANGLEMENT_GROOVY_ROOT"),
+            _ => None,
+        };
+        let generated_root = generated_variable
+            .map(|variable| {
+                env::var_os(variable)
                     .map(PathBuf::from)
-                    .ok_or("No corrected PHP grammar directory")
+                    .ok_or_else(|| format!("No corrected grammar directory: {variable}"))
             })
             .transpose()?;
         let package_root = generated_root

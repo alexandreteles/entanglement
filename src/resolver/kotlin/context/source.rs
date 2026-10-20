@@ -23,11 +23,14 @@ pub(in crate::resolver) struct ProjectCache {
 impl ProjectCache {
     pub(super) fn modules(&mut self, root: &Path, snapshot: &Snapshot) -> &[(String, PathBuf)] {
         self.modules.entry(root.to_path_buf()).or_insert_with(|| {
-            let source = ["settings.gradle.kts", "settings.gradle"]
+            let (source, kind) = ["settings.gradle.kts", "settings.gradle"]
                 .iter()
-                .find_map(|name| read_text(snapshot, &root.join(name)))
-                .unwrap_or_default();
-            let settings = build::Settings::parse(&source);
+                .find_map(|name| {
+                    read_text(snapshot, &root.join(name))
+                        .map(|source| (source, build::ScriptKind::for_path(Path::new(name))))
+                })
+                .unwrap_or_else(|| (String::new(), build::ScriptKind::Kotlin));
+            let settings = build::parse(&source, kind).0;
             settings
                 .modules
                 .into_iter()
@@ -49,7 +52,7 @@ impl ProjectCache {
     pub(super) fn script(&mut self, path: PathBuf, snapshot: &Snapshot) -> &build::BuildFacts {
         self.scripts.entry(path.clone()).or_insert_with(|| {
             read_text(snapshot, &path).map_or_else(build::BuildFacts::default, |source| {
-                build::BuildFacts::parse(&source)
+                build::parse(&source, build::ScriptKind::for_path(&path)).1
             })
         })
     }
