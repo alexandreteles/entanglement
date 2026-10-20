@@ -77,11 +77,7 @@ impl Index<'_, '_> {
             .into_iter()
             .flat_map(|target| match target {
                 Target::Namespace(module_file) => {
-                    let mut targets = self.resolve_export(module_file, name, &mut BTreeSet::new());
-                    if targets.is_empty() {
-                        targets = resolve_submodule(self, module_file, name);
-                    }
-                    targets
+                    self.resolve_named_import(module_file, name, &mut BTreeSet::new())
                 }
                 Target::External => vec![Target::External],
                 _ => vec![Target::Unresolved],
@@ -112,15 +108,30 @@ impl Index<'_, '_> {
         let Some(source) = import.source.as_deref() else {
             return vec![Target::Unresolved];
         };
+        self.resolve_source(
+            file,
+            source,
+            import.namespace,
+            import.imported_name.as_deref(),
+            visiting,
+        )
+    }
+
+    pub(super) fn resolve_source(
+        &self,
+        file: usize,
+        source: &str,
+        namespace: bool,
+        name: Option<&str>,
+        visiting: &mut BTreeSet<(usize, String)>,
+    ) -> Vec<Target> {
         self.resolve_module(file, source)
             .into_iter()
             .flat_map(|module| match module {
-                Target::Namespace(module_file) if import.namespace => {
+                Target::Namespace(module_file) if namespace => {
                     vec![Target::Namespace(module_file)]
                 }
-                Target::Namespace(module_file) => import
-                    .imported_name
-                    .as_deref()
+                Target::Namespace(module_file) => name
                     .map(|name| self.resolve_named_import(module_file, name, visiting))
                     .unwrap_or_else(|| vec![Target::Unresolved]),
                 target => vec![target],

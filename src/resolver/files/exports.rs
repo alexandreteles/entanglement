@@ -110,22 +110,12 @@ impl Index<'_, '_> {
         }) {
             return vec![Target::Unresolved];
         }
-        self.resolve_module(file, source)
-            .into_iter()
-            .flat_map(|module| match module {
-                Target::Namespace(module_file) if export.namespace => {
-                    vec![Target::Namespace(module_file)]
-                }
-                Target::Namespace(module_file) if export.exported_name == "*" => {
-                    vec![Target::Namespace(module_file)]
-                }
-                Target::Namespace(module_file) => export
-                    .imported_name
-                    .as_deref()
-                    .map(|name| self.resolve_named_import(module_file, name, visiting))
-                    .unwrap_or_else(|| vec![Target::Unresolved]),
-                target => vec![target],
-            })
-            .collect()
+        self.resolve_source(
+            file,
+            source,
+            export.namespace || export.exported_name == "*",
+            export.imported_name.as_deref(),
+            visiting,
+        )
     }
 }

@@ -5,13 +5,6 @@ use crate::model::Import;
 use super::Target;
 use super::symbols::local_symbols;
 
-#[derive(Clone, Copy)]
-pub(super) enum ImportLookup<'a> {
-    None,
-    One(&'a Import, usize),
-    Ambiguous(usize),
-}
-
 pub(super) enum BindingTarget<'a> {
     Local(Vec<Target>),
     Import(&'a Import),
@@ -26,46 +19,10 @@ pub(super) fn binding_target<'a>(
     position: usize,
     context_id: usize,
 ) -> BindingTarget<'a> {
-    let local = local_symbols(graph, file_index, name, position, context_id);
-    let local_rank = local.as_ref().map(|(rank, _)| *rank);
-    let shadow_rank = local_binding_rank(fact, name, position, context_id);
-    let import = imported_binding(fact, name, position, context_id);
-    let import_rank = match import {
-        ImportLookup::One(_, rank) | ImportLookup::Ambiguous(rank) => Some(rank),
-        ImportLookup::None => None,
-    };
-    let best_rank = [local_rank, shadow_rank, import_rank]
-        .into_iter()
-        .flatten()
-        .min();
-    let Some(best_rank) = best_rank else {
-        return BindingTarget::Unresolved;
-    };
-    let winners = usize::from(local_rank == Some(best_rank))
-        + usize::from(shadow_rank == Some(best_rank))
-        + usize::from(import_rank == Some(best_rank));
-    if winners != 1 || shadow_rank == Some(best_rank) {
-        return BindingTarget::Unresolved;
-    }
-    if local_rank == Some(best_rank) {
-        return local
-            .map(|(_, targets)| BindingTarget::Local(targets))
-            .unwrap_or(BindingTarget::Unresolved);
-    }
-    match import {
-        ImportLookup::One(import, _) if import_rank == Some(best_rank) => {
-            BindingTarget::Import(import)
-        }
-        _ => BindingTarget::Unresolved,
-    }
-}
-
-pub(super) fn imported_binding<'a>(
-    fact: &'a FileFactsView<'_>,
-    name: &str,
-    position: usize,
-    context_id: usize,
-) -> ImportLookup<'a> {
+    let local = local_symbols(graph, file_index, name, position, context_id)
+        .map(|(rank, targets)| (rank, BindingTarget::Local(targets)));
+    let shadow = local_binding_rank(fact, name, position, context_id)
+        .map(|rank| (rank, BindingTarget::Unresolved));
     let imports = fact
         .imports()
         .filter(|import| {
@@ -75,25 +32,29 @@ pub(super) fn imported_binding<'a>(
                 && position < import.scope_end
                 && import.context_id == context_id
         })
-        .collect::<Vec<_>>();
-    let Some(rank) = imports
-        .iter()
-        .map(|import| import.scope_end.saturating_sub(import.scope_start))
-        .min()
-    else {
-        return ImportLookup::None;
-    };
-    let mut best = imports
-        .into_iter()
-        .filter(|import| import.scope_end.saturating_sub(import.scope_start) == rank);
-    let Some(import) = best.next() else {
-        return ImportLookup::None;
-    };
-    if best.next().is_some() {
-        ImportLookup::Ambiguous(rank)
-    } else {
-        ImportLookup::One(import, rank)
+        .map(|import| {
+            (
+                import.scope_end.saturating_sub(import.scope_start),
+                BindingTarget::Import(import),
+            )
+        });
+    match best_ranked(local.into_iter().chain(shadow).chain(imports)) {
+        Some((_, mut targets)) if targets.len() == 1 => targets.pop().unwrap(),
+        _ => BindingTarget::Unresolved,
     }
+}
+
+/// Retain all candidates in the nearest scope, including ties.
+pub(super) fn best_ranked<T>(items: impl Iterator<Item = (usize, T)>) -> Option<(usize, Vec<T>)> {
+    let mut best: Option<(usize, Vec<T>)> = None;
+    for (rank, item) in items {
+        match &mut best {
+            Some((nearest, items)) if rank == *nearest => items.push(item),
+            Some((nearest, _)) if rank > *nearest => {}
+            _ => best = Some((rank, vec![item])),
+        }
+    }
+    best
 }
 
 pub(super) fn local_binding_rank(
