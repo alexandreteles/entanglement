@@ -115,8 +115,7 @@ to detect recursion.
 and structural regression events. `--metrics all` also includes these analyses.
 `repo` and `candidate DIRECTORY` report repository scope. `file`, `patch`, and
 `candidate FILE` report local structural scope, even when reference resolution
-uses the surrounding repository. Read the reported coverage and
-[structural analysis limits](docs/structure.md).
+uses the surrounding repository. Read the reported coverage and limitations.
 Structural findings require review. The
 [skill comparator](https://github.com/alexandreteles/entanglement-skill) keeps MI
 as its hard gate.
