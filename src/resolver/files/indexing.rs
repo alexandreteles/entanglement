@@ -15,6 +15,30 @@ pub(super) struct Index<'a, 'g> {
 }
 
 impl<'a, 'g> Index<'a, 'g> {
+    /// Resolve an exact literal resource path through canonical source aliases.
+    pub(super) fn resolve_resource(&self, file: usize, source: &str) -> Vec<Target> {
+        if source.contains(':') || source.starts_with("//") || source.starts_with('#') {
+            return vec![Target::External];
+        }
+        if source.starts_with('/') {
+            return vec![Target::Unresolved];
+        }
+        let source = source.split(['?', '#']).next().unwrap_or(source);
+        let targets = self.facts[file]
+            .aliases
+            .iter()
+            .filter_map(|alias| alias.parent())
+            .filter_map(|parent| self.graph.aliases().get(&normalize(&parent.join(source))))
+            .flatten()
+            .copied()
+            .collect::<BTreeSet<_>>();
+        if targets.is_empty() {
+            vec![Target::Unresolved]
+        } else {
+            targets.into_iter().map(Target::Namespace).collect()
+        }
+    }
+
     pub(super) fn new(facts: &'a [FileFactsView<'a>], graph: &'g ProgramGraph<'a>) -> Self {
         let mut by_path = BTreeMap::<PathBuf, BTreeSet<usize>>::new();
         for (path, indexes) in graph.aliases() {

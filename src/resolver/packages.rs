@@ -121,3 +121,29 @@ impl Index {
 fn is_go(fact: &FileFactsView<'_>) -> bool {
     fact.resolution_family == ResolutionFamily::GoPackages
 }
+
+/// Keep package identity and build uncertainty for structural method checks.
+pub(super) fn structural_contexts(graph: &ProgramGraph<'_>) -> BTreeMap<(usize, usize), String> {
+    graph
+        .files()
+        .iter()
+        .enumerate()
+        .filter(|(_, fact)| is_go(fact))
+        .flat_map(|(file, fact)| {
+            fact.semantic()
+                .map(|store| store.semantic.context_id)
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .filter_map(|context| {
+                    let contexts = contexts::for_reference(fact, graph, file, context);
+                    let keys = contexts
+                        .iter()
+                        .map(|context| &context.key)
+                        .collect::<std::collections::BTreeSet<_>>();
+                    (keys.len() == 1 && contexts.iter().all(|context| !context.conditional))
+                        .then(|| ((file, context), format!("{:?}", keys.first().unwrap())))
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}

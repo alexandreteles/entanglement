@@ -15,6 +15,9 @@ pub struct AnalysisResult {
     /// The patch report, when the command analyzes a patch.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub patch: Option<PatchAnalysis>,
+    /// Structural snapshot results for the selected analysis scope.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub structure: Option<crate::structure::StructuralReport>,
 }
 
 #[derive(Debug, Clone, Serialize)]

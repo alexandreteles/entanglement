@@ -1,0 +1,6 @@
+[
+  {"granularity":"module","projection":"contract","units":3,"edges":0,"cycles":0,"pc":{"value":0.3333333333333333,"numerator":3,"denominator":9}},
+  {"granularity":"module","projection":"full","units":3,"edges":2,"cycles":0,"pc":{"value":0.6666666666666666,"numerator":6,"denominator":9}},
+  {"granularity":"type","projection":"contract","units":0,"edges":0,"cycles":0,"pc":{"value":null,"numerator":0,"denominator":0}},
+  {"granularity":"type","projection":"full","units":0,"edges":0,"cycles":0,"pc":{"value":null,"numerator":0,"denominator":0}}
+]

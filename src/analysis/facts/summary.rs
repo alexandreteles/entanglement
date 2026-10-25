@@ -23,6 +23,12 @@ pub(in crate::analysis) fn summary(
     let mut facts = captured.facts;
     let semantic = &mut facts.semantic;
     semantic.context_id = semantic_context;
+    semantic
+        .structure_resources
+        .retain(|item| !inside_any(item.start..item.end, &excluded));
+    semantic
+        .structure
+        .retain(|item| !excluded.iter().any(|range| range.contains(&item.start)));
     semantic.resolution_family = Some(choice.resolution_family);
     semantic.file_module_rules = choice.file_module_rules;
     if let Some(php) = &mut semantic.php {

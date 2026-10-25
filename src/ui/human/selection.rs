@@ -32,17 +32,19 @@ pub fn render(result: &AnalysisResult, selection: Selection) -> String {
     let mut output = String::new();
     if let Some(patch) = &result.patch {
         write_patch_report(&mut output, result, patch, selection);
-        return output;
-    }
-
-    if !result.files.is_empty() && selection.includes(Metric::Mi) {
-        write_maintainability_bands(&mut output, &result.maintainability_index_bands);
-    }
-    for file in &result.files {
-        if !output.is_empty() {
-            output.push('\n');
+    } else {
+        if !result.files.is_empty() && selection.includes(Metric::Mi) {
+            write_maintainability_bands(&mut output, &result.maintainability_index_bands);
         }
-        write_file(&mut output, file, selection);
+        for file in &result.files {
+            if !output.is_empty() {
+                output.push('\n');
+            }
+            write_file(&mut output, file, selection);
+        }
+    }
+    if let Some(structure) = &result.structure {
+        crate::ui::structural::write(&mut output, structure);
     }
     output
 }

@@ -11,7 +11,7 @@ use crate::model;
 mod functions;
 mod maintainability;
 
-pub(crate) use functions::function_deltas;
+pub(crate) use functions::{function_deltas, header_end};
 pub(crate) use maintainability::compare as maintainability_delta;
 
 type TokenIdentity = (HalsteadTokenKind, String);

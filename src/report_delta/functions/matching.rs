@@ -7,7 +7,7 @@ use crate::report_delta::edited_position;
 
 mod header;
 
-use header::header_end;
+pub(crate) use header::header_end;
 
 pub(super) fn pair_functions(
     old: &[FunctionAnalysis],

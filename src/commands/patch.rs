@@ -20,6 +20,11 @@ pub(super) fn analyze(
     single: bool,
     selection: Selection,
 ) -> crate::Result<model::AnalysisResult> {
+    let scope = if single || path.is_file() {
+        "local"
+    } else {
+        "repo"
+    };
     let diff = input::read_diff(diff)?;
     let patches = input::parse_diff(&diff)?;
     let (root, source_paths) = paths::patch_sources(path, &patches, single)?;
@@ -30,6 +35,9 @@ pub(super) fn analyze(
     let mut before: Vec<_> = parsed.iter().map(|file| file.facts.clone()).collect();
     let before_snapshot = snapshot::Snapshot::default();
     resolver::resolve_with_snapshot(&mut before, selection, &before_snapshot);
+    let before_structure = selection
+        .includes(crate::metrics::selection::Metric::Structure)
+        .then(|| crate::structure::analyze(&before, scope, &before_snapshot));
     let after_snapshot = before_snapshot.clone();
     let mut worker = analysis::Worker::new(selection)?;
     let changes: Vec<_> = patches
@@ -39,11 +47,22 @@ pub(super) fn analyze(
     let mut after: Vec<_> = parsed.into_iter().map(|file| file.facts).collect();
     after.sort_by(|left, right| left.path.cmp(&right.path));
     resolver::resolve_with_snapshot(&mut after, selection, &after_snapshot);
+    let structure = before_structure.map(|before| {
+        let mut report = crate::structure::analyze(&after, scope, &after_snapshot);
+        report.state.snapshot.removed_paths = changes
+            .iter()
+            .filter(|change| change.paths.new_path.is_none())
+            .filter_map(|change| change.paths.old_path.as_ref())
+            .map(|path| path.display().to_string())
+            .collect();
+        crate::structure::compare(before, report)
+    });
     let files = changes
         .into_iter()
         .map(|change| change.compare(&before, &after, selection))
         .collect();
     Ok(model::AnalysisResult {
+        structure,
         files: after.into_iter().map(|file| file.analysis).collect(),
         patch: Some(model::PatchAnalysis { files }),
         maintainability_index_bands: crate::metrics::maintainability::BANDS,

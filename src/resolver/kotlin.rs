@@ -158,3 +158,92 @@ impl<'a> Index<'a> {
         self.finish_resolution(file, reference, candidates)
     }
 }
+
+pub(super) fn structural_members(
+    facts: &[FileFactsView<'_>],
+    graph: &ProgramGraph<'_>,
+    snapshot: &Snapshot,
+) -> Vec<super::StructuralMemberSelection> {
+    let contexts = facts
+        .iter()
+        .map(|fact| {
+            fact.semantic()
+                .filter(|store| {
+                    store.semantic.resolution_family == Some(ResolutionFamily::KotlinModules)
+                })
+                .map(|store| store.semantic.context_id)
+                .collect::<HashSet<_>>()
+        })
+        .collect::<Vec<_>>();
+    if contexts.iter().all(HashSet::is_empty) {
+        return Vec::new();
+    }
+    let index = Index::new(
+        facts,
+        snapshot,
+        graph,
+        &mut ProjectCache::default(),
+        &contexts,
+    );
+    let names = index
+        .candidates
+        .iter()
+        .filter(|candidate| !candidate.owner.is_empty())
+        .map(|candidate| candidate.name.clone())
+        .collect::<BTreeSet<_>>();
+    index
+        .candidates
+        .iter()
+        .filter(|candidate| is_type_declaration(candidate))
+        .flat_map(|candidate| {
+            let reference = Reference {
+                path: vec![candidate.name.clone()],
+                module: candidate.module.clone(),
+                kind: ReferenceKind::Type,
+                start_byte: candidate.start_byte,
+                end_byte: candidate.end_byte,
+                scope_start: candidate.scope_start,
+                scope_end: candidate.scope_end,
+                call_owner: None,
+                execution_owner: None,
+                access: None,
+                context_id: candidate.context_id,
+            };
+            names
+                .iter()
+                .filter_map(|name| {
+                    let members = index.members_of_type_seen(
+                        candidate.file,
+                        &reference,
+                        name,
+                        &candidate_type_name(candidate),
+                        false,
+                        &mut BTreeSet::new(),
+                    );
+                    (!members.is_empty()).then(|| super::StructuralMemberSelection {
+                        obligations: Vec::new(),
+                        owner: candidate.symbol.clone(),
+                        name: name.clone(),
+                        visibility: members
+                            .iter()
+                            .map(|member| {
+                                (
+                                    index.candidates[*member].symbol.clone(),
+                                    format!(
+                                        "{:?}",
+                                        candidate_visibility(&index.candidates[*member])
+                                    )
+                                    .to_lowercase(),
+                                )
+                            })
+                            .collect(),
+                        origins: members
+                            .into_iter()
+                            .map(|member| index.candidates[member].symbol.clone())
+                            .collect(),
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}

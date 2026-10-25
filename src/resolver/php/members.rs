@@ -100,7 +100,10 @@ impl Index<'_> {
         }
     }
 
-    fn trait_uses(&self, class: usize) -> impl Iterator<Item = &crate::graph::PhpTraitUse> {
+    pub(super) fn trait_uses(
+        &self,
+        class: usize,
+    ) -> impl Iterator<Item = &crate::graph::PhpTraitUse> {
         let candidate = &self.candidates[class];
         self.facts(candidate.site.file, candidate.site.context)
             .into_iter()
@@ -108,7 +111,7 @@ impl Index<'_> {
             .filter(|usage| usage.owner.eq_ignore_ascii_case(&candidate.name))
     }
 
-    fn traits(&self, class: usize) -> Vec<usize> {
+    pub(super) fn traits(&self, class: usize) -> Vec<usize> {
         self.trait_uses(class)
             .flat_map(|usage| {
                 usage.traits.iter().flat_map(|name| {

@@ -83,10 +83,6 @@ struct Index {
 /// Call this after all files have been parsed. The function sorts symbols and
 /// ambiguity results to keep output stable. Only statically proven execution
 /// targets become call-graph edges.
-pub(crate) fn resolve(facts: &mut [FileFacts], selection: crate::metrics::selection::Selection) {
-    resolve_with_snapshot(facts, selection, &crate::snapshot::Snapshot::default());
-}
-
 pub(crate) fn resolve_with_snapshot(
     facts: &mut [FileFacts],
     selection: crate::metrics::selection::Selection,
@@ -194,4 +190,84 @@ fn only<T>(items: impl IntoIterator<Item = T>) -> Option<T> {
     let mut items = items.into_iter();
     let first = items.next()?;
     items.next().is_none().then_some(first)
+}
+
+/// Resolve captured literal resources with the shared file and alias index.
+pub(crate) fn structural_resources(
+    facts: &[FileFacts],
+) -> Vec<(
+    usize,
+    usize,
+    crate::structure::resources::ResourceFact,
+    Resolution,
+)> {
+    let graph = ProgramGraph::new(facts);
+    let views = facts.iter().map(FileFactsView::new).collect::<Vec<_>>();
+    let resources = facts
+        .iter()
+        .enumerate()
+        .flat_map(|(file, fact)| {
+            fact.contexts.iter().flat_map(move |store| {
+                store
+                    .semantic
+                    .structure_resources
+                    .iter()
+                    .cloned()
+                    .map(move |resource| (file, store.semantic.context_id, resource))
+            })
+        })
+        .collect();
+    files::structural_resources(&views, &graph, resources)
+}
+
+/// A language resolver's selected origins for one effective member name.
+pub(crate) struct StructuralMemberSelection {
+    pub owner: SymbolId,
+    pub name: String,
+    pub origins: Vec<SymbolId>,
+    pub visibility: BTreeMap<SymbolId, String>,
+    pub obligations: Vec<String>,
+}
+
+/// Read selected member origins through the existing language strategies.
+pub(crate) fn structural_members(
+    facts: &[FileFacts],
+    snapshot: &crate::snapshot::Snapshot,
+) -> Vec<StructuralMemberSelection> {
+    let graph = ProgramGraph::new(facts);
+    let views = facts.iter().map(FileFactsView::new).collect::<Vec<_>>();
+    let mut selections = php::structural_members(&graph, snapshot);
+    selections.extend(kotlin::structural_members(&views, &graph, snapshot));
+    selections
+}
+
+/// Read import and re-export module targets through the existing file strategy.
+pub(crate) fn structural_modules(
+    facts: &[FileFacts],
+) -> Vec<(usize, usize, usize, String, Resolution)> {
+    let graph = ProgramGraph::new(facts);
+    let views = facts.iter().map(FileFactsView::new).collect::<Vec<_>>();
+    files::structural_modules(&views, &graph)
+}
+
+/// Read canonical Go package identities without selecting build-tag variants.
+pub(crate) fn structural_go_contexts(facts: &[FileFacts]) -> BTreeMap<(usize, usize), String> {
+    packages::structural_contexts(&ProgramGraph::new(facts))
+}
+
+/// A language-resolved type relation that has no generic reference capture.
+pub(crate) struct StructuralTypeRelationship {
+    pub owner: SymbolId,
+    pub target: Resolution,
+    pub name: String,
+    pub kind: crate::structure::model::RelationshipKind,
+    pub start: usize,
+}
+
+/// Read canonical language composition and inheritance relationships.
+pub(crate) fn structural_type_relationships(
+    facts: &[FileFacts],
+    snapshot: &crate::snapshot::Snapshot,
+) -> Vec<StructuralTypeRelationship> {
+    php::structural_type_relationships(&ProgramGraph::new(facts), snapshot)
 }

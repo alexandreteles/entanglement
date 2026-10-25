@@ -11,6 +11,11 @@ pub(crate) use php::*;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct SemanticFacts {
+    pub structure_fingerprint: Option<String>,
+    pub structure_resources: Vec<crate::structure::resources::ResourceFact>,
+    pub structure: Vec<crate::structure::extract::SyntaxDeclaration>,
+    pub structure_language: Option<String>,
+    pub structure_errors: bool,
     /// PHP name and declaration rules for this semantic layer.
     pub php: Option<PhpFacts>,
     /// The semantic layer that owns these facts, including injected programs.

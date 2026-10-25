@@ -99,6 +99,13 @@ impl Worker {
         let mut captured =
             self.registry
                 .capture(&choice.id, tree, source, self.selection.needs_halstead())?;
+        if self
+            .selection
+            .includes(crate::metrics::selection::Metric::Structure)
+        {
+            crate::structure::extract::capture(tree, source, &choice.id, &mut captured.facts);
+            crate::structure::resources::capture(tree, source, &choice.id, &mut captured.facts);
+        }
         remap_node_ids(&mut captured, next_node_id);
         let requests = self.injection_requests(std::mem::take(&mut captured.injections))?;
         let excluded = excluded_ranges(&requests);

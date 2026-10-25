@@ -9,6 +9,7 @@ mod model;
 mod report_delta;
 mod resolver;
 mod snapshot;
+mod structure;
 mod ui;
 
 use metrics::selection::Selection;

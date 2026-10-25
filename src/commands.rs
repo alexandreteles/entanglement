@@ -21,7 +21,7 @@ pub(crate) fn run(
                         path.display()
                     ))
                 })?;
-            Ok(result(vec![parsed.facts], selection))
+            Ok(result(vec![parsed.facts], selection, "local"))
         }
         crate::cli::Command::Repo { path } => {
             let path = std::path::absolute(path)?;
@@ -30,7 +30,7 @@ pub(crate) fn run(
                 selection,
                 |file| file.facts,
             )?;
-            Ok(result(facts, selection))
+            Ok(result(facts, selection, "repo"))
         }
         crate::cli::Command::Patch { file, diff } => patch::analyze(&file, &diff, true, selection),
         crate::cli::Command::Candidate { path, diff } => {
@@ -42,9 +42,15 @@ pub(crate) fn run(
 fn result(
     mut facts: Vec<crate::model::FileFacts>,
     selection: Selection,
+    scope: &str,
 ) -> crate::model::AnalysisResult {
-    crate::resolver::resolve(&mut facts, selection);
+    let snapshot = crate::snapshot::Snapshot::default();
+    crate::resolver::resolve_with_snapshot(&mut facts, selection, &snapshot);
+    let structure = selection
+        .includes(crate::metrics::selection::Metric::Structure)
+        .then(|| crate::structure::analyze(&facts, scope, &snapshot));
     crate::model::AnalysisResult {
+        structure,
         files: facts.into_iter().map(|fact| fact.analysis).collect(),
         patch: None,
         maintainability_index_bands: crate::metrics::maintainability::BANDS,

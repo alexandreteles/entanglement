@@ -6,6 +6,7 @@ use crate::metrics::selection::{Metric, Selection};
 use crate::model;
 
 mod matching;
+pub(crate) use matching::header_end;
 
 use super::{contribution_changes, halstead_delta, maintainability_delta, metric_delta};
 

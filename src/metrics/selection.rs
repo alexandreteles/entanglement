@@ -25,6 +25,9 @@ pub enum Metric {
         alias = "maintainability-index"
     )]
     Mi,
+    /// Structural dependencies, cycles, propagation cost, and declarations.
+    #[value(name = "structure")]
+    Structure,
     /// Every available metric.
     #[value(name = "all")]
     All,
@@ -38,6 +41,7 @@ pub struct Selection {
     cogc: bool,
     halstead: bool,
     mi: bool,
+    structure: bool,
 }
 
 impl Selection {
@@ -52,6 +56,7 @@ impl Selection {
             cogc: metrics.contains(&Metric::Cogc),
             halstead: metrics.contains(&Metric::Halstead),
             mi: metrics.contains(&Metric::Mi),
+            structure: metrics.contains(&Metric::Structure),
         }
     }
 
@@ -63,6 +68,7 @@ impl Selection {
             cogc: true,
             halstead: true,
             mi: true,
+            structure: true,
         }
     }
 
@@ -75,7 +81,10 @@ impl Selection {
             Metric::Cogc => self.cogc,
             Metric::Halstead => self.halstead,
             Metric::Mi => self.mi,
-            Metric::All => self.cc && self.density && self.cogc && self.halstead && self.mi,
+            Metric::Structure => self.structure,
+            Metric::All => {
+                self.cc && self.density && self.cogc && self.halstead && self.mi && self.structure
+            }
         }
     }
 

@@ -1,6 +1,6 @@
 //! Locate a declaration header without treating quoted or comment text as code.
 
-pub(super) fn header_end(source: &[u8]) -> usize {
+pub(crate) fn header_end(source: &[u8]) -> usize {
     let mut depth = 0usize;
     let mut index = 0;
     while index < source.len() {

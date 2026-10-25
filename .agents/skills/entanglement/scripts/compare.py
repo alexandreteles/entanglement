@@ -2,6 +2,7 @@
 r"""Compare Entanglement repository snapshots and gate edited files on MI.
 
 Requires Python 3.14+ and JSON reports selecting nloc, cc, cogc, and mi.
+Select structure and use --require-structure for structural review results.
 Print a compact JSON summary; exit 0 when no added/modified file is red,
 1 when the MI gate fails, or 2 for unreadable/incomplete reports. Untouched
 red debt is reported separately. An empty after-state supports deletions;
@@ -23,6 +24,8 @@ import math
 import os
 from pathlib import Path
 import sys
+
+import structural
 
 
 @dataclass(frozen=True)
@@ -143,14 +146,22 @@ def main() -> int:
     parser.add_argument("after", type=Path)
     parser.add_argument("--before-root", type=Path, required=True)
     parser.add_argument("--after-root", type=Path, required=True)
+    parser.add_argument("--require-structure", action="store_true")
     args = parser.parse_args()
     try:
         summary = compare(load_report(args.baseline, args.before_root.absolute()),
                           load_report(args.after, args.after_root.absolute()))
+        structure = structural.compare(args.baseline, args.after,
+                                       args.before_root.absolute(), args.after_root.absolute(),
+                                       args.require_structure)
+        if structure is not None:
+            summary["structure"] = structure
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
         print(f"Incomplete metric comparison: {error}", file=sys.stderr)
         return 2
     print(json.dumps(summary, indent=2))
+    if structure is not None and structure["coverage_lost"]:
+        return 2
     return 0 if summary["gate_passed"] else 1
 
 
