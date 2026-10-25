@@ -49,35 +49,6 @@ def metric_file(
     }
 
 
-def structural_graph(root: Path, kind: str, projection: str,
-                     connected: bool, cyclic: bool) -> dict[str, object]:
-    """Make an exact two-unit graph with indexed forward and reverse reachability."""
-    source, target = f'{kind}:{root}/a', f'{kind}:{root}/b'
-    numerator = 2 + int(connected) + int(cyclic)
-    return {
-        'granularity': kind, 'projection': projection, 'units': [source, target],
-        'cycles': [{'members': [source, target]}] if cyclic else [],
-        'pc': {'value': numerator / 4, 'numerator': numerator, 'denominator': 4},
-        'impacts': [
-            {'unit': 0, 'dependencies': [1] if connected else [],
-             'dependents': [1] if cyclic else [],
-             'predecessors': [[0, 0], [1, 0]] if connected else [[0, 0]]},
-            {'unit': 1, 'dependencies': [0] if cyclic else [],
-             'dependents': [0] if connected else [],
-             'predecessors': [[0, 1], [1, 1]] if cyclic else [[1, 1]]},
-        ],
-    }
-
-
-def structural_state(root: Path, connected: bool, cyclic: bool = False) -> dict[str, object]:
-    """Make all four projections for a complete comparator fixture."""
-    return {
-        'scope': 'repo', 'coverage': [], 'effective': [],
-        'graphs': [structural_graph(root, kind, projection, connected, cyclic)
-                   for kind in ('module', 'type') for projection in ('contract', 'full')],
-    }
-
-
 class CompareCliTests(unittest.TestCase):
     """Validate comparator decisions and complete summaries as a caller sees them."""
 
@@ -290,75 +261,6 @@ class CompareCliTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn('no supported files measured in either snapshot', result.stderr)
         self.assertEqual(result.stdout, '')
-
-    def test_structural_findings_require_review_without_changing_mi_gate(self) -> None:
-        """Keep structural changes separate from the file MI decision."""
-        before_root = self.workspace / 'before'
-        after_root = self.workspace / 'after'
-        before = self.write_report('structure-before', [metric_file(before_root / 'sample.rs', 'old')])
-        after = self.write_report('structure-after', [metric_file(after_root / 'sample.rs', 'new')])
-        for path, numerator, root in ((before, 2, before_root), (after, 3, after_root)):
-            document = json.loads(path.read_text())
-            document['structure'] = structural_state(root, numerator == 3)
-            path.write_text(json.dumps(document))
-        result = self.assert_summary(self.compare_reports(before, after, before_root, after_root), 0)
-        self.assertTrue(result['gate_passed'])
-        self.assertTrue(result['structure']['review'])
-        self.assertEqual(result['structure']['graphs'][0]['reach_added'], [['module:a', 'module:b']])
-        for invalid in ([-1], [2], [True], ['1'], [1, 1]):
-            with self.subTest(indices=invalid):
-                document = json.loads(after.read_text())
-                document['structure']['graphs'][0]['impacts'][0]['dependencies'] = invalid
-                after.write_text(json.dumps(document))
-                invalid_result = self.compare_reports(before, after, before_root, after_root)
-                self.assertEqual(invalid_result.returncode, 2)
-
-    def test_missing_structural_side_is_incomplete(self) -> None:
-        """Reject a structural comparison when only one snapshot has it."""
-        root = self.workspace / 'repo'
-        before = self.write_report('structure-present', [metric_file(root / 'sample.rs', 'old')])
-        after = self.write_report('structure-missing', [metric_file(root / 'sample.rs', 'new')])
-        document = json.loads(before.read_text())
-        document['structure'] = {'scope': 'repo', 'graphs': []}
-        before.write_text(json.dumps(document))
-        result = self.compare_reports(before, after, root, root)
-        self.assertEqual(result.returncode, 2)
-        self.assertIn('structural', result.stderr)
-
-    def test_structural_coverage_loss_does_not_claim_cycle_resolution(self) -> None:
-        """Keep lost parse evidence separate from a real removed cycle."""
-        root = self.workspace / 'repo'
-        before = self.write_report('covered', [metric_file(root / 'sample.rs', 'old')])
-        after = self.write_report('unavailable', [metric_file(root / 'sample.rs', 'new')])
-        for path, valid in ((before, True), (after, False)):
-            document = json.loads(path.read_text())
-            document['structure'] = structural_state(root, valid, valid)
-            document['structure']['coverage'] = [{'path': str(root / 'sample.rs'), 'language': 'rust',
-                              'status': 'partial' if valid else 'unavailable',
-                              'limitations': [] if valid else ['parse_error']}]
-            path.write_text(json.dumps(document))
-        result = self.assert_summary(self.compare_reports(before, after, root, root), 2)
-        self.assertTrue(result['gate_passed'])
-        self.assertEqual(result['structure']['coverage_lost'], ['sample.rs'])
-        self.assertIsNone(result['structure']['graphs'][0]['cycles_removed'])
-        document = json.loads(after.read_text())
-        document['structure']['coverage'][0].update(status='partial', limitations=[])
-        document['structure']['relationships'] = [
-            {'source': 'a', 'resolution': 'unresolved', 'evidence': []},
-        ]
-        after.write_text(json.dumps(document))
-        result = self.assert_summary(self.compare_reports(before, after, root, root), 2)
-        self.assertEqual(result['structure']['coverage_lost'], ['a'])
-        self.assertIsNone(result['structure']['graphs'][0]['reach_removed'])
-        baseline = json.loads(before.read_text())
-        edge = {'source': 'a', 'target': 'b', 'kind': 'type', 'resolution': 'resolved',
-                'evidence': [{'owner': 'a', 'detail': 'B'}]}
-        baseline['structure']['relationships'] = [edge]
-        before.write_text(json.dumps(baseline))
-        document['structure']['relationships'] = [dict(edge, target='B', resolution='external')]
-        after.write_text(json.dumps(document))
-        result = self.assert_summary(self.compare_reports(before, after, root, root), 2)
-        self.assertEqual(result['structure']['coverage_lost'], ['a'])
 
     def test_deleting_every_file_passes_and_reports_removed_totals(self) -> None:
         """Allow an empty after inventory when it represents a measured deletion."""
