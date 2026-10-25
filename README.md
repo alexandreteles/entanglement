@@ -1,8 +1,8 @@
 # Entanglement
 
 Entanglement uses Tree-sitter to measure source code. It reports code size,
-complexity, Halstead metrics, and maintainability. It can compare these metrics
-before and after a patch without changing source files.
+complexity, Halstead metrics, maintainability, and structural dependencies.
+It can compare these metrics before and after a patch without changing source files.
 
 ## Install, build, and run
 
@@ -86,8 +86,8 @@ Supported manifests include `Cargo.toml`, `package.json`, `tsconfig.json`,
 ## Select metrics
 
 Use `--metrics` before or after any command. Supply a comma-separated list:
-`nloc`, `cc`, `density`, `cogc`, `halstead`, or `mi`. Repeat the option to add
-metrics. The default is all metrics, also available as `--metrics all`.
+`nloc`, `cc`, `density`, `cogc`, `halstead`, `mi`, or `structure`. Repeat the option
+to add metrics. The default is all metrics, also available as `--metrics all`.
 NLOC is always included.
 
 The CLI accepts these alternative names:
@@ -101,6 +101,8 @@ The CLI accepts these alternative names:
 entanglement --metrics=cogc repo src --format json
 entanglement candidate . --diff change.patch --metrics cc,halstead --format json
 entanglement --metrics mi --metrics density file "$SOURCE_FILE"
+entanglement repo . --metrics structure --format json
+entanglement candidate . --diff change.patch --metrics structure --format json
 ```
 
 `density` needs CC. `mi` needs Halstead volume and CC. These inputs appear in
@@ -109,6 +111,16 @@ its inputs and score effects.
 The `repo` and `candidate` commands analyze references across the repository
 to detect recursion.
 
+`structure` selects structural cycles, propagation cost, effective declarations,
+and structural regression events. `--metrics all` also includes these analyses.
+`repo` and `candidate DIRECTORY` report repository scope. `file`, `patch`, and
+`candidate FILE` report local structural scope, even when reference resolution
+uses the surrounding repository. Read the reported coverage and
+[structural analysis limits](docs/structure.md).
+Structural findings require review. The
+[skill comparator](https://github.com/alexandreteles/entanglement-skill) keeps MI
+as its hard gate.
+
 | Metric | Counting rule in Entanglement | Paper or publication |
 | --- | --- | --- |
 | NLOC (non-comment lines of code) | Count each source line covered by a code token once. Exclude comments and syntax that belongs to an unsupported embedded language. | Robert E. Park, [*Software Size Measurement: A Framework for Counting Source Statements*](https://www.sei.cmu.edu/library/software-size-measurement-a-framework-for-counting-source-statements/), CMU/SEI-92-TR-020 (1992). |
@@ -116,6 +128,10 @@ to detect recursion.
 | Maintainability index (MI) | `clamp((171 - 5.2 ln(V) - 0.23 CC - 16.2 ln(NLOC)) × 100 / 171, 0, 100)`, where V is Halstead volume and CC is cyclomatic complexity. Log inputs use `max(value, 1)`. File CC is the sum of function CC; function MI uses its own CC and NLOC. Bands are 0–<10 red/low, 10–<20 yellow/moderate, and 20–100 green/good. Higher scores indicate better maintainability. | Oman and Hagemeister, [*Metrics for Assessing a Software System's Maintainability*](https://doi.org/10.1109/ICSM.1992.242525), ICSM (1992); [Microsoft Code Metrics: Maintainability Index](https://learn.microsoft.com/en-us/visualstudio/code-quality/code-metrics-maintainability-index-range-and-meaning). |
 | Cyclomatic complexity (CC) | Start each function at 1. Add 1 for each control-flow decision and logical condition. For a captured multiway decision with N cases, add `max(N - 1, 0)`. | [NIST SP 500-235, *Structured Testing: A Testing Methodology Using the Cyclomatic Complexity Metric*](https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication500-235.pdf) (1996), sections 2.2 and 4.1. |
 | Cognitive complexity (CogC) | Start each function at 0. Each captured conditional (including a conditional binding), loop, or multiway decision adds 1 plus the current nesting depth. Alternate and chained branches add 1 without a nesting surcharge. Count a multiway decision once, with guarded cases treated as nested conditionals. Closures and nested functions add nesting for their contents; asynchronous blocks do not. Add 1 for the first logical AND or OR operator in a sequence, then for each change between operator kinds; parentheses keep a sequence together and negation splits it without adding a point. Labeled loop jumps add 1. Each function in a detected direct or mutual call cycle gets 1 recursion point; ordinary calls are free. | SonarSource, [*Cognitive Complexity*](https://www.sonarsource.com/docs/CognitiveComplexity.pdf). |
+| Structural cycles (SCCs) | Find groups of two or more mutually dependent units. Report group membership and a cycle path with source evidence. | Gnoyke, Schulze, and Krüger, [*Evolution Patterns of Software-Architecture Smells: An Empirical Study of Intra- and Inter-Version Smells*](https://www.sciencedirect.com/science/article/pii/S0164121224002152), JSS (2024). |
+| Propagation cost (PC) | Divide reachable ordered internal unit pairs by `n²`, where `n` is the number of internal units. Include self-reachability. Report exact counts and `null` for an empty universe. Keep module/type and contract/full results separate. PC measures structural exposure; it does not predict edits. | Mo et al., [*Decoupling Level: A New Metric for Architectural Maintenance Complexity*](https://ranmo.github.io/papers/icse2016-DL.pdf), ICSE (2016); Cai et al., [*Understanding Architectural Complexity, Maintenance Burden, and Developer Sentiment—A Large-Scale Study*](https://research.google/pubs/understanding-architectural-complexity-maintenance-burden-and-developer-sentiment-a-large-scale-study/), ICSE (2025). |
+| Structural regression events (ArchJIT style) | Compare dependency, cycle, reachability, declaration, and coverage changes. Report affected units and source evidence. | Wang, Hu, and Zhou, [*ArchJIT: Just-in-Time Warning of Architecture Smells via Incremental Dependency Graph Evolution and Learning-Based Prioritization*](https://www.mdpi.com/2079-9292/15/12/2682), Electronics (2026). |
+| Effective declaration analysis | Report required and provided members, selected origins, public type structure, conflicts, and unresolved obligations. | Proposed diagnostic. This is not a published or validated aggregate metric. |
 
 ## Read reports
 
@@ -125,6 +141,8 @@ after the command.
 
 With all metrics selected, JSON includes file and function Halstead and MI
 values, MI bands, CC and CogC contributions, and embedded-language ranges.
+Structural results also include scope, coverage, cycle evidence, PC, and
+effective declarations. Repository candidate reports include structural events.
 
 Patch and candidate reports include values before and after the change,
 their differences, and added or removed token and CC contributors. They show
