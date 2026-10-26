@@ -11,6 +11,22 @@ fn fixture(relative: &str) -> PathBuf {
         .join(relative)
 }
 
+fn repository_fixture() -> tempfile::TempDir {
+    let directory = tempfile::tempdir().expect("create fixture directory");
+    support::write(
+        &directory.path().join("Cargo.toml"),
+        "[package]\nname = 'baseline-fixture'\nversion = '0.1.0'\nedition = '2024'\n",
+    );
+    for name in ["api.rs", "client.rs", "lib.rs", "main.rs", "shared.rs"] {
+        let path = Path::new("src").join(name);
+        support::write(
+            &directory.path().join(&path),
+            std::fs::read(fixture("repo").join(path)).expect("read fixture source"),
+        );
+    }
+    directory
+}
+
 fn resolution(reference: &Value) -> &Value {
     &reference["resolution"]
 }
@@ -131,7 +147,8 @@ fn file_mode_preserves_rust_metrics_without_inferred_html_macro_language() {
 
 #[test]
 fn repository_mode_preserves_import_shadowing_and_shared_root_resolution() {
-    let report = support::report(&support::run("repo", &fixture("repo"), None, None));
+    let repository = repository_fixture();
+    let report = support::report(&support::run("repo", repository.path(), None, None));
     assert_eq!(report["files"].as_array().unwrap().len(), 5);
 
     let client = file(&report, "/src/client.rs");
@@ -160,8 +177,9 @@ fn repository_mode_preserves_import_shadowing_and_shared_root_resolution() {
 
 #[test]
 fn patch_and_candidate_modes_preserve_metric_deltas() {
+    let repository = repository_fixture();
     let diff = fixture("patches/client.diff");
-    let client = fixture("repo/src/client.rs");
+    let client = repository.path().join("src/client.rs");
     let original_source = std::fs::read(&client).expect("read fixture source");
     let patch = support::report(&support::run("patch", &client, Some(&diff), None));
     assert_eq!(
@@ -181,7 +199,7 @@ fn patch_and_candidate_modes_preserve_metric_deltas() {
 
     let candidate = support::report(&support::run(
         "candidate",
-        &fixture("repo"),
+        repository.path(),
         Some(&diff),
         None,
     ));
