@@ -67,24 +67,3 @@ fn own_accessor_descriptor_hides_the_parent_descriptor() {
             .contains("Item::value#set")
     );
 }
-
-#[test]
-fn javascript_static_instance_and_accessors_keep_separate_origins() {
-    let result = analyze(
-        "model.js",
-        "class Item { static shared() {} shared() {} get value() { return 1; } set value(next) {} }\n",
-    );
-    let item = declaration(&result, "Item");
-    let members = item["members"].as_array().unwrap();
-    assert_eq!(members.len(), 4, "{item:#}");
-    let origins = members
-        .iter()
-        .filter_map(|member| member["origin"].as_str())
-        .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(origins.len(), 4);
-    assert!(
-        members.iter().all(|member| !member["body"].is_null()),
-        "{item:#}"
-    );
-    assert!(item["conflicts"].as_array().unwrap().is_empty());
-}

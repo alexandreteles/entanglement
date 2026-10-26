@@ -5,7 +5,7 @@ fn javascript_static_and_accessor_members_keep_distinct_namespaces() {
     let root = tempfile::tempdir().unwrap();
     write(
         &root.path().join("types.js"),
-        "export class Base { static run() {} run() {} get value() { return 1; } set value(input) {} }\nexport class Child extends Base { run() {} }\n",
+        "export class Base { static run() {} run() {} get value() { return 1; } set value(input) {} }\nexport class Child extends Base { run() {} }\nexport class Item { static shared() {} shared() {} get value() { return 1; } set value(next) {} }\n",
     );
     let result = report(&run("repo", root.path(), None, Some("structure")));
     let child = declaration(&result, "Child");
@@ -25,6 +25,16 @@ fn javascript_static_and_accessor_members_keep_distinct_namespaces() {
             "{child:#}"
         );
     }
+    let item = declaration(&result, "Item");
+    let members = item["members"].as_array().unwrap();
+    assert_eq!(members.len(), 4, "{item:#}");
+    let origins = members
+        .iter()
+        .filter_map(|member| member["origin"].as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(origins.len(), 4);
+    assert!(members.iter().all(|member| !member["body"].is_null()));
+    assert!(item["conflicts"].as_array().unwrap().is_empty());
 }
 
 #[test]

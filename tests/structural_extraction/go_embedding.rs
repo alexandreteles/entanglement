@@ -5,7 +5,7 @@ fn go_pointer_receiver_and_embedding_remain_distinct() {
     let root = tempfile::tempdir().unwrap();
     write(
         &root.path().join("types.go"),
-        "package fixture\ntype Base struct {}\nfunc (base Base) Value() {}\nfunc (base *Base) Pointer() {}\ntype Outer struct { Base }\n",
+        "package fixture\ntype Base struct {}\nfunc (base Base) Value() {}\nfunc (base *Base) Pointer() {}\ntype Outer struct { Base }\ntype PointerOuter struct { *Base }\n",
     );
     let result = report(&run("repo", root.path(), None, Some("structure")));
     let members = declaration(&result, "Outer")["members"].as_array().unwrap();
@@ -14,6 +14,15 @@ fn go_pointer_receiver_and_embedding_remain_distinct() {
         members
             .iter()
             .any(|member| member["name"] == "Pointer" && member["receiver"] == "pointer")
+    );
+    let pointer_outer = declaration(&result, "PointerOuter");
+    assert!(
+        pointer_outer["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|member| member["name"] == "Pointer" && member["receiver"] == "value"),
+        "{pointer_outer:#}"
     );
 }
 
@@ -56,24 +65,5 @@ fn go_each_declared_field_can_hide_a_promoted_method() {
             .iter()
             .any(|proof| proof["contract"].as_str().unwrap().ends_with(":Contract")),
         "{candidate:#}"
-    );
-}
-
-#[test]
-fn go_pointer_embedding_promotes_pointer_methods_to_value_set() {
-    let root = tempfile::tempdir().unwrap();
-    write(
-        &root.path().join("types.go"),
-        "package fixture\ntype Base struct {}\nfunc (base *Base) Pointer() {}\ntype Outer struct { *Base }\n",
-    );
-    let result = report(&run("repo", root.path(), None, Some("structure")));
-    let outer = declaration(&result, "Outer");
-    assert!(
-        outer["members"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|member| member["name"] == "Pointer" && member["receiver"] == "value"),
-        "{outer:#}"
     );
 }
