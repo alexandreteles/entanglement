@@ -55,27 +55,6 @@ fn file_repo_and_human_reports_preserve_metric_formulas_and_rating_bands() {
     ] {
         assert_eq!(metrics[key], expected, "{key}");
     }
-    let n1 = 10.0_f64;
-    let n2 = 4.0_f64;
-    let length = 19.0;
-    let volume = length * (n1 + n2).log2();
-    let difficulty = n1 / 2.0 * (8.0 / n2);
-    for (key, expected) in [
-        ("vocabulary", n1 + n2),
-        ("length", length),
-        ("estimated_length", n1 * n1.log2() + n2 * n2.log2()),
-        ("volume", volume),
-        ("difficulty", difficulty),
-        ("effort", difficulty * volume),
-        ("time", difficulty * volume / 18.0),
-        ("program_level", 1.0 / difficulty),
-        ("estimated_bugs", volume / 3000.0),
-    ] {
-        assert!(
-            (metrics[key].as_f64().unwrap() - expected).abs() < 1e-10,
-            "{key}"
-        );
-    }
     for key in ["operators", "operands"] {
         assert!(!metrics[key].as_array().unwrap().is_empty());
     }

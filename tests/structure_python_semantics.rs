@@ -82,18 +82,6 @@ fn candidate_base_order_change_reports_selected_body_change() {
         method["origin"].as_str().unwrap().contains("C::method"),
         "{derived:#}"
     );
-    assert!(
-        result["structure"]["delta"]["events"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|event| event["kind"] == "effective"
-                && event["units"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .any(|unit| unit.as_str().unwrap().ends_with(":D")))
-    );
     let event = result["structure"]["delta"]["events"]
         .as_array()
         .unwrap()

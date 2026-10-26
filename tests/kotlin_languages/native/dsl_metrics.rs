@@ -42,10 +42,6 @@ fn opaque_dsl_names_do_not_change_scope_or_decision_metrics() {
         .collect();
     assert_eq!(callbacks_a.len(), callbacks_b.len());
     assert!(callbacks_a.len() >= 2, "nested DSL lambdas need scopes");
-    assert_eq!(
-        function(a, "render")["cyclomatic_complexity"],
-        function(b, "render")["cyclomatic_complexity"]
-    );
     for metric in [
         "nloc",
         "cyclomatic_complexity",
@@ -82,10 +78,6 @@ fn opaque_dsl_names_do_not_change_scope_or_decision_metrics() {
         .map(|item| item["cyclomatic_complexity"].clone())
         .collect();
     assert_eq!(callback_scores_a, callback_scores_b);
-    assert_eq!(
-        callbacks_a[0]["cyclomatic_complexity"],
-        callbacks_b[0]["cyclomatic_complexity"]
-    );
     assert!(
         callbacks_a
             .iter()

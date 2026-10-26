@@ -27,17 +27,4 @@ fn zero_counts_produce_finite_values() {
     assert_eq!(empty.time, 0.0);
     assert_eq!(empty.program_level, 0.0);
     assert_eq!(empty.estimated_bugs, 0.0);
-    assert!(
-        [
-            empty.estimated_length,
-            empty.volume,
-            empty.difficulty,
-            empty.effort,
-            empty.time,
-            empty.program_level,
-            empty.estimated_bugs,
-        ]
-        .into_iter()
-        .all(f64::is_finite)
-    );
 }

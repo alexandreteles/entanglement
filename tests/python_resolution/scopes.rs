@@ -109,11 +109,6 @@ def outer():
     );
     let module_write = file(&project, "/module_write.py");
     assert_eq!(
-        reference(module_write, &["leaf"])["resolution"]["status"],
-        "unresolved",
-        "module assignment after a deferred function blocks exact assumptions"
-    );
-    assert_eq!(
         refs(module_write)
             .iter()
             .filter(|item| item["path"] == serde_json::json!(["leaf"]))
@@ -124,7 +119,8 @@ def outer():
         refs(module_write)
             .iter()
             .filter(|item| item["path"] == serde_json::json!(["leaf"]))
-            .all(|item| item["resolution"]["status"] == "unresolved")
+            .all(|item| item["resolution"]["status"] == "unresolved"),
+        "module assignment after a deferred function blocks exact assumptions"
     );
     for suffix in ["/global_write.py", "/nonlocal_write.py"] {
         assert_eq!(

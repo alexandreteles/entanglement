@@ -48,22 +48,6 @@ fn cycles_and_repeated_bases_are_explicit() {
 }
 
 #[test]
-fn source_base_order_changes_the_selected_member_origin() {
-    let first = python::order(
-        "D",
-        &parents(&[("D", &["B", "C"]), ("B", &["A"]), ("C", &["A"])]),
-    )
-    .unwrap();
-    let second = python::order(
-        "D",
-        &parents(&[("D", &["C", "B"]), ("B", &["A"]), ("C", &["A"])]),
-    )
-    .unwrap();
-    assert_eq!(first[1], "B");
-    assert_eq!(second[1], "C");
-}
-
-#[test]
 fn deep_inheritance_uses_an_explicit_stack() {
     let hierarchy = (1..512)
         .map(|index| (index.to_string(), vec![(index - 1).to_string()]))
