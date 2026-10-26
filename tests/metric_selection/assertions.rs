@@ -39,6 +39,7 @@ fn keep_field(key: &str, selected: &str) -> bool {
         | "added_cognitive_contributions"
         | "removed_cognitive_contributions" => selected == "cogc",
         "halstead" => selected == "halstead",
+        "structure" => selected == "structure",
         "maintainability_index" | "maintainability_index_bands" => selected == "mi",
         _ => true,
     }
