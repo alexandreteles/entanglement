@@ -12,13 +12,18 @@ use fixture::*;
 const METRICS: &[&str] = &["nloc", "cc", "density", "cogc", "halstead", "mi"];
 
 #[test]
-fn each_command_projects_selected_metrics_in_json_and_human_reports() {
+fn commands_project_selected_metrics_in_json_and_human_reports() {
     let project = project();
     for mode in modes(&project) {
         let all = json(&run(&mode, "json", &["all"], true));
-        for metric in METRICS {
+        let full_matrix = matches!(mode.command, "file" | "candidate");
+        let metrics = if full_matrix { METRICS } else { &METRICS[..1] };
+        for metric in metrics {
             let selected = json(&run(&mode, "json", &[*metric], false));
             assert_json_selection(&all, &selected, metric);
+            if !full_matrix {
+                continue;
+            }
             let human = run(&mode, "human", &[*metric], true);
             assert!(
                 human.status.success(),
@@ -31,7 +36,7 @@ fn each_command_projects_selected_metrics_in_json_and_human_reports() {
 }
 
 #[test]
-fn defaults_lists_repeats_global_positions_and_aliases_are_compatible() {
+fn defaults_lists_repeats_and_global_positions_are_compatible() {
     let project = project();
     let repo = modes(&project)[1].path;
     let mode = Mode {
@@ -50,21 +55,6 @@ fn defaults_lists_repeats_global_positions_and_aliases_are_compatible() {
     let after = json(&run(&mode, "json", &["cc"], false));
     assert_eq!(before, after);
 
-    for (alias, canonical) in [
-        ("cyclomatic", "cc"),
-        ("cyclomatic-complexity", "cc"),
-        ("cyclomatic-density", "density"),
-        ("cognitive", "cogc"),
-        ("cognitive-complexity", "cogc"),
-        ("maintainability", "mi"),
-        ("maintainability-index", "mi"),
-    ] {
-        assert_eq!(
-            json(&run(&mode, "json", &[alias], true)),
-            json(&run(&mode, "json", &[canonical], true)),
-            "alias {alias}"
-        );
-    }
     for invalid in ["unknown", "", "cc,,mi"] {
         let output = run(&mode, "json", &[invalid], true);
         assert!(

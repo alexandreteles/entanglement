@@ -21,6 +21,20 @@ fn cli_accepts_repeated_and_comma_delimited_metrics() {
         [Metric::Cc, Metric::Density, Metric::Cogc, Metric::Mi]
     );
     assert!(matches!(args.command, Command::File { .. }));
+
+    for (alias, expected) in [
+        ("cyclomatic", Metric::Cc),
+        ("cyclomatic-complexity", Metric::Cc),
+        ("cyclomatic-density", Metric::Density),
+        ("cognitive", Metric::Cogc),
+        ("cognitive-complexity", Metric::Cogc),
+        ("maintainability", Metric::Mi),
+        ("maintainability-index", Metric::Mi),
+    ] {
+        let args = Cli::try_parse_from(["entanglement", "--metrics", alias, "file", "src/main.rs"])
+            .unwrap();
+        assert_eq!(args.metrics, [expected], "alias {alias}");
+    }
 }
 
 #[test]
