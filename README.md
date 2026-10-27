@@ -171,6 +171,10 @@ A missing function side is `null`.
    owns each range. Run `entanglement repo` and `entanglement candidate`
    to evaluate the fixtures.
 
+## Contribute
+
+Follow [TEST_POLICY.md](TEST_POLICY.md) when you propose major new functionality.
+
 ## Security
 
 Only the latest release is supported. Report vulnerabilities through
