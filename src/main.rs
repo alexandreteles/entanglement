@@ -1,3 +1,21 @@
+#![doc = include_str!("../README.md")]
+//!
+//! # Code organization
+//!
+//! - [`cli`] defines commands, arguments, and options.
+//! - [`commands`] runs the selected command.
+//! - [`input`] finds source files and applies patches in memory.
+//! - [`analysis`] parses source files and calculates metrics.
+//! - [`languages`] supplies language rules and syntax analysis.
+//! - [`metrics`] calculates code size, complexity, and maintainability.
+//! - [`graph`] builds program graphs from source facts.
+//! - [`resolver`] resolves source references.
+//! - [`snapshot`] stores file contents for one analysis run.
+//! - [`structure`] analyzes source dependencies and declaration changes.
+//! - [`model`] defines report data types.
+//! - [`report_delta`] compares metrics before and after a change.
+//! - [`ui`] formats reports as text or JSON.
+
 mod analysis;
 mod cli;
 mod commands;
