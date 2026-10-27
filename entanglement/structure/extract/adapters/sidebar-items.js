@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["additional_names","alias_composition","argument_relations","classification","constraints","contract_fields","declaration","declared_relations","embedded","enum_fields","impl_trait","is_type_position","limitations","member_kind","member_owner","name","object_analysis","optional","positional_fields","public","receiver","relation","required","type_leaf","type_node"]};
+window.SIDEBAR_ITEMS = {"fn":["additional_names","classification","declaration","limitations","name","object_analysis"]};

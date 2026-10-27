@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["ambiguous_promotions","composition_paths","promote_pointer_receivers"]};

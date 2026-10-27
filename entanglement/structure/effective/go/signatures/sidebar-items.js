@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["builtin","method_signatures","named_type_key","type_key"]};

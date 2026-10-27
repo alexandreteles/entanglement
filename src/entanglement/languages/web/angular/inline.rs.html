@@ -21,16 +21,16 @@
 <a href=#21 id=21 data-nosnippet>21</a>    }
 <a href=#22 id=22 data-nosnippet>22</a>    <span class="kw">let </span><span class="kw-2">mut </span>pending = <span class="macro">vec!</span>[root];
 <a href=#23 id=23 data-nosnippet>23</a>    <span class="kw">while let </span><span class="prelude-val">Some</span>(node) = pending.pop() {
-<a href=#24 id=24 data-nosnippet>24</a>        <span class="kw">if </span>node.kind() == <span class="string">"call_expression" </span>&amp;&amp; component_call(node, source, captured) {
-<a href=#25 id=25 data-nosnippet>25</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(metadata) = node
-<a href=#26 id=26 data-nosnippet>26</a>                .child_by_field_name(<span class="string">"arguments"</span>)
-<a href=#27 id=27 data-nosnippet>27</a>                .and_then(|arguments| children(arguments).next())
-<a href=#28 id=28 data-nosnippet>28</a>                .filter(|metadata| metadata.kind() == <span class="string">"object"</span>)
-<a href=#29 id=29 data-nosnippet>29</a>            {
-<a href=#30 id=30 data-nosnippet>30</a>                captured
-<a href=#31 id=31 data-nosnippet>31</a>                    .injections
-<a href=#32 id=32 data-nosnippet>32</a>                    .extend(children(metadata).filter_map(|pair| template(pair, source)));
-<a href=#33 id=33 data-nosnippet>33</a>            }
+<a href=#24 id=24 data-nosnippet>24</a>        <span class="kw">if </span>node.kind() == <span class="string">"call_expression"
+<a href=#25 id=25 data-nosnippet>25</a>            </span>&amp;&amp; component_call(node, source, captured)
+<a href=#26 id=26 data-nosnippet>26</a>            &amp;&amp; <span class="kw">let </span><span class="prelude-val">Some</span>(metadata) = node
+<a href=#27 id=27 data-nosnippet>27</a>                .child_by_field_name(<span class="string">"arguments"</span>)
+<a href=#28 id=28 data-nosnippet>28</a>                .and_then(|arguments| children(arguments).next())
+<a href=#29 id=29 data-nosnippet>29</a>                .filter(|metadata| metadata.kind() == <span class="string">"object"</span>)
+<a href=#30 id=30 data-nosnippet>30</a>        {
+<a href=#31 id=31 data-nosnippet>31</a>            captured
+<a href=#32 id=32 data-nosnippet>32</a>                .injections
+<a href=#33 id=33 data-nosnippet>33</a>                .extend(children(metadata).filter_map(|pair| template(pair, source)));
 <a href=#34 id=34 data-nosnippet>34</a>        }
 <a href=#35 id=35 data-nosnippet>35</a>        pending.extend(children(node));
 <a href=#36 id=36 data-nosnippet>36</a>    }

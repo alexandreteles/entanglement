@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["alias_composition","argument_relations","declared_relations","embedded","is_type_position","relation","type_node"]};

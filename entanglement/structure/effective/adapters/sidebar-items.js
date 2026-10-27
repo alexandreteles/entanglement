@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["Policy"],"fn":["ambiguous_members","ambiguous_promotions","composition_paths","promote_pointer_receivers","script_choice"]};
+window.SIDEBAR_ITEMS = {"enum":["Policy"],"mod":["promotion","selection"]};

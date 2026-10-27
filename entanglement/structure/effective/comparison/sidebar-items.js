@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["compare","effective_event","event_paths","presence_event"]};

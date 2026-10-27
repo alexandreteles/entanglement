@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["structural_members","structural_type_relationships"]};

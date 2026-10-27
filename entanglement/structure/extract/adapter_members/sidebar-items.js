@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["constraints","contract_fields","enum_fields","member_kind","positional_fields"]};

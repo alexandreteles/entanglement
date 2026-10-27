@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["effective_values","semantic_signature"]};

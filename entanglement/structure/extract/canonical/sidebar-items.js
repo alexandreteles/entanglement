@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["canonical_modules","canonical_types"]};

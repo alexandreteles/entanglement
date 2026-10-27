@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["capture_relationships","import_relationship"]};

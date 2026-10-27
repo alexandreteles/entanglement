@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["impl_trait","member_owner","receiver","type_leaf"]};

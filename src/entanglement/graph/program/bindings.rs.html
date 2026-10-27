@@ -225,7 +225,7 @@
 <a href=#225 id=225 data-nosnippet>225</a>                <span class="kw">return </span><span class="prelude-val">None</span>;
 <a href=#226 id=226 data-nosnippet>226</a>            }
 <a href=#227 id=227 data-nosnippet>227</a>            callable_reference |= current.callable_reference;
-<a href=#228 id=228 data-nosnippet>228</a>            <span class="kw">let </span>target = current.alias_target.as_deref()<span class="question-mark">?</span>;
+<a href=#228 id=228 data-nosnippet>228</a>            <span class="kw">let </span>target = current.alias_target<span class="question-mark">?</span>;
 <a href=#229 id=229 data-nosnippet>229</a>            <span class="kw">let </span>next = (!target.is_empty() &amp;&amp; !target.contains(<span class="string">'.'</span>))
 <a href=#230 id=230 data-nosnippet>230</a>                .then(|| <span class="self">self</span>.binding_at(file_index, target, context_id, current.local.end_byte))
 <a href=#231 id=231 data-nosnippet>231</a>                .flatten()
