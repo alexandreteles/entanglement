@@ -7,26 +7,38 @@ description: Use the installed Entanglement CLI during code changes to compare r
 
 Keep requested code changes maintainable using the installed `entanglement` command. Python 3.14+ runs the bundled comparator. Resolve `skill_dir` to this skill's directory.
 
+Before the baseline, select and check the executable:
+
+```sh
+metrics_source=$(command -v entanglement)
+"$metrics_source" --version
+"$metrics_source" repo --help
+```
+
+If `structure` is absent, use a current release or a verified project build. For another build, set `metrics_source` to its absolute executable path and repeat the checks. An old installed CLI does not show that the project lacks structural analysis. If no compatible CLI is available, use `nloc,cc,cogc,mi` for both reports and report the reason for the missing structural analysis.
+
 Before editing, run from the project root and preserve the actual working state, including existing user changes:
 
 ```sh
 repo=$(pwd -P)
 metrics_dir=$(mktemp -d)
-entanglement --version > "$metrics_dir/version.txt"
-entanglement repo "$repo" --metrics nloc,cc,cogc,mi,structure --format json > "$metrics_dir/baseline.json"
+cp "$metrics_source" "$metrics_dir/entanglement"
+metrics_cli="$metrics_dir/entanglement"
+"$metrics_cli" --version > "$metrics_dir/version.txt"
+"$metrics_cli" repo "$repo" --metrics nloc,cc,cogc,mi,structure --format json > "$metrics_dir/baseline.json"
 ```
 
-Keep this baseline fixed for the task. Record the root, ignore scope, and existing dirty files; do not reset user changes. Reports contain source hashes. Keep artifacts outside the repository, and use the same version, root, discovery scope, and metrics throughout. Check command success before comparing.
+Keep this baseline fixed for the task. Record the root, ignore scope, and existing dirty files; do not reset user changes. Reports contain source hashes. Keep artifacts outside the repository, and use the same copied executable, root, discovery scope, and metrics throughout. A version string alone does not identify a build. Check command success before comparing.
 
 After each meaningful edit batch, analyze the working tree again:
 
 ```sh
-entanglement repo "$repo" --metrics nloc,cc,cogc,mi,structure --format json > "$metrics_dir/after.json"
+"$metrics_cli" repo "$repo" --metrics nloc,cc,cogc,mi,structure --format json > "$metrics_dir/after.json"
 python3 "$skill_dir/scripts/compare.py" "$metrics_dir/baseline.json" "$metrics_dir/after.json" \
   --before-root "$repo" --after-root "$repo" --structure
 ```
 
-Choose the supported metric selection before saving the baseline. If the installed CLI cannot produce `structure`, use `nloc,cc,cogc,mi` for both reports. Keep the same version and selection throughout the task, and report unavailable structural analysis.
+Choose the supported metric selection before saving the baseline. Do not replace the copied executable or change the selection during the task. An update to the installed CLI must not change the task's measurements.
 
 Structural checks are advisory. `--structure` requests structural diagnostics, including a missing-data result; `--require-structure` is an alias with the same advisory behavior. Present structural payloads are also reviewed without either flag. Missing or invalid structural data, local scope, reduced coverage, uncertain matches, and new findings never change the MI exit code. Exit 2 applies only to unreadable or incomplete required ordinary metrics.
 
@@ -39,7 +51,7 @@ The comparator prints compact totals and file changes: exit **0** passes the MI 
 For competing implementations, generate a root-relative unified diff against preserved **before-state source bytes**, then run:
 
 ```sh
-entanglement candidate "$before_root" --diff "$proposal_diff" --metrics nloc,cc,cogc,mi,structure --format json
+"$metrics_cli" candidate "$before_root" --diff "$proposal_diff" --metrics nloc,cc,cogc,mi,structure --format json
 ```
 
 Compare its complete `.files` after-state with the matching baseline; `.patch.files` supplies contributor diagnostics but misses untouched callers whose recursion scores change. Use explicit comparator roots when comparing copies. Never apply `git diff` to the already edited tree via `candidate`: it can silently duplicate additions. Snapshot JSON alone does not preserve source bytes. Use `file` or single-file `patch FILE --diff DIFF` for local diagnosis; repository analysis supplies cross-file context. `--diff -` accepts stdin; express renames as deletion/addition (`git diff --no-renames`).
