@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["key","reference_kind"]};

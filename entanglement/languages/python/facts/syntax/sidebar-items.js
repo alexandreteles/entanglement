@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["body","direct_function","field","is_top_level","module_path","nodes","range","target_names"]};

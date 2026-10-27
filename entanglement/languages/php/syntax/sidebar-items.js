@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["ancestors","class_name","conditional","declaration_name","first_class_callable","is_branch","is_callable","is_class","is_name","literal","modifier","name_parts","namespace","nodes","range","scope","text","unwrap","visibility"]};

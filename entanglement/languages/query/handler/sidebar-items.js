@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["syntax_only"],"struct":["SyntaxOnly"]};

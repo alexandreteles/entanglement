@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["changed_edges","compare","compare_cycle_removals","compare_cycles","compare_dependencies","compare_order","compare_projection","compare_reachability","coverage_lost","edge_key","event","ordered_targets","path_changes","reachable_pairs","rename_candidates","support_keys"]};

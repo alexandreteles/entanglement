@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["ancestor","await_scope","block_body_scope","block_header_end","declaration_body_start","declaration_scope","each_scope","lexical_parent_scope","snippet_scope"]};

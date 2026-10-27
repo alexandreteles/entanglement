@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["import_from","imported_member","imported_module","imports"],"struct":["ImportedName"]};

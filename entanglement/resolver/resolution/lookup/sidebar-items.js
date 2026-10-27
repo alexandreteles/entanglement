@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["can_access_private","choose_best_targets","import_rank","is_external_root","symbol_rank"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["call_base","import","is_exported","reference_path","reference_target","type_kind"]};

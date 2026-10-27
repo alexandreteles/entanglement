@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["candidate_for_symbol","indexed_candidates","project_indexes","source_set_edges"],"mod":["dependencies","source"],"type":["ProjectIndexes"]};

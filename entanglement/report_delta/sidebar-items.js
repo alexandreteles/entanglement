@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["contribution_changes","difference_usize","edited_position","float_delta","group_tokens","halstead_delta","match_identities","match_positions","metric_delta","pop_unmatched","token_changes","token_indexes","unmatched_tokens"],"mod":["functions","maintainability"],"type":["TokenIdentity","TokenIndexes","TokenPosition"]};

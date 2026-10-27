@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["build_facts","summary_context_is_consistent","summary_descriptor","summary_nloc"],"mod":["summary"],"struct":["SummaryContext","TreeSummary"]};

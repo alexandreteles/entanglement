@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["collect_loop_target","is_comprehension","nearest_comprehension"]};

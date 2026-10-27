@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["can_analyze_injection","cognitive_parent","enclosing_function","excluded_ranges","inherited_module_for_range","injection_contexts","injection_scope","pending_injection","selected_requests"]};

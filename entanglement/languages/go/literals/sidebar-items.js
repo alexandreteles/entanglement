@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["digits","escape","numeric_escape","simple_escape","unquote"]};

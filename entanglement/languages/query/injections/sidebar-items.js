@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["host_ranges","infer_language_capture","injection_language","merge"]};

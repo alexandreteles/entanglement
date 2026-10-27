@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Target"],"fn":["resolve","structural_modules","structural_resources","to_resolution","unique_targets"],"mod":["bindings","exports","indexing","layout","references","symbols"]};

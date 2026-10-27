@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAX_INJECTION_DEPTH"],"fn":["collect_injection_analysis"],"mod":["requests","trees"],"struct":["InjectionContext","LayerContext","ParsedInjection","TraversalState"],"type":["TreeKey"]};

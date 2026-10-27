@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["capture_primary_constructor_parameters","emit_constructor_property"]};

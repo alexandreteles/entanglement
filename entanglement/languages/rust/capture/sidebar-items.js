@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["definition_kind","has_visibility","is_method","raw_definition","raw_local"]};

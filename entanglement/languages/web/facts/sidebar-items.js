@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["deduplicate","discard_value_duplicates"],"mod":["capture_schema","definitions","exports","namespaces","references","scope"],"struct":["CaptureFacts"]};

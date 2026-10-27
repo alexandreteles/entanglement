@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["resolve","structural_members","structural_type_relationships"],"mod":["execution","members","names","project","structural"],"struct":["Candidate","Index","Site"]};

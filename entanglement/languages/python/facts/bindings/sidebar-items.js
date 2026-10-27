@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["collect","collect_assignment"],"mod":["comprehensions","declarations","patterns","scope"]};

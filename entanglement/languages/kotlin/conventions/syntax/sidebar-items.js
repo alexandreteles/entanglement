@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["assignment_convention","assignment_parts","binary_convention","binary_operands","indexing_parts","infix_parts","invocation_parts","is_assignment_target","is_expression","operator_token","unary_convention","unary_parts","unwrap_indexing"]};

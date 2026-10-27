@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["builtin_bound_result","builtin_supertype_match","function_type_parameters","function_type_receiver","is_builtin_type","is_type_compatible","lambda_parameters_match","normalize_type","parameter_type_names","substitute_type_name","types_match"]};

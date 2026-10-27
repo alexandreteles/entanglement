@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["call_owner","direct_call","direct_callee","enclosing_function","same_reference","terminal_callee_matches","wrapped_callee"]};

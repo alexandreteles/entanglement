@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["SyntaxRole"],"fn":["assign_to_functions"],"mod":["cognitive","cyclomatic","cyclomatic_density","halstead","maintainability","nloc","recursion","selection"],"struct":["SyntaxEvent"]};

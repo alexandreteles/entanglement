@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["ascend_package","is_package","local_top_module","module_path","package_directory","project_root","relative_module","resolve","resolve_absolute","resolve_relative"]};

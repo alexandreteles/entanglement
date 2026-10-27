@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["collect_imports","package_name","split_name"]};

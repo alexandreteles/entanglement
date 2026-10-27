@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["FILE_COLUMNS","PATCH_COLUMNS"],"enum":["FunctionColumn"],"fn":["render","selected_columns","write_column_header","write_file","write_file_column","write_patch_column","write_patch_file","write_patch_function","write_patch_report"]};

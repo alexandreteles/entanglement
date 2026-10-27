@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["collect_definition","collect_deletion","collect_named_expression","collect_scope_declaration","collect_with_target"]};

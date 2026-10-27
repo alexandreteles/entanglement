@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["contains","fully_included","included","intersect","intersect_sets","node_segments","normalize","subtract"]};

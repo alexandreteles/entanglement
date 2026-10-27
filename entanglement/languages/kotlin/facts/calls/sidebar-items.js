@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["argument_binding_type","call_argument","collect_calls","explicit_lambda_label","expression_type","integer_literal_type","nearest_declaration","real_literal_type"]};

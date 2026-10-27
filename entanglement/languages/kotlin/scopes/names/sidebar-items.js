@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["bound_lambda_name","declaration_name","enclosing_type_name","has_bodyless_api_primary_constructor","has_descendant_kind","primary_constructor_name","property_name","query_name","recovered_error","scope","scope_name"]};

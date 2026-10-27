@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["alias_target","append_type_parameters","callable_signature","declaration_supertypes","declared_type","direct_type_children","is_type_node","normalize_bounds","normalized_type","parameter_info","primary_constructor_parameters","signature_type_parameters","type_parameter_parts"]};

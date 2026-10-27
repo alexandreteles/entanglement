@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["add_lambda_definition","add_module_assignment","add_named_definition","collect","definition_kind","symbol_scope"]};

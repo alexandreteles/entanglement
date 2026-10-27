@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["CoverageStatus","Projection","RelationshipKind","ResolutionStatus","UnitKind"],"struct":["Coverage","Cycle","Evidence","GraphAnalysis","Impact","PropagationCost","Relationship","StructuralDelta","StructuralEvent","StructureSnapshot","Unit","Witness"]};

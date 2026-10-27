@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["capture_local_binding","collect_definition","is_definition_node","local_property_metadata","record_declared_name"],"mod":["constructors","identity","imports"]};

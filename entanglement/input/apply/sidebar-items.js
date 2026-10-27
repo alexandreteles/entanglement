@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["apply_hunk","apply_patch","hunk_bytes","hunk_line_index","line_start","point_after","point_at"]};

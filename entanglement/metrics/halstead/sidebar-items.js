@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["HalsteadTokenKind"],"fn":["log_term"],"struct":["HalsteadMetrics","HalsteadToken"]};

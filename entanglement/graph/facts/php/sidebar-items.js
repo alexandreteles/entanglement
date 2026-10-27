@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["PhpReferenceKind","PhpSymbolKind"],"struct":["PhpDeclaration","PhpFacts","PhpImport","PhpInclude","PhpNamespace","PhpReference","PhpTraitAdaptation","PhpTraitUse"]};

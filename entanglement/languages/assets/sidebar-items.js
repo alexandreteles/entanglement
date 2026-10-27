@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["GRAMMAR_ASSETS","GRAMMAR_ROOTS"],"fn":["prepare"],"static":["GRAMMAR_ROOT"]};

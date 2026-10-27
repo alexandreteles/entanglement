@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Manifest"],"fn":["package_metadata","path_url","read_json","requirements","unique_root"],"mod":["autoload"],"struct":["Project","Projects"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["ancestor_or_self","build","classify_tokens","component_definition","component_export","component_reference","configure_injections","element_tag","is_module_script","trim_quotes"],"mod":["bindings","scopes"],"struct":["Analyzer","Extras"]};

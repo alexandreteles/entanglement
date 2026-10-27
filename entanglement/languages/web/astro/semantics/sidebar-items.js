@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["astro_is_bound","astro_scopes","component_definition","component_export","component_reference","finish","is_source_line_event"],"struct":["Extras"]};

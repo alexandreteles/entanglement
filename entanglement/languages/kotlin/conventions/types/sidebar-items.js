@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["enclosing_type_name","expression_type","lexical_scope","node_text","simple_identifier"]};

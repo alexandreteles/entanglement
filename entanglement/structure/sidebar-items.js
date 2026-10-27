@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["analyze","attribute_effective","compare","contract_units"],"mod":["delta","effective","extract","graph","model","resources","types"],"struct":["GraphSummary","StructuralReport","StructuralState","StructuralSummary"]};

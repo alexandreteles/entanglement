@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["binding_names","condition_scope","contains","is_field","lexical_scope","local_bindings","nearest_kind","relative_module"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["BANDS","SCORE_SCALE"],"enum":["MaintainabilityRating"],"fn":["rating"],"struct":["MaintainabilityBand","MaintainabilityChange","MaintainabilityIndex"]};

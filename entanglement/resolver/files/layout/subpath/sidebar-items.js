@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["CONDITIONS"],"enum":["ImportTarget"],"fn":["package_target","pattern_match","resolve"],"struct":["PackageManifest"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["append_operator_changes","logical_root"]};

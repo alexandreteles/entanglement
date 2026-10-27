@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["ANALYSIS_QUERY","LANGUAGE_SPEC"],"enum":["LocalScopeKind"],"fn":["build","deduplicate","node_text"],"mod":["capture","references","scopes"],"struct":["Analyzer","CaptureFacts","Captures","ModuleSpan","RawDefinition","RawImport","RawLocal","RawPath","RawReference"]};

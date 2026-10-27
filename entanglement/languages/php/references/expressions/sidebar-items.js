@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["access","constant_name","pipe_target","receiver_reference","receiver_text"]};

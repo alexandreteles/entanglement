@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["binding_scope","collect_context_facts","collect_locals","collect_value_binding","initializer_alias","is_immutable_binding","local_alias","property_initializer"]};

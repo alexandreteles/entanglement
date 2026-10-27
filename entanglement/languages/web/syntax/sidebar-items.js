@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["has_default_keyword","has_wildcard","named_child","named_child_at","node_name","node_text","node_text_bytes","normalize_module_specifier","normalize_string_node"]};

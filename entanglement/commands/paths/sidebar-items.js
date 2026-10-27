@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["file_patch_root","is_project_root","nearest_project_root","patch_sources","validate_patches"],"type":["SourcePaths"]};

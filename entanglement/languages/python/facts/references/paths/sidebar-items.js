@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["attribute_segments","contains","is_attribute_label","is_label","is_outer_attribute","is_store_target","is_type_context","kind_for","path_segments"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["render"],"mod":["selection"],"struct":["MetricReport","SelectedReport"]};

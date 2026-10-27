@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["adaptation","capture","import_kind","imports","include_path","namespaces","trait_use"]};

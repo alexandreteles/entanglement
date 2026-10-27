@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["RecoveredTypeKind"],"fn":["context_for_declaration"],"mod":["context","events","recovery"],"struct":["ContextParameter","ContextParameters","RecoveredType"]};

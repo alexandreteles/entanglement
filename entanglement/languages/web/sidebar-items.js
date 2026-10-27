@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["LANGUAGE_SPECS","WEB_EXTENSIONS","WEB_INDEX_STEMS","WEB_MODULE_RULES","WEB_REMAPS","WEB_UNRESOLVED_PREFIXES"],"fn":["build","build_web"],"mod":["angular","astro","css","exports","facts","html","imports","javascript","module_facts","reexports","svelte","syntax","typescript"],"struct":["Analyzer"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["is_go","resolve","structural_contexts"],"mod":["contexts","imports","inventory","members","modules","universe"],"struct":["Index"]};

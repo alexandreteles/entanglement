@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["ensure_all_specs_loaded","registered_specs"],"mod":["selection"],"static":["REGISTRY"],"struct":["Registry"]};

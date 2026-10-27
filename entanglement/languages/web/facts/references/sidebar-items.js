@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["capture_reference","contains","jsx_name"]};

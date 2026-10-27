@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["LocalKind"],"fn":["binding_names","binding_scope","enclosing_function","is_function","is_scope","local_scope","nearest","nearest_binding_scope","nearest_from","nearest_kind","nearest_loop","parameter_pattern","scope_range"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["capture","capture_node","convention_call","emit_convention_with_receiver"],"mod":["syntax","types"],"struct":["CaptureContext","ConventionCall","ConventionFacts"]};

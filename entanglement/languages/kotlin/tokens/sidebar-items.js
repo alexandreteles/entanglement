@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["capture","capture_string","is_atomic_operand","is_comment","node_text","normalize_context_leaf","normalize_identifier","normalize_leaf","push"]};

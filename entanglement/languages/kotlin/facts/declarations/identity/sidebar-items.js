@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["declaration_kind","declaration_name","declaration_name_node","declaration_scope","definition_kind","generated_name","is_interface_member_declaration","modifier_metadata","nearest_type_declaration","owner_path","owner_path_for"]};

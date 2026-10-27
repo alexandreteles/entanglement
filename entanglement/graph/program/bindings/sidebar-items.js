@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["BindingAlias"],"fn":["binding_identity"]};

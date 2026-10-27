@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["configure","define_vars","object_value","raw_body","serialized_names","static_key","tag_name","unquote_static_string","valid_identifier"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["argument_matches_parameter","bind_generic_argument","generic_bounds_match","parameter_index","substitutions_for_bindings"],"mod":["types"],"struct":["ArgumentBinding","ArgumentTypes","BindingPlan","BoundArguments","CallArgumentEvidence","CallArguments"]};

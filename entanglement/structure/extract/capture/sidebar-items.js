@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["body_node","capture","contract","declaration","implementation","signature","store_declaration","text","visit"]};

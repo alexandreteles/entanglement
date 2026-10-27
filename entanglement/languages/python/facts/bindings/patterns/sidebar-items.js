@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["bind_lambda_parameters","bind_parameter_scope","bind_parameters","collect_case_targets","collect_exception_target","dict_values","parameter_names","pattern_captures"]};

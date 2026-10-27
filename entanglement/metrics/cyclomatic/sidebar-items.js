@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["analyze","assign_events","nearest_ancestor"],"struct":["FunctionScope"]};

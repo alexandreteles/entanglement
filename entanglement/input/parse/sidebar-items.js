@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["append_hunk","consume_hunk_payload","parse_diff","parse_file_header","parse_hunk","reject_binary_patch","take_line"],"mod":["path"]};

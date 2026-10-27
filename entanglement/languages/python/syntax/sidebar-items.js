@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["is_comprehension","normalize_comprehension","normalize_comprehension_parents"]};

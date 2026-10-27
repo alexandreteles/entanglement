@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["is_module_container","is_module_variable","variable_kind"]};

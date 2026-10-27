@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["PYTHON_EXTENSIONS","PYTHON_FILE_MODULE_RULES","PYTHON_INDEX_STEMS","PYTHON_PROJECT_MARKERS","PYTHON_ROOTS"],"fn":["capture"],"mod":["bindings","definitions","imports","references","syntax"]};

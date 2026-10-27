@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["events","handler","injections","ranges","roles","tokens"],"struct":["InjectionProperties","QueryAnalyzer","QueryFacts"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["metric_value","write_contributions","write_delta","write_float_delta","write_halstead","write_halstead_delta","write_token_changes","write_unsupported_injections"],"mod":["selection"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["autoload_matches","path_matches","paths","psr_routes"]};

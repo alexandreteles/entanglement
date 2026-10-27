@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["display_score","rating_label","write_bands","write_delta","write_index","write_inputs","write_matched_delta"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["ancestors","capture","merge_convention_calls","range","text"],"mod":["bindings","calls","declarations","execution","recovered","references","signatures"],"struct":["DefinitionContext","DefinitionSinks"]};

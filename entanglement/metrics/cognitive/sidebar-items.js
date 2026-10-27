@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["ancestors","contains_range","contribution","is_event","is_scored_event"],"mod":["indexing","logical"],"struct":["Context"]};

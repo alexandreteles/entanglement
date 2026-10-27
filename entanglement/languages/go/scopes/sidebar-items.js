@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["BLOCKS","DECLARATIONS","FUNCTIONS"],"enum":["LocalKind"],"fn":["declaration_scope","enclosing_function","local_scopes","parameter_scope"],"mod":["parameters"]};

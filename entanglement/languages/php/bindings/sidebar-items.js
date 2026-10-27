@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["binding","capture","capture_bindings","initializer","owner_at"],"mod":["mutations"]};

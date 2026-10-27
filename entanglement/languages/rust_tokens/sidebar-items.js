@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["capture","is_atomic_operand","is_identifier","is_ignored","push_token"]};

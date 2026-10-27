@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["call_candidate","collect_references","reference","target_candidate"],"mod":["syntax"],"struct":["ReferenceCandidate"]};

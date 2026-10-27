@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["capture","relationships","resource_value","text"],"struct":["ResourceFact"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["add_names","add_target_bindings","binding_scope_owner","binding_scopes","class_segments","push_local"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["build"],"mod":["injections","scopes","semantics","tokens"],"struct":["Analyzer"]};

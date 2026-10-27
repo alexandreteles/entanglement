@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["LANGUAGE_SPEC","PYTHON_PROJECT_MANIFESTS"],"fn":["build","changes_runtime_text","has_format_transform","has_runtime_escape","string_flags"],"mod":["facts","syntax"],"struct":["Analyzer"]};

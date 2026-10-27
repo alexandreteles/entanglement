@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["ancestor","call_owner","is_function","is_lexical_scope","lexical_scope"]};

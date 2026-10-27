@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["append_extension","extension_candidates","module_candidates","normalize","remapped_extensions"],"struct":["Index"]};

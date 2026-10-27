@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["analyze","analyze_after_patch","apply_file_patch","replace_parsed_file"]};

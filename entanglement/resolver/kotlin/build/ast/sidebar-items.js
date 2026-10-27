@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ScriptKind"],"fn":["children","identifier","literal","project_path","text","valid_name"],"struct":["Call"]};

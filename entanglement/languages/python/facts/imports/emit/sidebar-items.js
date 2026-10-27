@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["add_export","add_import","add_local","find_function","nearest_owner","scopes"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["is_path_node","is_use_node","path_segments"]};

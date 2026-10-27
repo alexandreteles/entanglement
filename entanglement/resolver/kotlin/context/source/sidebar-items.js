@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["manifest_root","module_name","normalize_path","read_text","source_context"],"struct":["ProjectCache","SourceContext"]};

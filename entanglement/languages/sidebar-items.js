@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["FileModuleLayout","ResolutionFamily"],"mod":["assets","go","kotlin","php","python","query","registry","rust","rust_tokens","syntax","web"],"struct":["CapturedTree","FileModuleRules","InjectionRequest","LanguageChoice","LanguageSpec"],"trait":["LanguageHandler"]};

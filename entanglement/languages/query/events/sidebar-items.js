@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["deduplicate","deduplicate_functions","event","event_range","is_anonymous","node_text"]};

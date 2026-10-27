@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["conventional_source_edge","dependency_compile_visible","dependency_visible_in_source_set","project_dependencies","source_set_reaches","transitive_closure"]};

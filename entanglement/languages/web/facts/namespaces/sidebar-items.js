@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["is_call_target","is_member_receiver","namespace_reference"],"struct":["NamespaceReference"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["clause_body","receiver_type_parameters","switch_alias_scopes","type_parameter_name","type_parameter_scope"]};

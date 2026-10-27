@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["main"],"mod":["analysis","cli","commands","graph","input","languages","metrics","model","report_delta","resolver","snapshot","structure","ui"],"type":["Error","Result"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Scope"],"fn":["child_scope","declared_source_set","named_source_set","parse","project_directory"],"struct":["ScriptFacts"]};

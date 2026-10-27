@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["result","run"],"mod":["changes","patch","patch_paths","paths"]};

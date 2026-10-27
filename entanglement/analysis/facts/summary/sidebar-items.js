@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["inherit_scope","inside_any","prepend_module","summary"]};

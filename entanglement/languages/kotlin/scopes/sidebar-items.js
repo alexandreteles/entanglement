@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["bound_function_value","capture","direct_named_child","has_direct_child","has_named_child","has_property_initializer","is_default_argument","is_executable","is_top_level_executable","metric_scope_range_for","normalized_identifier","normalized_source_identifier","property_initializer_range"],"mod":["names"],"struct":["ScopeIndex","ScriptScope"]};

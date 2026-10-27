@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["LANGUAGE_SPEC"],"fn":["build"],"mod":["bindings","declarations","facts","references","syntax"],"struct":["Analyzer","Capture"]};

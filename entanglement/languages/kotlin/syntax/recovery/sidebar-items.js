@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["body_braces","contains_node","direct_children","header_candidate","is_allowed_header_child","is_body_node","is_comment","is_name_token","is_opaque_brace_container","leaf_nodes","matching_closing_brace","push_children","recover_error_types","recovered_type_for","recovered_types"],"struct":["HeaderCandidate"]};

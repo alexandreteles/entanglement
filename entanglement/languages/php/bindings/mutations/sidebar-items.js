@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["mutations","stable","write_targets"],"struct":["Mutation"]};

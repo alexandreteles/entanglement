@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["bindings","execution","indexing","lookup"],"struct":["FileFactsView","ProgramBinding","ProgramGraph","ProgramIndexes","ProgramScope","ProgramScopeId","ProgramSymbol","ProgramSymbolId"]};

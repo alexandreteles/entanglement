@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["capture","parameter_types"],"struct":["MethodSignature"]};

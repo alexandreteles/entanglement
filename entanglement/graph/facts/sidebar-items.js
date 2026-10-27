@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["CallConvention","CallDispatch","DeclarationKind","SemanticVisibility"],"mod":["php"],"struct":["CallArgumentFact","CallFacts","CallableParameter","CallableSignature","CallableTypeParameter","DeclarationExecutionFacts","DeclarationFacts","DeclarationModifiers","ReceiverScope","SemanticContext","SemanticFacts"]};

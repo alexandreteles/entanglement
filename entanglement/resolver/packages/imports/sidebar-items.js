@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ImportTarget"],"fn":["binding_names","inferred_name","is_major_version"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["contains","contains_node","is_argument_label","is_declaration_name","is_declaration_type","is_excluded","is_label","is_named_argument","is_navigation_member","lvalue_terminal_matches","navigation_path","navigation_target","reference_access","reference_target","simple_path"]};

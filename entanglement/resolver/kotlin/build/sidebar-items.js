@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["DependencyExposure","DependencyScope"],"fn":["classify_configuration"],"mod":["ast","extract"],"struct":["BuildFacts","ProjectDependency","Settings"]};

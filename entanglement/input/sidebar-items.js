@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["discover","invalid","path_identity","read_diff"],"mod":["apply","parse"],"struct":["AppliedPatch","FilePatch"]};

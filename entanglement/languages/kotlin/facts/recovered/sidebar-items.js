@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["collect_recovered_type_definitions","recovered_header_children","recovered_modifier_node","recovered_signature","recovered_supertypes"]};
