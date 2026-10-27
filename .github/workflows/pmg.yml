@@ -65,7 +65,7 @@ jobs:
           cp Cargo.lock "$RUNNER_TEMP/release-Cargo.lock"
           for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu \
             aarch64-apple-darwin x86_64-pc-windows-msvc aarch64-pc-windows-msvc; do
-            "$CARGO_HOME/bin/cargo-cyclonedx" cyclonedx --format json --spec-version 1.5 --target "$target"
+            "$CARGO_HOME/bin/cargo-cyclonedx" cyclonedx --format json --spec-version 1.5 --target "$target" --override-filename bom
             mv bom.json "sboms/entanglement-v${RELEASE_VERSION}-${target}.cdx.json"
           done
           cmp Cargo.lock "$RUNNER_TEMP/release-Cargo.lock"
