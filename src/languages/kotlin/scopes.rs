@@ -31,9 +31,8 @@ impl<'tree> ScopeIndex<'tree> {
         let recovered_types = syntax::recovered_types(root, source);
         let executable = nodes
             .iter()
-            .filter_map(|node| {
-                is_executable(*node, &recovered_types).then(|| (node.id(), node.byte_range()))
-            })
+            .filter(|node| is_executable(**node, &recovered_types))
+            .map(|node| (node.id(), node.byte_range()))
             .collect();
         let mut script_nodes = (0..root.named_child_count())
             .filter_map(|index| root.named_child(index as u32))

@@ -21,16 +21,16 @@ pub(in crate::languages::web) fn inline_templates(
     }
     let mut pending = vec![root];
     while let Some(node) = pending.pop() {
-        if node.kind() == "call_expression" && component_call(node, source, captured) {
-            if let Some(metadata) = node
+        if node.kind() == "call_expression"
+            && component_call(node, source, captured)
+            && let Some(metadata) = node
                 .child_by_field_name("arguments")
                 .and_then(|arguments| children(arguments).next())
                 .filter(|metadata| metadata.kind() == "object")
-            {
-                captured
-                    .injections
-                    .extend(children(metadata).filter_map(|pair| template(pair, source)));
-            }
+        {
+            captured
+                .injections
+                .extend(children(metadata).filter_map(|pair| template(pair, source)));
         }
         pending.extend(children(node));
     }

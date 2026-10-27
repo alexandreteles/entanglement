@@ -225,7 +225,7 @@ impl<'a> ProgramGraph<'a> {
                 return None;
             }
             callable_reference |= current.callable_reference;
-            let target = current.alias_target.as_deref()?;
+            let target = current.alias_target?;
             let next = (!target.is_empty() && !target.contains('.'))
                 .then(|| self.binding_at(file_index, target, context_id, current.local.end_byte))
                 .flatten()
