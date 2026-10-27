@@ -152,3 +152,15 @@ jobs:
           extra_plugins: |
             @semantic-release/exec@7.1.0
             @semantic-release/git@11.0.1
+
+  # A release created with GITHUB_TOKEN does not start a release workflow.
+  documentation:
+    name: Publish release documentation
+    needs: [version, release]
+    if: github.event_name == 'push' && needs.version.outputs.release == 'true'
+    permissions:
+      contents: write
+      pages: write
+    uses: ./.github/workflows/docs.yml
+    with:
+      version: ${{ needs.version.outputs.version }}

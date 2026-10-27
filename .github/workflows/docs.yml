@@ -1,0 +1,130 @@
+name: Publish documentation
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Release version from CI. The caller supplies guarded dependencies.
+        required: true
+        type: string
+  release:
+    types: [published]
+  workflow_dispatch:
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  dependencies:
+    name: PMG dependency gate
+    # CI supplies the guarded archive when it calls this workflow.
+    if: inputs.version == ''
+    uses: ./.github/workflows/pmg.yml
+
+  publish:
+    name: Build and publish documentation
+    needs: dependencies
+    if: >-
+      !cancelled() &&
+      (needs.dependencies.result == 'success' || needs.dependencies.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pages: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_NET_OFFLINE: 'true'
+      RUSTDOCFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.release.tag_name || (inputs.version && format('v{0}', inputs.version)) || github.ref }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: cargo-dependencies
+      - name: Extract guarded dependencies
+        run: tar -xzf cargo-dependencies.tar.gz
+      - name: Build documentation
+        run: cargo doc --no-deps --locked
+      - name: Prepare website
+        run: |
+          rm -f target/doc/.lock
+          touch target/doc/.nojekyll
+          cat > target/doc/index.html <<'HTML'
+          <!doctype html>
+          <html lang="en">
+            <head>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1">
+              <meta http-equiv="refresh" content="0; url=entanglement/">
+              <title>Entanglement documentation</title>
+            </head>
+            <body>
+              <p><a href="entanglement/">Open the Entanglement documentation.</a></p>
+            </body>
+          </html>
+          HTML
+      - name: Update pages branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh auth setup-git
+          git fetch origin pages
+          git worktree add --detach "$RUNNER_TEMP/pages" FETCH_HEAD
+          rsync -a --delete --exclude=.git target/doc/ "$RUNNER_TEMP/pages/"
+          git -C "$RUNNER_TEMP/pages" add --all
+          if ! git -C "$RUNNER_TEMP/pages" diff --cached --quiet; then
+            node <<'JS'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const { execFileSync } = require('node:child_process');
+          const directory = path.join(process.env.RUNNER_TEMP, 'pages');
+          const options = { cwd: directory, encoding: 'utf8' };
+          const changed = execFileSync('git', [
+            'diff', '--cached', '--no-renames', '--name-only', '-z',
+          ], options).split('\0').filter(Boolean);
+          const additions = changed.filter(file => fs.existsSync(path.join(directory, file)));
+          const deletions = changed.filter(file => !fs.existsSync(path.join(directory, file)));
+          const source = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+          const request = {
+            query: `mutation($input: CreateCommitOnBranchInput!) {
+              createCommitOnBranch(input: $input) { commit { oid signature { isValid } } }
+            }`,
+            variables: {
+              input: {
+                branch: { repositoryNameWithOwner: process.env.GITHUB_REPOSITORY, refName: 'pages' },
+                expectedHeadOid: execFileSync('git', ['rev-parse', 'HEAD'], options).trim(),
+                message: { headline: `docs: publish rustdoc for ${source}` },
+                fileChanges: {
+                  additions: additions.map(file => ({
+                    path: file,
+                    contents: fs.readFileSync(path.join(directory, file)).toString('base64'),
+                  })),
+                  deletions: deletions.map(file => ({ path: file })),
+                },
+              },
+            },
+          };
+          fs.writeFileSync(path.join(process.env.RUNNER_TEMP, 'pages-commit.json'), JSON.stringify(request));
+          JS
+            # GitHub signs API commits without a private key in CI.
+            gh api graphql --input "$RUNNER_TEMP/pages-commit.json" \
+              --jq '.data.createCommitOnBranch.commit' | jq -e 'select(.signature.isValid)'
+          fi
+      - name: Request Pages build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/pages/builds"
+          site_url="$(gh api "repos/$GITHUB_REPOSITORY/pages" --jq .html_url)"
+          printf 'Documentation: %s\n' "$site_url" >> "$GITHUB_STEP_SUMMARY"
