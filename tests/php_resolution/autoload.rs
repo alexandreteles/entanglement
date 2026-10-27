@@ -174,10 +174,10 @@ fn php_composer_development_requirements_apply_only_to_the_starting_project() {
         ("test", "lib/test", "TestOnly"),
         ("dev", "lib/own-dev", "OwnDev"),
     ] {
-        write(&root.join(&format!("{directory}/composer.json")), &serde_json::json!({"name":package,"autoload":{"psr-4":{format!("{namespace}\\"):"src/"}}}).to_string());
+        write(&root.join(format!("{directory}/composer.json")), serde_json::json!({"name":package,"autoload":{"psr-4":{format!("{namespace}\\"):"src/"}}}).to_string());
         write(
-            &root.join(&format!("{directory}/src/Record.php")),
-            &format!("<?php namespace {namespace}; class Record {{}}\n"),
+            &root.join(format!("{directory}/src/Record.php")),
+            format!("<?php namespace {namespace}; class Record {{}}\n"),
         );
     }
     let source = "<?php function exercise() { new \\A\\Entry(); new \\Production\\Record(); new \\OwnDev\\Record(); new \\TestOnly\\Record(); }\n";
@@ -220,11 +220,11 @@ fn php_composer_lock_graphs_do_not_merge_across_projects() {
     let source = "<?php function exercise() { new \\Extra\\Record(); }\n";
     for (app, requires_extra) in [("first", true), ("second", false)] {
         write(
-            &root.join(&format!("{app}/composer.json")),
+            &root.join(format!("{app}/composer.json")),
             r#"{"require":{"lib/shared":"*"}}"#,
         );
-        write(&root.join(&format!("{app}/composer.lock")), &serde_json::json!({"packages":[{"name":"lib/shared","require":if requires_extra { serde_json::json!({"lib/extra":"*"}) } else { serde_json::json!({}) }}]}).to_string());
-        write(&root.join(&format!("{app}/client.php")), source);
+        write(&root.join(format!("{app}/composer.lock")), serde_json::json!({"packages":[{"name":"lib/shared","require":if requires_extra { serde_json::json!({"lib/extra":"*"}) } else { serde_json::json!({}) }}]}).to_string());
+        write(&root.join(format!("{app}/client.php")), source);
     }
     write(
         &root.join("shared/composer.json"),
@@ -270,11 +270,11 @@ fn php_composer_path_repositories_select_duplicate_local_package_names() {
     );
     for directory in ["chosen", "other"] {
         write(
-            &root.join(&format!("{directory}/composer.json")),
+            &root.join(format!("{directory}/composer.json")),
             r#"{"name":"lib/record","autoload":{"psr-4":{"Api\\":"src/"}}}"#,
         );
         write(
-            &root.join(&format!("{directory}/src/Record.php")),
+            &root.join(format!("{directory}/src/Record.php")),
             "<?php namespace Api; class Record {}\n",
         );
     }

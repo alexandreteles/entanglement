@@ -18,13 +18,13 @@ fn assert_visibility(case: VisibilityCase) {
     for (path, name) in case.declarations {
         write(
             &root.join(path),
-            &format!("package shared\nfun {name}() = 1\n"),
+            format!("package shared\nfun {name}() = 1\n"),
         );
     }
     for (path, name, _) in case.calls {
         write(
             &root.join(path),
-            &format!("package app\nimport shared.{name}\nfun use() = {name}()\n"),
+            format!("package app\nimport shared.{name}\nfun use() = {name}()\n"),
         );
     }
     let project = report(&run(&root, "repo", None));

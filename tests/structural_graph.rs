@@ -1,6 +1,10 @@
 #[path = "../src/structure/delta.rs"]
 mod delta;
 #[path = "../src/structure/graph.rs"]
+#[expect(
+    dead_code,
+    reason = "This test uses graph helpers without the analysis entry point."
+)]
 mod graph;
 #[path = "../src/structure/model.rs"]
 mod model;

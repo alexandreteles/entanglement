@@ -1,4 +1,5 @@
 #[path = "../src/structure/types.rs"]
+#[expect(dead_code, reason = "This test uses only type expression parsing.")]
 mod types;
 
 fn rust_type(text: &str) -> types::TypeExpression {
