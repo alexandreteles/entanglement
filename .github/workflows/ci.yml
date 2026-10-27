@@ -50,11 +50,40 @@ jobs:
     with:
       version: ${{ needs.version.outputs.version }}
 
-  build:
-    name: Build ${{ matrix.target }}
+  check:
+    name: Check Rust
     needs: [version, dependencies]
     if: >-
       always() && !cancelled() && needs.dependencies.result == 'success' &&
+      (github.event_name == 'pull_request' || needs.version.outputs.release == 'true')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_NET_OFFLINE: 'true'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          components: clippy
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: cargo-dependencies
+      - name: Extract guarded dependencies
+        run: tar -xzf cargo-dependencies.tar.gz
+      - name: Check Clippy
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+      - name: Run tests
+        run: cargo test --locked --all-targets --all-features
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: [version, dependencies, check]
+    if: >-
+      always() && !cancelled() && needs.dependencies.result == 'success' &&
+      needs.check.result == 'success' &&
       (github.event_name == 'pull_request' || needs.version.outputs.release == 'true')
     strategy:
       fail-fast: false
