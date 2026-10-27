@@ -60,7 +60,7 @@ jobs:
     timeout-minutes: 30
     env:
       CARGO_TERM_COLOR: always
-      CARGO_NET_OFFLINE: 'true'
+      CARGO_NET_OFFLINE: "true"
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -162,10 +162,6 @@ jobs:
         run: |
           {
             printf '### Attestations\n\n'
-            printf 'Build provenance and CycloneDX SBOM attestations were verified for all five archives.\n\n'
-            printf 'Source commit: %s.\n\n' "$GITHUB_SHA"
-            printf 'Signer workflow: %s/.github/workflows/build.yml.\n\n' "$GITHUB_REPOSITORY"
-            printf 'Each archive includes downloadable provenance and SBOM attestation bundles.\n\n'
             printf 'Verify a download with:\n\n```sh\n'
             printf 'gh attestation verify ARCHIVE --repo %s --source-digest %s \\\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA"
             printf '  --signer-workflow %s/.github/workflows/build.yml --deny-self-hosted-runners\n```\n\n' "$GITHUB_REPOSITORY"
