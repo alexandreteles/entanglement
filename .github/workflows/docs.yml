@@ -102,7 +102,7 @@ jobs:
             }`,
             variables: {
               input: {
-                branch: { repositoryNameWithOwner: process.env.GITHUB_REPOSITORY, refName: 'pages' },
+                branch: { repositoryNameWithOwner: process.env.GITHUB_REPOSITORY, branchName: 'pages' },
                 expectedHeadOid: execFileSync('git', ['rev-parse', 'HEAD'], options).trim(),
                 message: { headline: `docs: publish rustdoc for ${source}` },
                 fileChanges: {
