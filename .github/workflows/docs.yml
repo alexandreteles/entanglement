@@ -1,6 +1,13 @@
 name: Publish documentation
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - README.md
+      - SECURITY.md
+      - TEST_POLICY.md
+      - .github/workflows/docs.yml
   workflow_call:
     inputs:
       version:

@@ -173,13 +173,15 @@ A missing function side is `null`.
 
 ## Contribute
 
-Follow [TEST_POLICY.md](TEST_POLICY.md) when you propose major new functionality.
+Follow [TEST_POLICY.md](https://github.com/alexandreteles/entanglement/blob/main/TEST_POLICY.md)
+when you propose major new functionality.
 
 ## Security
 
 Only the latest release is supported. Report vulnerabilities through
 [GitHub private vulnerability reporting](https://github.com/alexandreteles/entanglement/security/advisories/new).
-See [SECURITY.md](SECURITY.md) for the support policy and report requirements.
+See [SECURITY.md](https://github.com/alexandreteles/entanglement/blob/main/SECURITY.md)
+for the support policy and report requirements.
 Do not include vulnerability details in public issues or pull requests.
 
 ## AI Usage Disclaimer
