@@ -1,0 +1,137 @@
+name: Build artifacts
+
+on:
+  workflow_call:
+    inputs:
+      target:
+        description: Rust compilation target.
+        required: true
+        type: string
+      runner:
+        description: GitHub-hosted build runner.
+        required: true
+        type: string
+      version:
+        description: Release version. Empty for PR builds.
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Compile and package
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      TARGET: ${{ inputs.target }}
+      CARGO_TERM_COLOR: always
+      CARGO_NET_OFFLINE: 'true'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          targets: ${{ inputs.target }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: cargo-dependencies
+      - name: Extract guarded dependencies
+        run: tar -xzf cargo-dependencies.tar.gz
+      - name: Set release version
+        if: inputs.version != ''
+        run: |
+          sed -i.bak "/^name = \"entanglement\"[[:space:]]*\$/ {n; s/^version = \"[^\"]*\"[[:space:]]*\$/version = \"$RELEASE_VERSION\"/;}" Cargo.toml Cargo.lock
+          rm Cargo.toml.bak Cargo.lock.bak
+      - name: Build
+        run: cargo build --release --locked --target "$TARGET"
+      - name: Package
+        run: |
+          name="entanglement-${TARGET}"
+          if [[ -n "$RELEASE_VERSION" ]]; then
+            name="entanglement-v${RELEASE_VERSION}-${TARGET}"
+          fi
+          executable=entanglement
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            executable=entanglement.exe
+          fi
+          staging="$RUNNER_TEMP/entanglement-package"
+          mkdir -p "$staging" dist
+          cp "target/$TARGET/release/$executable" LICENSE "$staging/"
+          output="$(pwd)/dist"
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            archive="$name.zip"
+            (cd "$staging" && 7z a -tzip "$output/$archive" "$executable" LICENSE)
+          else
+            archive="$name.tar.gz"
+            tar -czf "$output/$archive" -C "$staging" "$executable" LICENSE
+          fi
+          cd dist
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            shasum -a 256 "$archive" > "$name.sha256"
+          else
+            sha256sum "$archive" > "$name.sha256"
+          fi
+      - name: Collect SBOM
+        if: inputs.version != ''
+        run: cp "sboms/entanglement-v${RELEASE_VERSION}-${TARGET}.cdx.json" dist/
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: build-${{ inputs.target }}
+          path: dist/
+          if-no-files-found: error
+
+  attest:
+    name: Attest release artifacts
+    needs: build
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/main' && inputs.version != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      PACKAGE_NAME: entanglement-v${{ inputs.version }}-${{ inputs.target }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: build-${{ inputs.target }}
+          path: dist
+      - name: Verify archive checksum
+        working-directory: dist
+        run: sha256sum --check -- "$PACKAGE_NAME.sha256"
+      - name: Attest build provenance
+        id: provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: dist/*
+      - name: Attest SBOM
+        id: sbom
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+          sbom-path: dist/${{ env.PACKAGE_NAME }}.cdx.json
+      - name: Collect attestation bundles
+        env:
+          PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+          SBOM_BUNDLE: ${{ steps.sbom.outputs.bundle-path }}
+        run: |
+          cp "$PROVENANCE_BUNDLE" "dist/$PACKAGE_NAME.provenance.json"
+          cp "$SBOM_BUNDLE" "dist/$PACKAGE_NAME.sbom-attestation.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-${{ inputs.target }}
+          path: dist/
+          if-no-files-found: error

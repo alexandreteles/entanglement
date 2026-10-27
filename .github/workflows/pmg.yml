@@ -1,0 +1,111 @@
+name: PMG dependency gate
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Release version. Empty for PR builds.
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: Prepare guarded dependencies
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      NO_COLOR: '1'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - name: Use a clean Cargo cache
+        run: echo "CARGO_HOME=$RUNNER_TEMP/pmg-cargo" >> "$GITHUB_ENV"
+      - name: Start PMG
+        id: pmg
+        uses: safedep/pmg@ad7d74efddce4ed5c8b161a11945bd6e55be266c # v0.33.0
+        with:
+          version: v0.33.0
+          server-mode: true
+          enforce: true
+          paranoid: true
+      - name: Install SBOM generator
+        if: env.RELEASE_VERSION != ''
+        run: cargo install cargo-cyclonedx --version 0.5.9 --locked
+      - name: Prepare guarded dependencies
+        shell: bash
+        run: |
+          if [[ -n "$RELEASE_VERSION" ]]; then
+            sed -i.bak "/^name = \"entanglement\"[[:space:]]*\$/ {n; s/^version = \"[^\"]*\"[[:space:]]*\$/version = \"$RELEASE_VERSION\"/;}" Cargo.toml Cargo.lock
+            rm Cargo.toml.bak Cargo.lock.bak
+          fi
+          mkdir -p .cargo sboms
+          cargo metadata --locked --format-version 1 > "$RUNNER_TEMP/cargo-metadata.json"
+          cargo vendor --locked --versioned-dirs vendor > .cargo/config.toml
+          # Cargo vendor omits upstream files that the grammar build requires.
+          jq -r '.packages[] | select(.source != null and (.source | startswith("git+"))) |
+            [.manifest_path, (.name + "-" + .version)] | @tsv' "$RUNNER_TEMP/cargo-metadata.json" |
+          while IFS=$'\t' read -r manifest package; do
+            tar --exclude=.git -C "$(dirname "$manifest")" -cf - . |
+              tar --skip-old-files -C "vendor/$package" -xf -
+          done
+      - name: Generate target SBOMs
+        if: env.RELEASE_VERSION != ''
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: |
+          cp Cargo.lock "$RUNNER_TEMP/release-Cargo.lock"
+          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu \
+            aarch64-apple-darwin x86_64-pc-windows-msvc aarch64-pc-windows-msvc; do
+            "$CARGO_HOME/bin/cargo-cyclonedx" cyclonedx --format json --spec-version 1.5 --target "$target"
+            mv bom.json "sboms/entanglement-v${RELEASE_VERSION}-${target}.cdx.json"
+          done
+          cmp Cargo.lock "$RUNNER_TEMP/release-Cargo.lock"
+      - name: Enforce PMG result
+        id: policy
+        if: always() && steps.pmg.outcome == 'success'
+        run: sudo "$PMG_BIN" proxy stop --state "$PMG_PROXY_STATE" --fail-on-violation 2>&1 | tee pmg-results.txt
+      - name: Summarize PMG result
+        if: always()
+        env:
+          PMG_RESULT: ${{ job.status }}
+          PMG_VERSION: ${{ steps.pmg.outputs.version }}
+        run: |
+          {
+            printf '### PMG dependency gate\n\nResult: **%s**. PMG version: %s.\n\n' \
+              "${PMG_RESULT:-not run}" "${PMG_VERSION:-unavailable}"
+            printf 'Policy: malware blocking, paranoid mode, and a two-day dependency cooldown.\n\n'
+            printf 'All five targets use the same guarded dependency archive and build offline.\n\n'
+            printf 'Coverage: downloaded crates.io packages, including SBOM tool dependencies. '
+            printf 'Git dependencies, Actions, and release-tool npm packages are outside this check.\n\n'
+            printf '```text\n'
+            if [[ -f pmg-results.txt ]]; then
+              cat pmg-results.txt
+            else
+              printf 'PMG did not produce a verified result. Builds are blocked.\n'
+            fi
+            printf '\n```\n'
+          } | tee pmg-summary.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: pmg-report
+          path: |
+            pmg-summary.md
+            pmg-results.txt
+          if-no-files-found: error
+      - name: Package guarded dependencies
+        run: tar -czf cargo-dependencies.tar.gz vendor .cargo/config.toml sboms
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: cargo-dependencies
+          path: cargo-dependencies.tar.gz
+          if-no-files-found: error

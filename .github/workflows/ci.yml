@@ -1,0 +1,154 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Compute release version
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      release: ${{ steps.semantic.outputs.new_release_published }}
+      version: ${{ steps.semantic.outputs.new_release_version }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+      - name: Determine next version
+        id: semantic
+        uses: cycjimmy/semantic-release-action@b12c8f6015dc215fe37bc154d4ad456dd3833c90 # v6
+        with:
+          dry_run: true
+          semantic_version: 25.0.9
+          extra_plugins: |
+            @semantic-release/exec@7.1.0
+            @semantic-release/git@11.0.1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+  dependencies:
+    name: PMG dependency gate
+    needs: version
+    if: >-
+      always() && !cancelled() &&
+      (github.event_name == 'pull_request' || needs.version.outputs.release == 'true')
+    uses: ./.github/workflows/pmg.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: [version, dependencies]
+    if: >-
+      always() && !cancelled() && needs.dependencies.result == 'success' &&
+      (github.event_name == 'pull_request' || needs.version.outputs.release == 'true')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+          - target: aarch64-apple-darwin
+            runner: macos-15
+          - target: x86_64-pc-windows-msvc
+            runner: windows-2025
+          - target: aarch64-pc-windows-msvc
+            runner: windows-11-arm
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/build.yml
+    with:
+      target: ${{ matrix.target }}
+      runner: ${{ matrix.runner }}
+      version: ${{ needs.version.outputs.version }}
+
+  release:
+    name: Publish release
+    needs: [version, build]
+    if: github.event_name == 'push' && needs.version.outputs.release == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      attestations: read
+    env:
+      RELEASE_VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: pmg-report
+          path: pmg-report
+      - name: Verify release artifacts
+        shell: bash
+        run: |
+          cd dist
+          sha256sum --check -- *.sha256
+          shopt -s nullglob
+          archives=(*.tar.gz *.zip)
+          if (( ${#archives[@]} != 5 )); then
+            echo 'Five release archives are required.' >&2
+            exit 1
+          fi
+          for archive in "${archives[@]}"; do
+            gh attestation verify "$archive" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/build.yml" \
+              --signer-digest "$GITHUB_SHA" --source-digest "$GITHUB_SHA" \
+              --source-ref refs/heads/main --deny-self-hosted-runners
+            gh attestation verify "$archive" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/build.yml" \
+              --signer-digest "$GITHUB_SHA" --source-digest "$GITHUB_SHA" \
+              --source-ref refs/heads/main --deny-self-hosted-runners \
+              --predicate-type https://cyclonedx.org/bom
+          done
+      - name: Prepare release summary
+        shell: bash
+        run: |
+          {
+            printf '### Attestations\n\n'
+            printf 'Build provenance and CycloneDX SBOM attestations were verified for all five archives.\n\n'
+            printf 'Source commit: %s.\n\n' "$GITHUB_SHA"
+            printf 'Signer workflow: %s/.github/workflows/build.yml.\n\n' "$GITHUB_REPOSITORY"
+            printf 'Each archive includes downloadable provenance and SBOM attestation bundles.\n\n'
+            printf 'Verify a download with:\n\n```sh\n'
+            printf 'gh attestation verify ARCHIVE --repo %s --source-digest %s \\\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA"
+            printf '  --signer-workflow %s/.github/workflows/build.yml --deny-self-hosted-runners\n```\n\n' "$GITHUB_REPOSITORY"
+            cat pmg-report/pmg-summary.md
+            printf '\n[Workflow run and downloadable artifacts](%s/%s/actions/runs/%s)\n' \
+              "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
+          } | tee release-summary.md >> "$GITHUB_STEP_SUMMARY"
+          cp pmg-report/pmg-results.txt dist/pmg-results.txt
+      - name: Tag and publish
+        uses: cycjimmy/semantic-release-action@b12c8f6015dc215fe37bc154d4ad456dd3833c90 # v6
+        with:
+          semantic_version: 25.0.9
+          extra_plugins: |
+            @semantic-release/exec@7.1.0
+            @semantic-release/git@11.0.1
