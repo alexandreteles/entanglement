@@ -250,7 +250,12 @@ pub(crate) fn structural_modules(
 ) -> Vec<(usize, usize, usize, String, Resolution)> {
     let graph = ProgramGraph::new(facts);
     let views = facts.iter().map(FileFactsView::new).collect::<Vec<_>>();
-    files::structural_modules(&views, &graph)
+    let mut modules = files::structural_modules(&views, &graph);
+    modules.retain(|(file, ..)| {
+        views[*file].resolution_family != crate::languages::ResolutionFamily::CLinkage
+    });
+    modules.extend(linkage::structural_includes(&graph));
+    modules
 }
 
 /// Read canonical Go package identities without selecting build-tag variants.

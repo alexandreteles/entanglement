@@ -109,6 +109,8 @@ pub(super) fn limitations(language: &str) -> Vec<String> {
         &["dynamic_dispatch", "version_properties"]
     } else if language.contains("kotlin") {
         &["build_variants", "generic_subst"]
+    } else if matches!(language, "source.c" | "source.cpp" | "c" | "cpp") {
+        &["preprocessor_variants"]
     } else if language.contains("typescript") || language.contains("tsx") {
         &["conditional_types", "mapped_types", "structural_compat"]
     } else {
@@ -121,6 +123,7 @@ pub(super) fn object_analysis(language: &str) -> bool {
     !["html", "css", "angular", "astro", "svelte"]
         .iter()
         .any(|name| language.contains(name))
+        && !matches!(language, "source.c" | "source.cpp" | "c" | "cpp")
 }
 
 use super::adapter_ownership::type_leaf;

@@ -13,6 +13,11 @@ pub(crate) fn capture(tree: &Tree, source: &[u8], language: &str, facts: &mut Se
         &[],
     ));
     facts.semantic.structure_errors = tree.root_node().has_error();
+    // C and C++ declarations depend on the preprocessor and on templates, which
+    // the shared adapters do not model, so those files keep module structure only.
+    if !adapters::object_analysis(language) {
+        return;
+    }
     visit(tree.root_node(), source, &[], facts);
 }
 

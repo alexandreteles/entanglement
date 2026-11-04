@@ -6,7 +6,10 @@
 //! A definition in the reference's own unit wins over one from another unit.
 
 mod scopes;
+mod structure;
 mod units;
+
+pub(super) use structure::structural_includes;
 
 use std::collections::{BTreeSet, HashMap};
 

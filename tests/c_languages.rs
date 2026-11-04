@@ -130,3 +130,40 @@ fn headers_with_cpp_syntax_use_the_cpp_grammar() {
         1
     );
 }
+
+#[test]
+fn c_includes_become_module_imports() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(&root.join("include/util.h"), "int shared(int value);\n");
+    write(
+        &root.join("main.c"),
+        "#include <stdio.h>\n#include \"util.h\"\nint main(void) { return shared(1); }\n",
+    );
+    let output = report(&run("repo", root, None, Some("structure")));
+    let imports = output["structure"]["relationships"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|edge| edge["kind"] == "import")
+        .map(|edge| {
+            let target = edge["target"].as_str().unwrap();
+            let target = target.rsplit('/').next().unwrap().to_owned();
+            (target, edge["resolution"].as_str().unwrap().to_owned())
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        imports.contains(&("util.h".into(), "resolved".into())),
+        "{imports:?}"
+    );
+    assert!(
+        imports.contains(&("<stdio.h>".into(), "external".into())),
+        "{imports:?}"
+    );
+    let coverage = output["structure"]["coverage"].as_array().unwrap();
+    assert!(
+        coverage
+            .iter()
+            .all(|item| item["effective"] == "inapplicable")
+    );
+}
