@@ -80,20 +80,23 @@ pub(super) fn canonical_types(
 }
 
 pub(super) fn canonical_modules(facts: &[FileFacts], relationships: &mut Vec<Relationship>) {
-    for (file, start, end, source, resolution) in crate::resolver::structural_modules(facts) {
+    let modules = crate::resolver::structural_modules(facts);
+    // Replace captured edges in one pass; a file can have thousands of imports.
+    let replaced = modules
+        .iter()
+        .map(|(file, start, end, ..)| (module_id(&facts[*file].analysis.path), *start, *end))
+        .collect::<std::collections::HashSet<_>>();
+    relationships.retain(|edge| {
+        !(matches!(
+            edge.kind,
+            RelationshipKind::Import | RelationshipKind::Reexport
+        ) && edge.evidence.iter().any(|evidence| {
+            replaced.contains(&(edge.source.clone(), evidence.start, evidence.end))
+        }))
+    });
+    for (file, start, end, source, resolution) in modules {
         let fact = &facts[file];
         let module = module_id(&fact.analysis.path);
-        relationships.retain(|edge| {
-            !(edge.source == module
-                && matches!(
-                    edge.kind,
-                    RelationshipKind::Import | RelationshipKind::Reexport
-                )
-                && edge
-                    .evidence
-                    .iter()
-                    .any(|evidence| evidence.start == start && evidence.end == end))
-        });
         let (target, status) = match resolution {
             Resolution::Exact(symbol) => (module_id(&symbol.file), ResolutionStatus::Resolved),
             Resolution::External => (source.clone(), ResolutionStatus::External),
