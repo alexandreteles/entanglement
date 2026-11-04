@@ -55,6 +55,7 @@ impl Worker {
         edits: &[InputEdit],
         choice: LanguageChoice,
     ) -> Result<ParsedFile> {
+        let choice = self.header_choice(path, &source, choice)?;
         let target = input::path_identity(path)?;
         let aliases = previous
             .filter(|file| file.facts.target == target)

@@ -109,3 +109,24 @@ fn c_recursion_crosses_translation_units() {
         ["ambiguous"]
     );
 }
+
+#[test]
+fn headers_with_cpp_syntax_use_the_cpp_grammar() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(
+        &root.join("plain.h"),
+        "struct point { int x; };\nint add(int a, int b);\n",
+    );
+    write(
+        &root.join("shape.h"),
+        "namespace geometry {\nclass Shape { public: int area() const { return 1; } };\n}\n",
+    );
+    let output = report(&run("repo", root, None, None));
+    assert_eq!(file(&output, "plain.h")["language"], "c");
+    assert_eq!(file(&output, "shape.h")["language"], "cpp");
+    assert_eq!(
+        function(file(&output, "shape.h"), "area")["cyclomatic_complexity"],
+        1
+    );
+}
