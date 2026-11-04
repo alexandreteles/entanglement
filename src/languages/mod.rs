@@ -1,4 +1,5 @@
 mod assets;
+mod c_family;
 pub(crate) mod go;
 pub(crate) mod kotlin;
 mod php;
@@ -105,6 +106,8 @@ pub(crate) enum ResolutionFamily {
     FileModules,
     GoPackages,
     KotlinModules,
+    /// C and C++ translation units joined by names with external linkage.
+    CLinkage,
     None,
 }
 

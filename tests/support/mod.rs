@@ -127,3 +127,29 @@ pub fn assert_human(mode: &str, path: &Path, diff: Option<&Path>, labels: &[&str
         assert!(text.contains(label), "missing human report label {label}");
     }
 }
+
+/// Return the status of each reference with the joined path, such as
+/// `exact util.c:shared`, `external`, or `unresolved`.
+pub fn resolution_statuses(file: &Value, path: &str) -> Vec<String> {
+    file["resolution"]
+        .as_array()
+        .expect("reference resolutions")
+        .iter()
+        .filter(|item| {
+            let parts = item["path"].as_array().expect("reference path");
+            let parts = parts.iter().map(|part| part.as_str().unwrap());
+            parts.collect::<Vec<_>>().join("::") == path
+        })
+        .map(|item| {
+            let resolution = &item["resolution"];
+            match &resolution["symbols"] {
+                Value::Object(symbol) => format!(
+                    "exact {}:{}",
+                    symbol["file"].as_str().unwrap().rsplit('/').next().unwrap(),
+                    symbol["name"].as_str().unwrap()
+                ),
+                _ => resolution["status"].as_str().unwrap().to_owned(),
+            }
+        })
+        .collect()
+}

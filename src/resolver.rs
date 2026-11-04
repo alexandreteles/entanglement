@@ -14,6 +14,7 @@ use crate::model::{FileFacts, Reference, ReferenceAnalysis, Resolution, SymbolId
 mod files;
 mod indexing;
 mod kotlin;
+mod linkage;
 mod module_graph;
 mod packages;
 mod php;
@@ -115,6 +116,7 @@ fn resolve_references(
     let kotlin_resolutions = kotlin::resolve(facts, snapshot, graph, kotlin_cache);
     let package_resolutions = packages::resolve(facts, snapshot, graph);
     let php_resolutions = php::resolve(facts, snapshot, graph);
+    let linkage_resolutions = linkage::resolve(facts, graph);
     facts
         .iter()
         .enumerate()
@@ -123,7 +125,8 @@ fn resolve_references(
                 .as_ref()
                 .or(kotlin_resolutions[file_index].as_ref())
                 .or(php_resolutions[file_index].as_ref())
-                .or(package_resolutions[file_index].as_ref());
+                .or(package_resolutions[file_index].as_ref())
+                .or(linkage_resolutions[file_index].as_ref());
             resolve_fact(&index, file_index, fact, resolved)
         })
         .collect::<Vec<_>>()

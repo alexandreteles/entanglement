@@ -5,7 +5,7 @@ use std::sync::{Arc, OnceLock};
 
 use tree_sitter_loader::Loader;
 
-use super::{LanguageHandler, LanguageSpec, assets, go, kotlin, php, python, rust, web};
+use super::{LanguageHandler, LanguageSpec, assets, c_family, go, kotlin, php, python, rust, web};
 use crate::Result;
 
 pub(crate) struct Registry {
@@ -69,6 +69,7 @@ fn registered_specs() -> Result<HashMap<&'static str, &'static LanguageSpec>> {
         .chain(std::iter::once(&php::LANGUAGE_SPEC))
         .chain(std::iter::once(&go::LANGUAGE_SPEC))
         .chain(std::iter::once(&kotlin::LANGUAGE_SPEC))
+        .chain([&c_family::C_SPEC, &c_family::CPP_SPEC])
         .chain(web::LANGUAGE_SPECS.iter())
     {
         if specs.insert(spec.scope, spec).is_some() {
