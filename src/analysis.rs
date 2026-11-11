@@ -1,6 +1,7 @@
 //! Parse source files and derive language-independent metrics.
 
 mod facts;
+mod headers;
 mod injections;
 mod metrics;
 mod worker;

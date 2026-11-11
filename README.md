@@ -62,7 +62,8 @@ to resolve references. If none exists, it uses the root directory from the
 diff path.
 
 Supported manifests include `Cargo.toml`, `package.json`, `tsconfig.json`,
-`jsconfig.json`, `pyproject.toml`, `setup.py`, `setup.cfg`, and `go.mod`.
+`jsconfig.json`, `pyproject.toml`, `setup.py`, `setup.cfg`, `go.mod`,
+`compile_commands.json`, and `compile_flags.txt`.
 
 ## Languages
 
@@ -73,6 +74,8 @@ Supported manifests include `Cargo.toml`, `package.json`, `tsconfig.json`,
 | Go | `.go` |
 | PHP 8.2–8.5 | `.php`, `.phtml` |
 | Kotlin | `.kt`, `.kts` |
+| C | `.c`, `.h` |
+| C++ | `.cc`, `.cpp`, `.cxx`, `.c++`, `.hh`, `.hpp`, `.hxx`, `.h++`, `.ipp`, `.tpp`, and `.h` headers written in C++ |
 | TypeScript | `.ts`, `.mts`, `.cts` |
 | TSX | `.tsx` |
 | JavaScript | `.js`, `.jsx`, `.mjs`, `.cjs` |

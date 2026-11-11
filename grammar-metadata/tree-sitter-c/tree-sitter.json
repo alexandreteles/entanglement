@@ -1,0 +1,22 @@
+{
+  "grammars": [
+    {
+      "name": "c",
+      "camelcase": "C",
+      "scope": "source.c",
+      "path": ".",
+      "file-types": ["c", "h"],
+      "highlights": "queries/highlights.scm",
+      "tags": "queries/tags.scm",
+      "injection-regex": "^(c|h)$"
+    }
+  ],
+  "metadata": {
+    "version": "0.24.2",
+    "license": "MIT",
+    "description": "C grammar for tree-sitter",
+    "links": {
+      "repository": "https://github.com/tree-sitter/tree-sitter-c"
+    }
+  }
+}

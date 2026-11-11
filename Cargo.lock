@@ -271,6 +271,8 @@ dependencies = [
  "tree-sitter 0.27.1",
  "tree-sitter-angular",
  "tree-sitter-astro",
+ "tree-sitter-c",
+ "tree-sitter-cpp",
  "tree-sitter-css",
  "tree-sitter-go",
  "tree-sitter-groovy 0.0.1",
@@ -751,6 +753,26 @@ dependencies = [
 name = "tree-sitter-astro"
 version = "0.1.0"
 source = "git+https://github.com/alexandreteles/tree-sitter-astro.git?rev=5469140290d85cdbd85431aef7ffa76fb0026799#5469140290d85cdbd85431aef7ffa76fb0026799"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-c"
+version = "0.24.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9b2eb57a55fed6b00812912e730b7a275cf4fe98bfd6a5d76263d4438371728"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-cpp"
+version = "0.23.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df2196ea9d47b4ab4a31b9297eaa5a5d19a0b121dceb9f118f6790ad0ab94743"
 dependencies = [
  "cc",
  "tree-sitter-language",

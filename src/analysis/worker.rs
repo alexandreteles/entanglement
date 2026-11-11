@@ -55,6 +55,7 @@ impl Worker {
         edits: &[InputEdit],
         choice: LanguageChoice,
     ) -> Result<ParsedFile> {
+        let choice = self.header_choice(path, &source, choice)?;
         let target = input::path_identity(path)?;
         let aliases = previous
             .filter(|file| file.facts.target == target)
@@ -71,7 +72,7 @@ impl Worker {
             injections::collect_old_trees(&previous.injections, edits, &mut old_trees);
         }
         let old_root = reusable.map(|file| injections::edit_tree(file.tree.clone(), edits));
-        let tree = self.parse_tree(&choice, &source, &[], old_root.as_ref())?;
+        let tree = self.parse_file(&choice, &source, old_root.as_ref())?;
         let mut active = HashSet::from([(choice.id.clone(), 0, source.len())]);
         let mut next_node_id = 0;
         let mut next_context_id = 0;
@@ -106,6 +107,17 @@ impl Worker {
             injections,
             facts,
         })
+    }
+
+    /// Parse a whole file, leaving out the ranges its language excludes.
+    pub(super) fn parse_file(
+        &mut self,
+        choice: &LanguageChoice,
+        source: &[u8],
+        old_tree: Option<&Tree>,
+    ) -> Result<Tree> {
+        let parsed_ranges = self.registry.parsed_ranges(&choice.id, source);
+        self.parse_tree(choice, source, &parsed_ranges, old_tree)
     }
 
     pub(super) fn parse_tree(

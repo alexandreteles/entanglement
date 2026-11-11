@@ -45,6 +45,20 @@ pub fn file<'a>(report: &'a Value, suffix: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("missing file {suffix}"))
 }
 
+/// Return the structural coverage record with the specified path suffix.
+pub fn coverage<'a>(report: &'a Value, suffix: &str) -> &'a Value {
+    report["structure"]["coverage"]
+        .as_array()
+        .expect("coverage records")
+        .iter()
+        .find(|item| {
+            item["path"]
+                .as_str()
+                .is_some_and(|path| path.ends_with(suffix))
+        })
+        .unwrap_or_else(|| panic!("missing coverage {suffix}"))
+}
+
 /// Run a JSON command with optional diff and metric selection.
 pub fn run(mode: &str, path: &Path, diff: Option<&Path>, metrics: Option<&str>) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_entanglement"));
@@ -126,4 +140,30 @@ pub fn assert_human(mode: &str, path: &Path, diff: Option<&Path>, labels: &[&str
     for label in labels {
         assert!(text.contains(label), "missing human report label {label}");
     }
+}
+
+/// Return the status of each reference with the joined path, such as
+/// `exact util.c:shared`, `external`, or `unresolved`.
+pub fn resolution_statuses(file: &Value, path: &str) -> Vec<String> {
+    file["resolution"]
+        .as_array()
+        .expect("reference resolutions")
+        .iter()
+        .filter(|item| {
+            let parts = item["path"].as_array().expect("reference path");
+            let parts = parts.iter().map(|part| part.as_str().unwrap());
+            parts.collect::<Vec<_>>().join("::") == path
+        })
+        .map(|item| {
+            let resolution = &item["resolution"];
+            match &resolution["symbols"] {
+                Value::Object(symbol) => format!(
+                    "exact {}:{}",
+                    symbol["file"].as_str().unwrap().rsplit('/').next().unwrap(),
+                    symbol["name"].as_str().unwrap()
+                ),
+                _ => resolution["status"].as_str().unwrap().to_owned(),
+            }
+        })
+        .collect()
 }
