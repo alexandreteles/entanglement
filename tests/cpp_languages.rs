@@ -98,3 +98,19 @@ fn cpp_constructor_initializers_name_members_and_bases() {
         ["exact scope.cpp:Base"; 3]
     );
 }
+
+#[test]
+fn cpp_constructor_parameters_bind_in_initializer_lists() {
+    let temp = tempfile::tempdir().unwrap();
+    write(
+        &temp.path().join("scope.cpp"),
+        "int size = 4;\nint other = 5;\nstruct Scope {\n  Scope(int size) : size_(size), other_(other) {}\n  Scope(int size, int extra);\n  int size_;\n  int other_;\n};\nScope::Scope(int size, int extra) : size_(size), other_(other) {}\n",
+    );
+    let output = report(&run("repo", temp.path(), None, None));
+    let scope = file(&output, "scope.cpp");
+    assert_eq!(resolution_statuses(scope, "size"), ["unresolved"; 2]);
+    assert_eq!(
+        resolution_statuses(scope, "other"),
+        ["exact scope.cpp:other"; 2]
+    );
+}
