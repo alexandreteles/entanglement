@@ -21,7 +21,7 @@ impl Worker {
         };
         let parses = |worker: &mut Self, language: &LanguageChoice| -> Result<bool> {
             Ok(!worker
-                .parse_tree(language, source, &[], None)?
+                .parse_file(language, source, None)?
                 .root_node()
                 .has_error())
         };

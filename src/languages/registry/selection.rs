@@ -73,6 +73,13 @@ impl Registry {
             .capture(tree, source, include_tokens)
     }
 
+    /// Return the source ranges the language parses; an empty list parses the whole source.
+    pub(crate) fn parsed_ranges(&self, id: &str, source: &[u8]) -> Vec<tree_sitter::Range> {
+        self.handlers
+            .get(id)
+            .map_or_else(Vec::new, |handler| handler.parsed_ranges(source))
+    }
+
     /// Return all manifest names declared by registered language descriptors.
     pub(crate) fn project_manifests(&self) -> Vec<&'static str> {
         let mut manifests = self

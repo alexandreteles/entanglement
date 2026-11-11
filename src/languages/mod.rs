@@ -96,6 +96,11 @@ impl CapturedTree {
 pub(crate) trait LanguageHandler: Send + Sync {
     /// Capture syntax facts, optionally collecting Halstead terminal tokens.
     fn capture(&self, tree: &Tree, source: &[u8], include_tokens: bool) -> Result<CapturedTree>;
+
+    /// Return the source ranges to parse; an empty list parses the whole source.
+    fn parsed_ranges(&self, _source: &[u8]) -> Vec<tree_sitter::Range> {
+        Vec::new()
+    }
 }
 
 /// Resolver behavior and relative-file rules declared by a language descriptor.

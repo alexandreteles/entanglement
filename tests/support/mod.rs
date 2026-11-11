@@ -45,6 +45,20 @@ pub fn file<'a>(report: &'a Value, suffix: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("missing file {suffix}"))
 }
 
+/// Return the structural coverage record with the specified path suffix.
+pub fn coverage<'a>(report: &'a Value, suffix: &str) -> &'a Value {
+    report["structure"]["coverage"]
+        .as_array()
+        .expect("coverage records")
+        .iter()
+        .find(|item| {
+            item["path"]
+                .as_str()
+                .is_some_and(|path| path.ends_with(suffix))
+        })
+        .unwrap_or_else(|| panic!("missing coverage {suffix}"))
+}
+
 /// Run a JSON command with optional diff and metric selection.
 pub fn run(mode: &str, path: &Path, diff: Option<&Path>, metrics: Option<&str>) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_entanglement"));

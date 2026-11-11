@@ -1,4 +1,5 @@
 mod declarators;
+mod linkage_guards;
 mod scopes;
 mod walker;
 
@@ -52,5 +53,9 @@ impl LanguageHandler for Analyzer {
         let shared = self.query.capture(tree, source, include_tokens);
         let semantic = walker::facts(tree.root_node(), source, self.cpp);
         Ok(CapturedTree::from(shared).with_semantics(semantic))
+    }
+
+    fn parsed_ranges(&self, source: &[u8]) -> Vec<tree_sitter::Range> {
+        linkage_guards::ranges_outside_linkage_braces(source)
     }
 }

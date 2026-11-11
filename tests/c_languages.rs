@@ -1,5 +1,5 @@
 mod support;
-use support::{file, function, recursive, report, resolution_statuses, run, write};
+use support::{coverage, file, function, recursive, report, resolution_statuses, run, write};
 
 #[test]
 fn c_metrics_follow_shared_rules() {
@@ -166,4 +166,21 @@ fn c_includes_become_module_imports() {
             .iter()
             .all(|item| item["effective"] == "inapplicable")
     );
+}
+
+#[test]
+fn linkage_guards_parse_in_both_languages() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let guarded = "#ifdef __cplusplus\nextern \"C\" {\n#endif\nint shared(int value);\n#ifdef __cplusplus\n} // extern \"C\"\n#endif\n";
+    write(&root.join("api.h"), guarded);
+    write(&root.join("api.hpp"), guarded);
+    let output = report(&run("repo", root, None, None));
+    assert_eq!(file(&output, "api.h")["language"], "c");
+    for header in ["api.h", "api.hpp"] {
+        assert_eq!(
+            coverage(&output, header)["limitations"],
+            serde_json::json!(["preprocessor_variants", "no_oo"])
+        );
+    }
 }
