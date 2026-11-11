@@ -25,6 +25,16 @@ impl<'tree> Walker<'_> {
         self.visit_field(node, "arguments", context);
     }
 
+    pub(super) fn field_initializer(&mut self, node: Node<'tree>, context: &Context<'tree>) {
+        for child in named_children(node) {
+            if child.kind() == "field_identifier" {
+                self.reference(child, ReferenceKind::MemberInitializer, context);
+            } else {
+                self.visit(child, context);
+            }
+        }
+    }
+
     pub(super) fn reference(
         &mut self,
         node: Node<'tree>,

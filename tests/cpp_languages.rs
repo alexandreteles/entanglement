@@ -79,3 +79,22 @@ fn cpp_references_follow_namespaces_and_classes() {
     let other = file(&output, "other.cpp");
     assert_eq!(resolution_statuses(other, "clamp"), ["unresolved"]);
 }
+
+#[test]
+fn cpp_constructor_initializers_name_members_and_bases() {
+    let temp = tempfile::tempdir().unwrap();
+    write(
+        &temp.path().join("scope.cpp"),
+        "struct Base { int id; };\nstruct Scope : Base {\n  Scope() : Base(), size_(0) {}\n  Scope(int size);\n  int size_;\n};\nScope::Scope(int size) : Base(), size_(size) {}\n",
+    );
+    let output = report(&run("repo", temp.path(), None, None));
+    let scope = file(&output, "scope.cpp");
+    assert_eq!(
+        resolution_statuses(scope, "size_"),
+        ["exact scope.cpp:size_"; 2]
+    );
+    assert_eq!(
+        resolution_statuses(scope, "Base"),
+        ["exact scope.cpp:Base"; 3]
+    );
+}

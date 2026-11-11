@@ -154,7 +154,9 @@ fn accepts(reference: ReferenceKind, definition: &DefinitionKind) -> bool {
             | DefinitionKind::Enum
             | DefinitionKind::TypeAlias
     );
-    *definition == DefinitionKind::Macro || is_type == (reference == ReferenceKind::Type)
+    *definition == DefinitionKind::Macro
+        || reference == ReferenceKind::MemberInitializer
+        || is_type == (reference == ReferenceKind::Type)
 }
 
 fn select(matches: &[&Symbol], unit: &BTreeSet<usize>) -> Option<Resolution> {

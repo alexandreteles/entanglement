@@ -94,6 +94,7 @@ impl<'tree> Walker<'_> {
             "template_function" => self.reference(node, ReferenceKind::Value, context),
             "call_expression" => self.call(node, context),
             "field_expression" => self.visit_field(node, "argument", context),
+            "field_initializer" => self.field_initializer(node, context),
             "labeled_statement" => self.visit_except(node, "label", context),
             "preproc_ifdef" | "preproc_elifdef" => self.visit_except(node, "name", context),
             "preproc_if" | "preproc_elif" => self.visit_except(node, "condition", context),
