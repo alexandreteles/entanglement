@@ -111,14 +111,16 @@ fn context_coverage(fact: &FileFacts, store: &SemanticStore) -> Coverage {
     if !applicable {
         limitations.push("no_oo".to_owned());
     }
-    let status = if store.semantic.structure_errors {
+    let unavailable =
+        store.semantic.structure_errors && !adapters::recovers_from_syntax_errors(language);
+    let status = if unavailable {
         CoverageStatus::Unavailable
     } else {
         CoverageStatus::Partial
     };
     let effective = if applicable {
         status
-    } else if store.semantic.structure_errors {
+    } else if unavailable {
         CoverageStatus::Unavailable
     } else {
         CoverageStatus::Inapplicable

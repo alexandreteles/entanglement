@@ -184,3 +184,19 @@ fn linkage_guards_parse_in_both_languages() {
         );
     }
 }
+
+#[test]
+fn unexpanded_macros_leave_structure_partial() {
+    let temp = tempfile::tempdir().unwrap();
+    write(
+        &temp.path().join("list.c"),
+        "int count(struct list *items) {\n  int total = 0;\n  LIST_FOREACH(item, items) { total++; }\n  return total;\n}\n",
+    );
+    let output = report(&run("repo", temp.path(), None, None));
+    let coverage = coverage(&output, "list.c");
+    assert_eq!(coverage["status"], "partial");
+    assert_eq!(
+        coverage["limitations"],
+        serde_json::json!(["preprocessor_variants", "parse_error", "no_oo"])
+    );
+}
