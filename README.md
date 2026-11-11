@@ -75,7 +75,7 @@ Supported manifests include `Cargo.toml`, `package.json`, `tsconfig.json`,
 | PHP 8.2–8.5 | `.php`, `.phtml` |
 | Kotlin | `.kt`, `.kts` |
 | C | `.c`, `.h` |
-| C++ | `.cc`, `.cpp`, `.cxx`, `.c++`, `.hh`, `.hpp`, `.hxx`, `.h++`, `.ipp`, `.tpp`, and `.h` headers that only the C++ grammar parses |
+| C++ | `.cc`, `.cpp`, `.cxx`, `.c++`, `.hh`, `.hpp`, `.hxx`, `.h++`, `.ipp`, `.tpp`, and `.h` headers written in C++ |
 | TypeScript | `.ts`, `.mts`, `.cts` |
 | TSX | `.tsx` |
 | JavaScript | `.js`, `.jsx`, `.mjs`, `.cjs` |

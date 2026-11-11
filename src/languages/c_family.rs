@@ -1,9 +1,12 @@
 mod declarators;
+mod headers;
 mod linkage_guards;
 mod scopes;
 mod walker;
 
 use tree_sitter::{Language, Tree};
+
+pub(crate) use headers::has_cpp_syntax;
 
 use super::query::QueryAnalyzer;
 use super::{CapturedTree, LanguageHandler, LanguageSpec, ResolutionFamily};

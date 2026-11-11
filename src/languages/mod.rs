@@ -1,5 +1,5 @@
 mod assets;
-mod c_family;
+pub(crate) mod c_family;
 pub(crate) mod go;
 pub(crate) mod kotlin;
 mod php;

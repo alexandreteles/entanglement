@@ -200,3 +200,20 @@ fn unexpanded_macros_leave_structure_partial() {
         serde_json::json!(["preprocessor_variants", "parse_error", "no_oo"])
     );
 }
+
+#[test]
+fn headers_that_neither_grammar_parses_follow_their_syntax() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    write(
+        &root.join("queue.h"),
+        "typedef TAILQ_HEAD(queue, node, ) queue_t;\n",
+    );
+    write(
+        &root.join("view.h"),
+        "struct options { int depth; };\nbool prepare(const options &selected = {});\n",
+    );
+    let output = report(&run("repo", root, None, None));
+    assert_eq!(file(&output, "queue.h")["language"], "c");
+    assert_eq!(file(&output, "view.h")["language"], "cpp");
+}
