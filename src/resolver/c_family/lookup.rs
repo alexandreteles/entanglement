@@ -21,9 +21,32 @@ impl<'a> Index<'a> {
         }
         if call.is_some_and(|call| call.receiver.is_none())
             && reference.path.len() == 1
-            && binding(context.store, name, at).is_some()
+            && let Some(local) = binding(context.store, name, at)
         {
-            return unknown;
+            let Some(start) = data.lambdas.get(&local.start_byte) else {
+                return unknown;
+            };
+            return self
+                .names
+                .get(name.as_str())
+                .into_iter()
+                .flatten()
+                .find(|entry| {
+                    entry.unit == context.unit
+                        && entry.id.file == context.file
+                        && entry.id.start_byte == *start
+                        && entry.position.0 == Active::Yes
+                        && call.is_some_and(|call| {
+                            entry
+                                .symbol
+                                .parameters
+                                .as_ref()
+                                .is_some_and(|params| params.len() == call.arguments.len())
+                        })
+                })
+                .map_or(unknown, |entry| {
+                    (Resolution::Exact(entry.id.clone()), CallDispatch::Direct)
+                });
         }
         let Some(entries) = self.names.get(name.as_str()) else {
             return if external::known(&reference.path, self.headers.get(context.unit)) {
@@ -63,12 +86,17 @@ impl<'a> Index<'a> {
             ..Default::default()
         });
         for owner in overload::owners(context.store, reference, call.or(field.as_ref()), data) {
-            selected.extend(
-                candidates
-                    .iter()
-                    .copied()
-                    .filter(|candidate| candidate.def.module.0 == owner),
-            );
+            for class in self.single_bases(context.unit, owner) {
+                selected.extend(
+                    candidates
+                        .iter()
+                        .copied()
+                        .filter(|candidate| candidate.def.module.0 == class),
+                );
+                if !selected.is_empty() {
+                    break;
+                }
+            }
             if !selected.is_empty() {
                 break;
             }

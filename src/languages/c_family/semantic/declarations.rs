@@ -59,6 +59,16 @@ pub(super) fn capture(node: Node<'_>, source: &[u8], data: &mut Data, store: &mu
         return;
     }
     if kind == "lambda_expression" {
+        if let Some(binding) = node
+            .parent()
+            .filter(|parent| parent.kind() == "init_declarator")
+            && binding
+                .parent()
+                .and_then(|decl| decl.child_by_field_name("type"))
+                .is_some_and(|ty| text(ty, source) == "auto")
+        {
+            data.lambdas.insert(binding.start_byte(), node.start_byte());
+        }
         let name = node
             .parent()
             .filter(|parent| parent.kind() == "init_declarator")
@@ -75,6 +85,15 @@ pub(super) fn capture(node: Node<'_>, source: &[u8], data: &mut Data, store: &mu
             Symbol {
                 body: true,
                 internal: true,
+                parameters: Some(
+                    node.child_by_field_name("declarator")
+                        .and_then(|decl| decl.child_by_field_name("parameters"))
+                        .into_iter()
+                        .flat_map(named_children)
+                        .filter(|param| param.kind().contains("parameter_declaration"))
+                        .map(|param| declarator::parameter_type(param, source))
+                        .collect(),
+                ),
                 ..Default::default()
             },
             source,

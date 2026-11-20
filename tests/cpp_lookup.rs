@@ -90,3 +90,27 @@ fn a_const_receiver_selects_the_const_overload_and_dependent_calls_stay_open() {
     }
     assert_eq!(function(source, "probe(T)")["cognitive_complexity"], 0);
 }
+
+#[test]
+fn an_inherited_method_and_a_locally_bound_lambda_have_exact_targets() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("owners.cpp");
+    write(
+        &path,
+        "struct Base { int value() { return 4; } }; struct Derived : Base {};\nint use(Derived d) { auto thunk = [&]() { return d.value(); }; return thunk(); }\n",
+    );
+    let result = report(&run("file", &path, None, None));
+    let source = only_file(&result);
+    for name in ["value", "thunk"] {
+        assert!(
+            source["resolution"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["resolution"]["status"] == "exact"
+                    && item["resolution"]["symbols"]["name"] == name),
+            "{name}: {}",
+            source["resolution"]
+        );
+    }
+}

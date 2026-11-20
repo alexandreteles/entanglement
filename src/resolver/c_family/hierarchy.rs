@@ -18,6 +18,26 @@ pub(super) fn classes(contexts: &[Vec<Context<'_>>]) -> Classes {
 }
 
 impl Index<'_> {
+    pub(super) fn single_bases(&self, unit: usize, owner: Vec<String>) -> Vec<Vec<String>> {
+        let mut classes = vec![owner];
+        while let Some(current) = classes.last()
+            && let Some(bases) = self.classes.get(&(unit, current.clone()))
+            && bases.len() == 1
+        {
+            let base = bases.first().unwrap();
+            let relative = [&current[..current.len().saturating_sub(1)], base.as_slice()].concat();
+            let next = if self.classes.contains_key(&(unit, relative.clone())) {
+                relative
+            } else {
+                base.clone()
+            };
+            if classes.contains(&next) {
+                break;
+            }
+            classes.push(next);
+        }
+        classes
+    }
     /// An override inherits virtual dispatch even without the override keyword.
     /// An incomplete base type leaves the implementation open.
     pub(super) fn dynamic(&self, entry: &Entry<'_>) -> bool {

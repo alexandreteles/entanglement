@@ -13,6 +13,7 @@ mod values;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Data {
+    pub lambdas: BTreeMap<usize, usize>,
     pub receivers: BTreeMap<usize, String>,
     pub missing_build: bool,
     pub visibility: BTreeMap<usize, String>,

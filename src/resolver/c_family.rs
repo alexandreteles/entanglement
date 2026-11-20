@@ -28,6 +28,7 @@ struct Entry<'a> {
 }
 
 struct Context<'a> {
+    file: &'a str,
     cpp: bool,
     reportable: bool,
     unit: usize,
@@ -108,6 +109,7 @@ impl<'a> Index<'a> {
                     .map(|item| (item.start_byte, item.path.as_slice()))
                     .collect();
                 indexed.push(Context {
+                    file: &file.analysis.path,
                     cpp,
                     reportable: project
                         .units

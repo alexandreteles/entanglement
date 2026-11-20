@@ -135,7 +135,7 @@ fn nested(node: Node<'_>) -> Option<Node<'_>> {
     })
 }
 
-fn parameter_type(node: Node<'_>, source: &[u8]) -> String {
+pub(super) fn parameter_type(node: Node<'_>, source: &[u8]) -> String {
     let name = node.child_by_field_name("declarator").and_then(identifier);
     let end = (0..node.child_count())
         .filter_map(|index| node.child(index))
