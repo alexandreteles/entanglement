@@ -30,12 +30,17 @@ pub(super) fn relationships(facts: &[FileFacts], project: &Project) -> Vec<Relat
                     _ => (ResolutionStatus::Unresolved, include.spelling.clone()),
                 };
                 includes
-                    .entry((include.range.start, include.range.end, &include.spelling))
+                    .entry((
+                        include.range.start,
+                        include.range.end,
+                        &include.spelling,
+                        include.export,
+                    ))
                     .or_default()
                     .insert(outcome);
             }
         }
-        for ((start, end, spelling), targets) in includes {
+        for ((start, end, spelling, export), targets) in includes {
             let (resolution, target) = if targets.len() == 1 {
                 targets.into_iter().next().unwrap()
             } else {
@@ -47,7 +52,7 @@ pub(super) fn relationships(facts: &[FileFacts], project: &Project) -> Vec<Relat
                 end,
                 spelling,
                 (target, resolution),
-                false,
+                export,
             ));
         }
         for data in fact
@@ -56,22 +61,16 @@ pub(super) fn relationships(facts: &[FileFacts], project: &Project) -> Vec<Relat
             .filter_map(|store| store.semantic.c_family.as_deref())
         {
             for (start, end, name, export) in &data.imports {
+                if name.starts_with(['"', '<']) {
+                    continue;
+                }
                 let absolute = absolute(data.module.as_deref(), name);
-                let header = name
-                    .strip_prefix('"')
-                    .and_then(|name| name.strip_suffix('"'))
-                    .and_then(|name| fact.target.parent()?.join(name).canonicalize().ok())
-                    .and_then(|path| paths.get(&path).copied());
                 let outcome = match modules.get(&absolute) {
                     Some(paths) if paths.len() == 1 => (
                         module_id(paths.first().unwrap()),
                         ResolutionStatus::Resolved,
                     ),
                     Some(_) => (absolute, ResolutionStatus::Ambiguous),
-                    None if header.is_some() => {
-                        (module_id(header.unwrap()), ResolutionStatus::Resolved)
-                    }
-                    None if name.starts_with('<') => (absolute, ResolutionStatus::External),
                     None => (absolute, ResolutionStatus::Unresolved),
                 };
                 edges.push(edge(origin, *start, *end, name, outcome, *export));

@@ -34,6 +34,7 @@ impl Active {
 
 #[derive(Clone, Debug)]
 pub(crate) enum Macro {
+    Nonzero,
     Defined(String),
     Function,
     Undefined,
@@ -48,7 +49,7 @@ pub(super) struct Environment {
 impl Environment {
     pub fn defined(&self, name: &str) -> Active {
         match self.macros.get(name) {
-            Some(Macro::Defined(_) | Macro::Function) => Active::Yes,
+            Some(Macro::Defined(_) | Macro::Function | Macro::Nonzero) => Active::Yes,
             Some(Macro::Undefined) => Active::No,
             None if self.configured && !name.starts_with("__") => Active::No,
             _ => Active::Maybe,
@@ -99,6 +100,7 @@ impl Environment {
             ["!", rest @ ..] => self.evaluate(rest).inverse(),
             ["(", rest @ .., ")"] => self.evaluate(rest),
             ["defined", name] | ["defined", "(", name, ")"] => self.defined(name),
+            [name] if matches!(self.macros.get(*name), Some(Macro::Nonzero)) => Active::Yes,
             _ => self.number(words).map_or(Active::Maybe, |n| active(n != 0)),
         }
     }
@@ -107,7 +109,7 @@ impl Environment {
         let value = match self.macros.get(*word) {
             Some(Macro::Defined(value)) => value.as_str(),
             Some(Macro::Undefined) => return Some(0),
-            Some(Macro::Unknown | Macro::Function) => return None,
+            Some(Macro::Unknown | Macro::Function | Macro::Nonzero) => return None,
             None if self.defined(word) == Active::No
                 && word.starts_with(|ch: char| ch.is_alphabetic() || ch == '_') =>
             {

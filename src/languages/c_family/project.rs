@@ -49,6 +49,7 @@ pub(crate) struct Replacement {
 }
 
 pub(crate) struct Include {
+    pub export: bool,
     pub range: Range<usize>,
     pub spelling: String,
     pub target: Option<PathBuf>,
@@ -74,6 +75,35 @@ struct Source {
 }
 
 impl Source {
+    fn from_file(file: &ParsedFile) -> Self {
+        let mut source = Self::new(&file.facts.source);
+        for data in file
+            .facts
+            .contexts
+            .iter()
+            .filter_map(|store| store.semantic.c_family.as_deref())
+        {
+            source.directives.extend(
+                data.imports
+                    .iter()
+                    .filter(|(_, _, name, _)| name.starts_with(['"', '<']))
+                    .map(|(start, end, name, export)| Directive {
+                        range: *start..*end,
+                        name: if *export {
+                            "export_header"
+                        } else {
+                            "import_header"
+                        }
+                        .into(),
+                        argument: name.clone(),
+                    }),
+            );
+        }
+        source
+            .directives
+            .sort_by_key(|directive| directive.range.start);
+        source
+    }
     fn new(bytes: &[u8]) -> Self {
         let directives = directives::read(bytes);
         let guard = match directives.as_slice() {
@@ -123,12 +153,7 @@ impl Project {
         let sources: BTreeMap<_, _> = parsed
             .iter()
             .filter(|file| matches!(file.language.as_str(), "source.c" | "source.cpp"))
-            .map(|file| {
-                (
-                    file.facts.target.clone(),
-                    Arc::new(Source::new(&file.facts.source)),
-                )
-            })
+            .map(|file| (file.facts.target.clone(), Arc::new(Source::from_file(file))))
             .collect();
         let paths: Vec<_> = sources.keys().cloned().collect();
         if paths.is_empty() {

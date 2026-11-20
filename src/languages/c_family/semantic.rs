@@ -131,9 +131,15 @@ pub(crate) fn capture(tree: &Tree, source: &[u8]) -> SemanticStore {
                     .trim_end_matches(';')
                     .trim();
                 data.imports.push((
-                    node.start_byte(),
+                    node.parent()
+                        .filter(|parent| parent.kind() == "export_declaration")
+                        .map_or(node.start_byte(), |parent| parent.start_byte()),
                     node.end_byte(),
-                    name.replace(' ', ""),
+                    if name.starts_with(['"', '<']) {
+                        name.into()
+                    } else {
+                        name.replace(' ', "")
+                    },
                     exported(node),
                 ));
             }

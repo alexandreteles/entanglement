@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Settings {
+    pub directory: PathBuf,
     pub cpp: bool,
     pub quote: Vec<PathBuf>,
     pub include: Vec<PathBuf>,
@@ -24,6 +25,7 @@ impl Settings {
 
     pub fn from_args(file: &Path, directory: &Path, args: &[String]) -> Self {
         let mut flags = Self::standalone(file);
+        flags.directory = directory.into();
         if args
             .first()
             .is_some_and(|arg| arg.ends_with("++") || arg.ends_with("++.exe"))
@@ -96,6 +98,10 @@ impl Settings {
                                 flags
                                     .macros
                                     .insert("__cplusplus".into(), Some(version.into()));
+                            } else if let Some(version) = c_standard(value) {
+                                flags
+                                    .macros
+                                    .insert("__STDC_VERSION__".into(), Some(version.into()));
                             }
                         }
                         _ => {}
@@ -116,6 +122,19 @@ fn cpp_standard(value: &str) -> Option<&'static str> {
         "17" | "1z" => "201703",
         "20" | "2a" => "202002",
         "23" | "2b" => "202302",
+        _ => return None,
+    })
+}
+
+fn c_standard(value: &str) -> Option<&'static str> {
+    let standard = value
+        .strip_prefix("gnu")
+        .or_else(|| value.strip_prefix('c'))?;
+    Some(match standard {
+        "99" | "9x" => "199901",
+        "11" | "1x" => "201112",
+        "17" | "18" => "201710",
+        "23" | "2x" => "202311",
         _ => return None,
     })
 }

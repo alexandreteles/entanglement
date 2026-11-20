@@ -18,7 +18,7 @@ pub(super) fn unit(
         .collect();
     macros.entry("__cplusplus".into()).or_insert_with(|| {
         if settings.cpp {
-            Macro::Defined("201703".into())
+            Macro::Nonzero
         } else {
             Macro::Undefined
         }
@@ -26,6 +26,7 @@ pub(super) fn unit(
     let mut visit = Traversal {
         settings,
         inventory,
+        predefined: macros.clone(),
         env: Environment { macros, configured },
         stack: BTreeSet::new(),
         once: BTreeSet::new(),
@@ -33,7 +34,13 @@ pub(super) fn unit(
         order: 0,
     };
     for forced in &settings.forced {
-        if let Some(target) = visit.inventory.include(path, forced, true, settings) {
+        let build_source = settings
+            .directory
+            .join(path.file_name().unwrap_or_default());
+        if let Some(target) = visit
+            .inventory
+            .include(&build_source, forced, true, settings)
+        {
             visit.file(&target, Active::Yes);
         }
     }
@@ -50,6 +57,7 @@ struct Traversal<'a, 's> {
     settings: &'a Settings,
     inventory: &'a mut Inventory<'s>,
     env: Environment,
+    predefined: BTreeMap<String, Macro>,
     stack: BTreeSet<PathBuf>,
     once: BTreeSet<PathBuf>,
     files: BTreeMap<PathBuf, FileView>,
@@ -154,7 +162,7 @@ impl Traversal<'_, '_> {
             "pragma" if directive.argument.trim() == "once" && state == Active::Yes => {
                 self.once.insert(path.into());
             }
-            "include" => {
+            "include" | "import_header" | "export_header" => {
                 let spelling = includes::spelling(&directive.argument, &self.env);
                 let target = spelling.and_then(|(name, quoted)| {
                     self.inventory.include(path, name, quoted, self.settings)
@@ -166,11 +174,22 @@ impl Traversal<'_, '_> {
                         spelling: directive.argument.clone(),
                         target: target.clone(),
                         active: state,
-                        system: spelling.is_some_and(|(_, quoted)| !quoted),
+                        export: directive.name == "export_header",
+                        system: spelling
+                            .is_some_and(|(name, quoted)| !quoted && includes::standard(name)),
                     },
                 );
                 if let Some(target) = target {
-                    self.file(&target, state);
+                    if directive.name == "include" {
+                        self.file(&target, state);
+                    } else {
+                        let caller =
+                            std::mem::replace(&mut self.env.macros, self.predefined.clone());
+                        let once = std::mem::take(&mut self.once);
+                        self.file(&target, state);
+                        self.once = once;
+                        self.env.macros = caller;
+                    }
                 }
             }
             "define" | "undef" => {
