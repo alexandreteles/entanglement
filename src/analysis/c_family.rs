@@ -43,6 +43,7 @@ pub(crate) fn prepare(
                 choice,
             )?;
         }
+        super::c_family_views::collect(file, &mut snapshot.c_project, &mut worker)?;
     }
     Ok(())
 }

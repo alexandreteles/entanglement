@@ -1,6 +1,7 @@
 //! Parse source files and derive language-independent metrics.
 
 pub(crate) mod c_family;
+mod c_family_views;
 mod facts;
 mod injections;
 mod metrics;

@@ -30,6 +30,7 @@ pub(super) fn unit(
         stack: BTreeSet::new(),
         once: BTreeSet::new(),
         files: BTreeMap::new(),
+        order: 0,
     };
     for forced in &settings.forced {
         if let Some(target) = visit.inventory.include(path, forced, true, settings) {
@@ -39,6 +40,7 @@ pub(super) fn unit(
     visit.file(path, Active::Yes);
     Unit {
         cpp: settings.cpp,
+        fallback: !configured && header(path),
         files: visit.files,
     }
 }
@@ -49,19 +51,60 @@ struct Traversal<'a, 's> {
     env: Environment,
     stack: BTreeSet<PathBuf>,
     once: BTreeSet<PathBuf>,
-    files: BTreeMap<PathBuf, Active>,
+    files: BTreeMap<PathBuf, FileView>,
+    order: usize,
 }
 
 impl Traversal<'_, '_> {
+    fn region(&mut self, path: &Path, source: &Source, range: Range<usize>, active: Active) {
+        if range.is_empty() {
+            return;
+        }
+        let file = self.files.get_mut(path).unwrap();
+        self.order += 1;
+        file.regions.push(Region {
+            range: range.clone(),
+            active,
+            order: self.order,
+        });
+        if active == Active::No {
+            return;
+        }
+        let first = source
+            .words
+            .partition_point(|(word, _)| word.start < range.start);
+        for (span, name) in source.words[first..]
+            .iter()
+            .take_while(|(word, _)| word.start < range.end)
+        {
+            if self
+                .env
+                .macros
+                .get(name)
+                .is_some_and(|value| !matches!(value, Macro::Undefined))
+            {
+                let replacement = Replacement {
+                    range: span.clone(),
+                    text: view::replacement(name, &self.env),
+                };
+                file.uses
+                    .entry(span.start)
+                    .and_modify(|old| {
+                        if *old != replacement {
+                            old.text = None
+                        }
+                    })
+                    .or_insert(replacement);
+            }
+        }
+    }
+
     fn file(&mut self, path: &Path, active: Active) {
         if self.once.contains(path) || !self.stack.insert(path.to_owned()) {
             return;
         }
         let source = Arc::clone(&self.inventory.sources[path]);
-        self.files
-            .entry(path.into())
-            .and_modify(|state| *state = state.or(active))
-            .or_insert(active);
+        self.files.entry(path.into()).or_default();
         if let Some(guard) = &source.guard {
             self.env
                 .macros
@@ -70,7 +113,10 @@ impl Traversal<'_, '_> {
         }
         let mut state = active;
         let mut branches = Vec::new();
+        let mut start = 0;
         for directive in &source.directives {
+            self.region(path, &source, start..directive.range.start, state);
+            start = directive.range.end;
             let name = directive.name.as_str();
             match name {
                 "if" | "ifdef" | "ifndef" => {
@@ -98,6 +144,7 @@ impl Traversal<'_, '_> {
                 _ => {}
             }
         }
+        self.region(path, &source, start..source.length, state);
         self.stack.remove(path);
     }
 
@@ -107,9 +154,21 @@ impl Traversal<'_, '_> {
                 self.once.insert(path.into());
             }
             "include" => {
-                if let Some((name, quoted)) = includes::spelling(&directive.argument, &self.env)
-                    && let Some(target) = self.inventory.include(path, name, quoted, self.settings)
-                {
+                let spelling = includes::spelling(&directive.argument, &self.env);
+                let target = spelling.and_then(|(name, quoted)| {
+                    self.inventory.include(path, name, quoted, self.settings)
+                });
+                self.files.get_mut(path).unwrap().includes.insert(
+                    directive.range.start,
+                    Include {
+                        range: directive.range.clone(),
+                        spelling: directive.argument.clone(),
+                        target: target.clone(),
+                        active: state,
+                        system: spelling.is_some_and(|(_, quoted)| !quoted),
+                    },
+                );
+                if let Some(target) = target {
                     self.file(&target, state);
                 }
             }
@@ -122,6 +181,8 @@ impl Traversal<'_, '_> {
                     Macro::Unknown
                 } else if directive.name == "undef" {
                     Macro::Undefined
+                } else if value[end..].starts_with('(') {
+                    Macro::Function
                 } else {
                     Macro::Defined(value[end..].trim().to_owned())
                 };

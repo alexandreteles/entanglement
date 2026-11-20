@@ -5,6 +5,7 @@ mod directives;
 mod flags;
 mod lex;
 pub(crate) mod project;
+pub(crate) mod semantic;
 
 use super::query::QueryAnalyzer;
 use super::syntax::{named_children, text};
@@ -19,7 +20,7 @@ pub(super) const SPECS: [LanguageSpec; 2] = [spec("source.c"), spec("source.cpp"
 const fn spec(scope: &'static str) -> LanguageSpec {
     LanguageSpec {
         scope,
-        resolution_family: ResolutionFamily::None,
+        resolution_family: ResolutionFamily::CFamily,
         project_manifests: &["compile_commands.json", "CMakeLists.txt", "meson.build"],
         file_module_rules: None,
         build,
@@ -105,6 +106,6 @@ impl LanguageHandler for Analyzer {
                 token.kind = HalsteadTokenKind::Operator;
             }
         }
-        Ok(captured.into())
+        Ok(CapturedTree::from(captured).with_semantics(semantic::capture(tree, source)))
     }
 }

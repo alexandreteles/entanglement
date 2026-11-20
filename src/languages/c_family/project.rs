@@ -7,11 +7,13 @@ use super::{
 use crate::analysis::ParsedFile;
 use crate::snapshot::Snapshot;
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 mod includes;
 mod traversal;
+pub(crate) mod view;
 
 #[derive(Default)]
 pub(crate) struct Project {
@@ -20,12 +22,53 @@ pub(crate) struct Project {
 
 pub(crate) struct Unit {
     pub cpp: bool,
-    pub files: BTreeMap<PathBuf, Active>,
+    pub fallback: bool,
+    pub files: BTreeMap<PathBuf, FileView>,
+}
+
+#[derive(Default)]
+pub(crate) struct FileView {
+    pub regions: Vec<Region>,
+    pub uses: BTreeMap<usize, Replacement>,
+    pub includes: BTreeMap<usize, Include>,
+    pub semantic: Option<Arc<crate::model::SemanticStore>>,
+}
+
+pub(crate) struct Region {
+    pub range: Range<usize>,
+    pub active: Active,
+    pub order: usize,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Replacement {
+    pub range: Range<usize>,
+    pub text: Option<String>,
+}
+
+pub(crate) struct Include {
+    pub range: Range<usize>,
+    pub spelling: String,
+    pub target: Option<PathBuf>,
+    pub active: Active,
+    pub system: bool,
+}
+
+impl FileView {
+    pub fn position(&self, byte: usize) -> Option<(Active, usize, usize)> {
+        self.regions
+            .iter()
+            .filter(|region| region.range.contains(&byte) && region.active != Active::No)
+            .min_by_key(|region| (region.active != Active::Yes, region.order))
+            .map(|region| (region.active, region.order, byte))
+    }
 }
 
 struct Source {
     directives: Vec<Directive>,
     guard: Option<String>,
+    length: usize,
+    words: Vec<(Range<usize>, String)>,
 }
 
 impl Source {
@@ -46,7 +89,21 @@ impl Source {
             }
             _ => None,
         };
-        Self { directives, guard }
+        let words = super::lex::tokens(bytes)
+            .filter(|token| token.kind == super::lex::Kind::Word)
+            .map(|token| {
+                (
+                    token.range.clone(),
+                    String::from_utf8_lossy(&bytes[token.range]).into_owned(),
+                )
+            })
+            .collect();
+        Self {
+            directives,
+            guard,
+            length: bytes.len(),
+            words,
+        }
     }
 }
 
@@ -90,6 +147,16 @@ impl Project {
                 ));
             }
         }
+        for path in paths.iter().filter(|path| header(path)) {
+            if !units.iter().any(|unit| unit.files.contains_key(path)) {
+                units.push(traversal::unit(
+                    path,
+                    &Settings::standalone(path),
+                    false,
+                    &mut inventory,
+                ));
+            }
+        }
         Ok(Self { units })
     }
 
@@ -97,11 +164,7 @@ impl Project {
         let mut choices = self
             .units
             .iter()
-            .filter(|unit| {
-                unit.files
-                    .get(path)
-                    .is_some_and(|state| *state != Active::No)
-            })
+            .filter(|unit| unit.files.contains_key(path) && !unit.fallback)
             .map(|unit| unit.cpp);
         let first = choices.next()?;
         choices.all(|cpp| cpp == first).then_some(first)

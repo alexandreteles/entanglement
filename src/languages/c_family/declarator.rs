@@ -5,6 +5,8 @@ use tree_sitter::Node;
 pub(crate) struct Callable {
     pub path: Vec<String>,
     pub parameters: Vec<String>,
+    pub minimum: usize,
+    pub variadic: bool,
     pub qualifiers: String,
 }
 
@@ -64,6 +66,10 @@ pub(crate) fn callable(mut node: Node<'_>, source: &[u8]) -> Option<Callable> {
             .filter(|part| !part.is_empty())
             .map(|part| part.trim().to_owned()),
     );
+    let variadic = text(parameters, source).contains("...");
+    let minimum = named_children(parameters)
+        .filter(|child| child.kind() == "parameter_declaration" && text(*child, source) != "void")
+        .count();
     let parameters = named_children(parameters)
         .filter(|parameter| parameter.kind() != "comment")
         .map(|parameter| parameter_type(parameter, source))
@@ -81,6 +87,8 @@ pub(crate) fn callable(mut node: Node<'_>, source: &[u8]) -> Option<Callable> {
     Some(Callable {
         path,
         parameters,
+        minimum,
+        variadic,
         qualifiers,
     })
 }

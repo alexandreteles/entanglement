@@ -2,6 +2,7 @@ mod adapter_members;
 mod adapter_ownership;
 mod adapter_relations;
 mod adapter_visibility;
+mod c_family_modules;
 mod canonical;
 mod facts;
 mod fingerprint;
@@ -82,6 +83,10 @@ pub(crate) fn snapshot(
         ..Default::default()
     };
     canonical_modules(facts, &mut result.relationships);
+    result.relationships.extend(c_family_modules::relationships(
+        facts,
+        &source_snapshot.c_project,
+    ));
     canonical_types(facts, source_snapshot, &symbols, &mut result.relationships);
     result
         .relationships

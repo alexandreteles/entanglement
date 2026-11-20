@@ -101,6 +101,7 @@ pub(crate) trait LanguageHandler: Send + Sync {
 /// Resolver behavior and relative-file rules declared by a language descriptor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ResolutionFamily {
+    CFamily,
     PhpNamespaces,
     RustCrates,
     FileModules,
