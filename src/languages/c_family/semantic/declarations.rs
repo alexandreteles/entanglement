@@ -195,6 +195,39 @@ pub(super) fn capture(node: Node<'_>, source: &[u8], data: &mut Data, store: &mu
             }
             let name = text(name, source);
             let type_name = variable_type(node, declarator, source);
+            if matches!(owner.kind(), "translation_unit" | "field_declaration_list")
+                && !kind.contains("parameter_declaration")
+            {
+                let storage = |word: &str| {
+                    named_children(node).any(|child| {
+                        child.kind() == "storage_class_specifier" && text(child, source) == word
+                    })
+                };
+                let member = kind == "field_declaration";
+                let symbol = Symbol {
+                    result: type_name.clone(),
+                    body: !storage("extern") || declarator.kind() == "init_declarator",
+                    internal: !member && storage("static"),
+                    member,
+                    ..Default::default()
+                };
+                let kind = if member {
+                    DefinitionKind::Other
+                } else {
+                    DefinitionKind::Static
+                };
+                add(
+                    range,
+                    name,
+                    declarator::owners(node, source),
+                    kind,
+                    symbol,
+                    source,
+                    data,
+                    store,
+                );
+                continue;
+            }
             store.locals.push(LocalBinding {
                 name,
                 start_byte: declarator.start_byte(),

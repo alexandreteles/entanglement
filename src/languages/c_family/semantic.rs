@@ -9,9 +9,11 @@ use tree_sitter::Node;
 pub(crate) mod calls;
 mod declarations;
 mod expressions;
+mod values;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Data {
+    pub receivers: BTreeMap<usize, String>,
     pub missing_build: bool,
     pub visibility: BTreeMap<usize, String>,
     pub virtual_bases: std::collections::BTreeSet<usize>,
@@ -81,6 +83,9 @@ pub(crate) fn capture(tree: &Tree, source: &[u8]) -> SemanticStore {
                 declarations::capture(node, source, &mut data, &mut store)
             }
             "call_expression" => calls::call(node, source, &mut data, &mut store),
+            "identifier" | "field_expression" => {
+                values::capture(node, source, &mut data, &mut store)
+            }
             "init_declarator"
             | "binary_expression"
             | "pointer_expression"

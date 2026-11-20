@@ -61,3 +61,29 @@ fn tag_and_typedef_spellings_resolve_in_the_correct_c_name_space() {
             .any(|r| r["resolution"]["symbols"]["kind"] == "type_alias")
     );
 }
+
+#[test]
+fn external_data_links_to_its_definition_and_parameters_shadow_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(&root.join("api.h"), "extern int total;\n");
+    write(&root.join("data.c"), "#include \"api.h\"\nint total = 4;\n");
+    write(
+        &root.join("reader.c"),
+        "#include \"api.h\"\nint read(void) { return total; }\nint local(int total) { return total; }\n",
+    );
+    let result = report(&run("repo", root, None, None));
+    let references = support::file(&result, "reader.c")["resolution"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|item| item["path"][0] == "total")
+        .collect::<Vec<_>>();
+    assert_eq!(references.len(), 1);
+    assert!(
+        references[0]["resolution"]["symbols"]["file"]
+            .as_str()
+            .unwrap()
+            .ends_with("data.c")
+    );
+}

@@ -54,7 +54,11 @@ impl<'a> Index<'a> {
         };
         let candidates: Vec<_> = entries.iter().filter(eligible).collect();
         let mut selected = Vec::new();
-        for owner in overload::owners(context.store, reference, call, data) {
+        let field = data.receivers.get(&at).map(|name| Invocation {
+            receiver: Some(name.clone()),
+            ..Default::default()
+        });
+        for owner in overload::owners(context.store, reference, call.or(field.as_ref()), data) {
             selected.extend(
                 candidates
                     .iter()
