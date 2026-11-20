@@ -134,6 +134,12 @@ pub(super) fn resolve(
     files: &[FileFactsView<'_>],
     project: &Project,
 ) -> Vec<Option<Vec<ReferenceAnalysis>>> {
+    if !files
+        .iter()
+        .any(|file| file.resolution_family == ResolutionFamily::CFamily)
+    {
+        return vec![None; files.len()];
+    }
     let index = Index::new(files, project);
     files
         .iter()

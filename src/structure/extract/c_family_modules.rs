@@ -4,6 +4,9 @@ use crate::resolver::c_family::{module_files, modules::absolute};
 use std::collections::BTreeSet;
 
 pub(super) fn relationships(facts: &[FileFacts], project: &Project) -> Vec<Relationship> {
+    if project.units.is_empty() {
+        return Vec::new();
+    }
     let paths: BTreeMap<_, _> = facts
         .iter()
         .map(|fact| (&fact.target, fact.analysis.path.as_str()))

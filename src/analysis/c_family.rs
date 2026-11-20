@@ -9,6 +9,12 @@ pub(crate) fn prepare(
     selection: Selection,
     snapshot: &mut Snapshot,
 ) -> Result<()> {
+    if !files
+        .iter()
+        .any(|file| matches!(file.language.as_str(), "source.c" | "source.cpp"))
+    {
+        return Ok(());
+    }
     let mut worker = Worker::new(selection)?;
     snapshot.c_project = Project::build(files, snapshot, |file| {
         if file

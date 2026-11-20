@@ -4,6 +4,7 @@ mod patch_paths;
 mod paths;
 
 use crate::metrics::selection::Selection;
+use rayon::iter::{Either, IntoParallelIterator, ParallelIterator};
 
 /// Run one file, repository, patch, or candidate command.
 pub(crate) fn run(
@@ -23,16 +24,23 @@ pub(crate) fn run(
                         path.display()
                     ))
                 })?;
-            result(vec![parsed], selection, "local", snapshot)
+            result(vec![parsed], Vec::new(), selection, "local", snapshot)
         }
         crate::cli::Command::Repo { path } => {
             let path = std::path::absolute(path)?;
-            let facts = crate::analysis::analyze_paths(
+            let files = crate::analysis::analyze_paths(
                 crate::input::discover(&path)?,
                 selection,
-                std::convert::identity,
+                |parsed| {
+                    if matches!(parsed.language.as_str(), "source.c" | "source.cpp") {
+                        Either::Left(parsed)
+                    } else {
+                        Either::Right(parsed.facts)
+                    }
+                },
             )?;
-            result(facts, selection, "repo", snapshot)
+            let (parsed, facts) = files.into_par_iter().partition_map(std::convert::identity);
+            result(parsed, facts, selection, "repo", snapshot)
         }
         crate::cli::Command::Patch { file, diff } => {
             patch::analyze(&file, &diff, true, selection, snapshot)
@@ -45,12 +53,14 @@ pub(crate) fn run(
 
 fn result(
     mut files: Vec<crate::analysis::ParsedFile>,
+    mut facts: Vec<crate::model::FileFacts>,
     selection: Selection,
     scope: &str,
     mut snapshot: crate::snapshot::Snapshot,
 ) -> crate::Result<crate::model::AnalysisResult> {
     crate::analysis::c_family::prepare(&mut files, selection, &mut snapshot)?;
-    let mut facts: Vec<_> = files.into_iter().map(|file| file.facts).collect();
+    facts.extend(files.into_iter().map(|file| file.facts));
+    facts.sort_by(|left, right| left.path.cmp(&right.path));
     crate::resolver::resolve_with_snapshot(&mut facts, selection, &snapshot);
     let structure = selection
         .includes(crate::metrics::selection::Metric::Structure)
