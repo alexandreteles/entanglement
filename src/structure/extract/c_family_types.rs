@@ -47,12 +47,27 @@ fn aggregate(node: Node<'_>, source: &[u8], store: &mut SemanticStore) {
         .named_children(&mut cursor)
         .filter(|child| child.kind() == "base_class_clause")
     {
-        let mut children = base.walk();
-        for item in base
-            .named_children(&mut children)
-            .filter(|child| !matches!(child.kind(), "access_specifier" | "comment"))
-        {
-            relation(&mut record, item, RelationshipKind::Inherit, source);
+        let mut public = node.kind() != "class_specifier";
+        let mut shared = false;
+        for child in base.children(&mut base.walk()) {
+            match child.kind() {
+                "," => {
+                    public = node.kind() != "class_specifier";
+                    shared = false;
+                }
+                "virtual" => shared = true,
+                "access_specifier" => public = capture::text(child, source) != "private",
+                "qualified_identifier" | "type_identifier" | "template_type" => {
+                    relation(&mut record, child, RelationshipKind::Inherit, source);
+                    if !public {
+                        record.type_ranges.pop();
+                    }
+                    if shared && let Some(data) = store.semantic.c_family.as_mut() {
+                        data.virtual_bases.insert(child.start_byte());
+                    }
+                }
+                _ => {}
+            }
         }
     }
     store.semantic.structure.push(record);
@@ -83,6 +98,13 @@ fn alias(node: Node<'_>, source: &[u8], store: &mut SemanticStore) {
 }
 
 fn members(node: Node<'_>, source: &[u8], store: &mut SemanticStore) {
+    let static_member = node.named_children(&mut node.walk()).any(|child| {
+        child.kind() == "storage_class_specifier" && capture::text(child, source) == "static"
+    });
+    if let Some(data) = store.semantic.c_family.as_mut() {
+        data.visibility
+            .insert(node.start_byte(), semantic::visibility(node, source).into());
+    }
     let mut cursor = node.walk();
     for declaration in node.children_by_field_name("declarator", &mut cursor) {
         if declaration.has_error() {
@@ -100,7 +122,14 @@ fn members(node: Node<'_>, source: &[u8], store: &mut SemanticStore) {
                 callable.qualifiers
             );
             record.owner = callable.path;
-            record.member_kind = Some("method".into());
+            record.member_kind = Some(
+                if static_member {
+                    "static_method"
+                } else {
+                    "method"
+                }
+                .into(),
+            );
             record.public &= !node.children(&mut node.walk()).any(|child| {
                 child.kind() == "storage_class_specifier"
                     && capture::text(child, source) == "static"
@@ -136,7 +165,14 @@ fn members(node: Node<'_>, source: &[u8], store: &mut SemanticStore) {
             && let Some(name) = declarator::identifier(declaration)
         {
             let mut record = record(node, name, "property", source);
-            record.member_kind = Some("field".into());
+            record.member_kind = Some(
+                if static_member {
+                    "static_field"
+                } else {
+                    "field"
+                }
+                .into(),
+            );
             if let Some(ty) = node.child_by_field_name("type") {
                 relation(&mut record, ty, RelationshipKind::Field, source);
             }
@@ -183,7 +219,7 @@ fn record(node: Node<'_>, name: Node<'_>, kind: &str, source: &[u8]) -> SyntaxDe
         owner,
         kind: kind.into(),
         is_type: false,
-        public: semantic::public_member(node, source),
+        public: semantic::visibility(node, source) != "private",
         required: false,
         optional: false,
         receiver: None,

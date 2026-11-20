@@ -61,6 +61,10 @@ pub(super) fn collect(
                 projection.semantic(&mut captured);
                 if let Some(data) = captured.semantic.c_family.as_ref() {
                     errors.extend(data.errors.iter().copied());
+                    if let Some(physical) = host.semantic.c_family.as_mut() {
+                        physical.virtual_bases.extend(&data.virtual_bases);
+                        physical.visibility.extend(data.visibility.clone());
+                    }
                 }
                 host.semantic.structure.extend(
                     captured

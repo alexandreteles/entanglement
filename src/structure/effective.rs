@@ -2,6 +2,7 @@ mod adapters;
 mod assembly;
 mod comparison;
 mod comparison_values;
+mod cpp;
 mod evidence;
 mod go;
 mod hierarchy;
@@ -66,6 +67,7 @@ struct Declaration<'a> {
 }
 
 struct Analysis<'a> {
+    virtual_bases: BTreeSet<(&'a str, &'a str)>,
     facts: &'a [FileFacts],
     snapshot: &'a StructureSnapshot,
     declarations: BTreeMap<String, Declaration<'a>>,
@@ -111,6 +113,18 @@ pub(crate) fn analyze(
         .map(|(unit, _)| unit.clone())
         .collect::<BTreeSet<_>>();
     let analysis = Analysis {
+        virtual_bases: snapshot
+            .relationships
+            .iter()
+            .filter(|edge| {
+                edge.kind == RelationshipKind::Inherit
+                    && edge
+                        .evidence
+                        .iter()
+                        .any(|item| item.detail == "virtual_base")
+            })
+            .map(|edge| (edge.source.as_str(), edge.target.as_str()))
+            .collect(),
         facts,
         snapshot,
         declarations: records.into_iter().collect(),

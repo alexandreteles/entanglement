@@ -38,7 +38,14 @@ fn direct_member(
         .and_then(|definition| definition.declaration.as_ref())
         .map_or_else(
             || {
-                if record.public {
+                if let Some(visibility) = store
+                    .semantic
+                    .c_family
+                    .as_ref()
+                    .and_then(|data| data.visibility.get(&record.start))
+                {
+                    visibility.clone()
+                } else if record.public {
                     "public".to_owned()
                 } else {
                     "unknown".to_owned()

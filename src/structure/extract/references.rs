@@ -11,6 +11,15 @@ fn target(
             && item.path == reference.path
     });
     let written = reference.path.join("::");
+    if fact.resolution_family == crate::languages::ResolutionFamily::CFamily
+        && matches!(reference.kind, ReferenceKind::Call | ReferenceKind::Method)
+        && resolved.is_some_and(|item| {
+            matches!(item.resolution, Resolution::Exact(_))
+                && item.dispatch != Some(crate::graph::CallDispatch::Direct)
+        })
+    {
+        return (ResolutionStatus::Unresolved, written, None);
+    }
     match resolved.map(|item| &item.resolution) {
         Some(Resolution::Exact(symbol)) => match symbols.get(&resolved_key(symbol)) {
             Some((module, target)) => (ResolutionStatus::Resolved, module.clone(), target.clone()),
@@ -58,7 +67,8 @@ pub(super) fn reference_relationships(
             _ => RelationshipKind::Type,
         });
     let ordered = special.is_some_and(|relation| relation.ordered);
-    let contract = owner.is_some_and(|owner| owner.public && special.is_some())
+    let contract = store.semantic.c_family.is_none()
+        && owner.is_some_and(|owner| owner.public && special.is_some())
         || store.semantic.structure.iter().any(|record| {
             record.public
                 && record.type_ranges.iter().any(|(start, end)| {
@@ -132,7 +142,14 @@ fn reference_evidence(
             start: relation.start,
             end: relation.end,
             owner: evidence[0].owner.clone(),
-            detail: if relation.kind == RelationshipKind::Compose
+            detail: if store
+                .semantic
+                .c_family
+                .as_ref()
+                .is_some_and(|data| data.virtual_bases.contains(&relation.start))
+            {
+                "virtual_base"
+            } else if relation.kind == RelationshipKind::Compose
                 && owner.is_some_and(|owner| owner.receiver.as_deref() == Some("embed_pointer"))
             {
                 "embed_ptr"

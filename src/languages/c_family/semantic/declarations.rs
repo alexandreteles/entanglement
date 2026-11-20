@@ -250,7 +250,7 @@ fn add(
         end_byte: node.end_byte(),
         scope_start: local.start_byte(),
         scope_end: local.end_byte(),
-        is_public: !symbol.internal && public_member(node, source),
+        is_public: !symbol.internal && visibility(node, source) != "private",
         inline_module: false,
         external_module: false,
         context_id: 0,

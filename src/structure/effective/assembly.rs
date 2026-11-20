@@ -70,6 +70,9 @@ impl Analysis<'_> {
         self.add_aliases(unit, &selected, &mut members);
         obligations.extend(self.apply_selection(unit, &mut members));
         conflicts.extend(policy.conflicts(&mut members));
+        if declaration.store.semantic.structure_language.as_deref() == Some("source.cpp") {
+            conflicts.extend(self.cpp_members(unit, &mut members));
+        }
         obligations.extend(policy.finish(&mut members, self.snapshot));
         let mut types: Vec<TypeStructure> = declaration
             .record

@@ -12,6 +12,8 @@ mod expressions;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Data {
+    pub visibility: BTreeMap<usize, String>,
+    pub virtual_bases: std::collections::BTreeSet<usize>,
     pub tags: BTreeMap<usize, DefinitionKind>,
     pub aliases: BTreeMap<String, (usize, usize, Vec<String>)>,
     pub classes: BTreeMap<Vec<String>, Vec<Vec<String>>>,
@@ -196,13 +198,13 @@ fn exported(node: Node<'_>) -> bool {
     })
 }
 
-pub(crate) fn public_member(node: Node<'_>, source: &[u8]) -> bool {
+pub(crate) fn visibility(node: Node<'_>, source: &[u8]) -> &'static str {
     let Some(mut member) = ancestors(node).find(|parent| {
         parent
             .parent()
             .is_some_and(|outer| outer.kind() == "field_declaration_list")
     }) else {
-        return true;
+        return "public";
     };
     let class_default = member
         .parent()
@@ -210,11 +212,15 @@ pub(crate) fn public_member(node: Node<'_>, source: &[u8]) -> bool {
         .is_some_and(|class| class.kind() == "class_specifier");
     while let Some(previous) = member.prev_named_sibling() {
         if previous.kind() == "access_specifier" {
-            return text(previous, source) != "private";
+            return match &source[previous.byte_range()] {
+                b"private" => "private",
+                b"protected" => "protected",
+                _ => "public",
+            };
         }
         member = previous;
     }
-    !class_default
+    if class_default { "private" } else { "public" }
 }
 
 fn owner_path(node: Node<'_>, source: &[u8]) -> Vec<String> {

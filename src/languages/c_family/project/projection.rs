@@ -91,6 +91,14 @@ impl Projection {
             self.range(&mut item.scope_start, &mut item.scope_end);
         }
         if let Some(data) = store.semantic.c_family.as_deref_mut() {
+            data.virtual_bases = std::mem::take(&mut data.virtual_bases)
+                .into_iter()
+                .map(|at| self.offset(at, false))
+                .collect();
+            data.visibility = std::mem::take(&mut data.visibility)
+                .into_iter()
+                .map(|(at, value)| (self.offset(at, false), value))
+                .collect();
             data.tags = std::mem::take(&mut data.tags)
                 .into_iter()
                 .map(|(start, tag)| (self.offset(start, false), tag))
