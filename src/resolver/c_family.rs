@@ -227,7 +227,9 @@ pub(crate) fn module_files(facts: &[crate::model::FileFacts]) -> BTreeMap<String
         for module in file
             .contexts
             .iter()
-            .filter_map(|store| store.semantic.c_family.as_ref()?.module.as_ref())
+            .filter_map(|store| store.semantic.c_family.as_deref())
+            .filter(|data| data.module_interface)
+            .filter_map(|data| data.module.as_ref())
         {
             result
                 .entry(module.clone())

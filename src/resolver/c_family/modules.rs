@@ -24,6 +24,9 @@ impl Modules {
     }
     pub fn visible(&self, data: &Data, target: Option<&str>, at: usize) -> bool {
         let Some(target) = target else { return false };
+        if data.module.as_deref() == Some(target) {
+            return true;
+        }
         let mut seen = BTreeSet::new();
         let mut pending: Vec<_> = data
             .imports

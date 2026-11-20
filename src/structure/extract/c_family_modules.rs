@@ -16,11 +16,14 @@ pub(super) fn relationships(facts: &[FileFacts], project: &Project) -> Vec<Relat
     for fact in facts {
         let origin = &fact.analysis.path;
         let mut includes: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
-        for view in project
+        let included = project.has_includer(&fact.target);
+        let views: Vec<_> = project
             .units
             .iter()
+            .filter(|unit| !included || !unit.fallback)
             .filter_map(|unit| unit.files.get(&fact.target))
-        {
+            .collect();
+        for view in &views {
             for include in view.includes.values() {
                 let found = include.target.as_ref().and_then(|path| paths.get(path));
                 let outcome = match found {
@@ -44,11 +47,14 @@ pub(super) fn relationships(facts: &[FileFacts], project: &Project) -> Vec<Relat
             }
         }
         for ((start, end, spelling, export), targets) in includes {
-            let (resolution, target) = if targets.len() == 1 {
-                targets.into_iter().next().unwrap()
-            } else {
-                (ResolutionStatus::Ambiguous, spelling.clone())
-            };
+            let (resolution, target) =
+                if views.iter().any(|view| !view.includes.contains_key(&start)) {
+                    (ResolutionStatus::Unresolved, spelling.clone())
+                } else if targets.len() == 1 {
+                    targets.into_iter().next().unwrap()
+                } else {
+                    (ResolutionStatus::Ambiguous, spelling.clone())
+                };
             edges.push(edge(
                 origin,
                 start,

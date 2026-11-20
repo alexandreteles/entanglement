@@ -26,6 +26,7 @@ pub(crate) struct Data {
     pub calls: BTreeMap<usize, Invocation>,
     pub using: Vec<(usize, usize, Vec<String>, bool)>,
     pub module: Option<String>,
+    pub module_interface: bool,
     pub imports: Vec<(usize, usize, String, bool)>,
 }
 
@@ -137,6 +138,7 @@ pub(crate) fn capture(tree: &Tree, source: &[u8], cpp: bool) -> SemanticStore {
                 if let Some((_, name)) = written.split_once("module") {
                     let name = name.trim().trim_end_matches(';').trim();
                     if !name.is_empty() && !name.starts_with(':') {
+                        data.module_interface = exported(node) || name.contains(':');
                         data.module = Some(name.replace(' ', ""));
                     }
                 }
