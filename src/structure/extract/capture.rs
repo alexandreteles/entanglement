@@ -13,6 +13,10 @@ pub(crate) fn capture(tree: &Tree, source: &[u8], language: &str, facts: &mut Se
         &[],
     ));
     facts.semantic.structure_errors = tree.root_node().has_error();
+    if matches!(language, "source.c" | "source.cpp") {
+        super::c_family_types::capture(tree, source, facts);
+        return;
+    }
     visit(tree.root_node(), source, &[], facts);
 }
 

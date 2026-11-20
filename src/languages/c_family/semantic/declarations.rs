@@ -7,6 +7,19 @@ pub(super) fn capture(node: Node<'_>, source: &[u8], data: &mut Data, store: &mu
         "class_specifier" | "struct_specifier" | "enum_specifier" | "union_specifier"
     ) {
         let body = node.child_by_field_name("body").is_some();
+        if !body
+            && node.parent().is_some_and(|parent| {
+                !matches!(
+                    parent.kind(),
+                    "translation_unit"
+                        | "field_declaration_list"
+                        | "compound_statement"
+                        | "declaration_list"
+                )
+            })
+        {
+            return;
+        }
         let name = node.child_by_field_name("name").or_else(|| {
             node.parent()
                 .filter(|parent| parent.kind() == "type_definition")

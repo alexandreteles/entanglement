@@ -82,7 +82,7 @@ pub(super) fn type_reference(node: Node<'_>, source: &[u8], store: &mut Semantic
     );
 }
 
-fn reference(
+pub(super) fn reference(
     node: Node<'_>,
     path: Vec<String>,
     kind: ReferenceKind,

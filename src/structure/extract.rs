@@ -3,6 +3,7 @@ mod adapter_ownership;
 mod adapter_relations;
 mod adapter_visibility;
 mod c_family_modules;
+mod c_family_types;
 mod canonical;
 mod facts;
 mod fingerprint;

@@ -64,6 +64,22 @@ pub(crate) fn capture(tree: &Tree, source: &[u8]) -> SemanticStore {
             }
             "call_expression" => calls::call(node, source, &mut data, &mut store),
             "type_identifier" => calls::type_reference(node, source, &mut store),
+            "qualified_identifier"
+                if node.parent().is_some_and(|parent| {
+                    parent.kind() == "function_declarator"
+                        && parent.child_by_field_name("declarator") == Some(node)
+                }) =>
+            {
+                if let Some(owner) = node.child_by_field_name("scope") {
+                    calls::reference(
+                        owner,
+                        path(&text(owner, source)),
+                        ReferenceKind::Type,
+                        source,
+                        &mut store,
+                    );
+                }
+            }
             "using_declaration" => {
                 let written = text(node, source);
                 let value = written

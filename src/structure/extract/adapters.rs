@@ -94,7 +94,16 @@ pub(super) fn additional_names(node: Node<'_>, source: &[u8]) -> Vec<String> {
 }
 
 pub(super) fn limitations(language: &str) -> Vec<String> {
-    let codes: &[&str] = if language.contains("python") {
+    let codes: &[&str] = if language == "source.cpp" {
+        &[
+            "build_variants",
+            "macro_output",
+            "generic_subst",
+            "dynamic_dispatch",
+        ]
+    } else if language == "source.c" {
+        &["build_variants", "macro_output", "indirect_calls"]
+    } else if language.contains("python") {
         &["runtime_structure"]
     } else if language.contains("go") {
         &["structural_satisfaction", "generic_subst"]
