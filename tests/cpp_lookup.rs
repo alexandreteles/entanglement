@@ -47,3 +47,46 @@ fn a_dependent_call_and_a_function_address_add_no_recursion() {
             .any(|r| r["path"][0] == "check" && r["resolution"]["status"] == "exact")
     );
 }
+
+#[test]
+fn c_linkage_can_cross_a_namespace_and_keeps_a_cpp_overload_separate() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(&root.join("api.c"), "int run(void) { return 1; }\n");
+    write(&root.join("other.cpp"), "int run() { return 2; }\n");
+    write(
+        &root.join("bridge.cpp"),
+        "namespace api { extern \"C\" int run(); }\nint bridge() { return api::run(); }\n",
+    );
+    let result = report(&run("repo", root, None, None));
+    let file = support::file(&result, "bridge.cpp");
+    let reference = file["resolution"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["path"].as_array().unwrap().last().unwrap() == "run")
+        .unwrap();
+    assert!(
+        reference["resolution"]["symbols"]["file"]
+            .as_str()
+            .unwrap()
+            .ends_with("api.c"),
+        "{reference}"
+    );
+}
+
+#[test]
+fn a_const_receiver_selects_the_const_overload_and_dependent_calls_stay_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("proof.cpp");
+    write(
+        &path,
+        "struct Item { int get() { return get(); } int get() const { return get(); } };\ntemplate<class T> int probe(T x) { return probe(x); }\n",
+    );
+    let result = report(&run("file", &path, None, None));
+    let source = only_file(&result);
+    for name in ["Item::get()", "Item::get() const"] {
+        assert_eq!(function(source, name)["cognitive_complexity"], 1, "{name}");
+    }
+    assert_eq!(function(source, "probe(T)")["cognitive_complexity"], 0);
+}

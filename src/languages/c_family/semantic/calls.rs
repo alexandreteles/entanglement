@@ -32,16 +32,17 @@ pub(super) fn call(node: Node<'_>, source: &[u8], data: &mut Data, store: &mut S
         receiver = Some(std::mem::replace(&mut spelling, "operator()".into()));
     }
     let args = node.child_by_field_name("arguments");
-    let arguments = args
+    let arguments: Vec<_> = args
         .into_iter()
         .flat_map(named_children)
         .filter(|arg| arg.kind() != "comment")
         .map(|arg| type_of(arg, source, store))
         .collect();
-    let indirect = !matches!(
-        function.kind(),
-        "identifier" | "qualified_identifier" | "field_expression" | "template_function"
-    );
+    let indirect = dependent(node, source, &arguments)
+        || !matches!(
+            function.kind(),
+            "identifier" | "qualified_identifier" | "field_expression" | "template_function"
+        );
     let qualified = spelling.starts_with("::")
         || spelling.contains("::")
         || member.kind() == "qualified_identifier";
@@ -193,4 +194,21 @@ pub(crate) fn binding<'a>(
                 && at < local.scope_end
         })
         .max_by_key(|local| (local.scope_start, local.start_byte))
+}
+
+fn dependent(node: Node<'_>, source: &[u8], arguments: &[Option<String>]) -> bool {
+    let parameters = ancestors(node)
+        .filter(|parent| parent.kind() == "template_declaration")
+        .filter_map(|template| template.child_by_field_name("parameters"))
+        .flat_map(named_children)
+        .filter(|parameter| parameter.kind().contains("type_parameter_declaration"))
+        .filter_map(|parameter| {
+            named_children(parameter).find(|child| child.kind() == "type_identifier")
+        });
+    parameters.map(|name| text(name, source)).any(|name| {
+        arguments.iter().flatten().any(|arg| {
+            arg.split(|ch: char| !(ch.is_alphanumeric() || ch == '_'))
+                .any(|word| word == name)
+        })
+    })
 }

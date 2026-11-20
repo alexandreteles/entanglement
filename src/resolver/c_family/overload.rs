@@ -55,6 +55,7 @@ pub(super) fn owners(
 pub(super) fn select<'a>(
     entries: Vec<&'a Entry<'a>>,
     call: Option<&Invocation>,
+    receiver_const: Option<bool>,
 ) -> Vec<&'a Entry<'a>> {
     let Some(call) = call else { return entries };
     let args = |entry: &Entry<'_>| {
@@ -85,7 +86,38 @@ pub(super) fn select<'a>(
             })
         })
         .collect();
-    if exact.is_empty() { arity } else { exact }
+    let candidates = if exact.is_empty() { arity } else { exact };
+    let Some(is_const) = receiver_const else {
+        return candidates;
+    };
+    candidates
+        .iter()
+        .copied()
+        .filter(|entry| {
+            if !entry.symbol.member {
+                return true;
+            }
+            let constant = entry
+                .symbol
+                .qualifiers
+                .split_whitespace()
+                .any(|word| word == "const");
+            if is_const {
+                return constant;
+            }
+            !constant
+                || !candidates.iter().any(|other| {
+                    other.symbol.member
+                        && other.def.module == entry.def.module
+                        && other.symbol.parameters == entry.symbol.parameters
+                        && !other
+                            .symbol
+                            .qualifiers
+                            .split_whitespace()
+                            .any(|word| word == "const")
+                })
+        })
+        .collect()
 }
 
 pub(super) fn expand(data: &Data, path: &[String], at: usize) -> Vec<String> {
@@ -129,4 +161,32 @@ pub(super) fn associated(
         }
     }
     result
+}
+
+pub(super) fn receiver_const(
+    store: &SemanticStore,
+    reference: &Reference,
+    call: Option<&Invocation>,
+    data: &Data,
+) -> Option<bool> {
+    if let Some(name) = call?.receiver.as_deref()
+        && name != "this"
+    {
+        return binding(store, name, reference.start_byte)?
+            .type_name
+            .as_deref()
+            .map(|ty| ty.split_whitespace().any(|word| word == "const"));
+    }
+    let owner = reference.call_owner?;
+    store
+        .definitions
+        .iter()
+        .find(|def| def.start_byte == owner)
+        .and_then(|def| data.symbols.get(&(owner, def.name.clone())))
+        .map(|symbol| {
+            symbol
+                .qualifiers
+                .split_whitespace()
+                .any(|word| word == "const")
+        })
 }

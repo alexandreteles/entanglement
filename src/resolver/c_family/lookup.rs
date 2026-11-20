@@ -82,7 +82,11 @@ impl<'a> Index<'a> {
                 }));
             }
         }
-        let selected = overload::select(selected, call);
+        let selected = overload::select(
+            selected,
+            call,
+            overload::receiver_const(context.store, reference, call, data),
+        );
         if selected.is_empty() {
             return unknown;
         }
@@ -141,8 +145,7 @@ fn target(mut symbols: BTreeSet<SymbolId>, fallback: &SymbolId) -> Resolution {
 }
 
 fn compatible(left: &Entry<'_>, right: &Entry<'_>, entries: &[Entry<'_>]) -> bool {
-    if left.def.module != right.def.module
-        || left.symbol.parameters != right.symbol.parameters
+    if left.symbol.parameters != right.symbol.parameters
         || left.symbol.qualifiers != right.symbol.qualifiers
         || left.module != right.module
     {
@@ -155,21 +158,25 @@ fn compatible(left: &Entry<'_>, right: &Entry<'_>, entries: &[Entry<'_>]) -> boo
         return false;
     }
     if left.symbol.internal || right.symbol.internal {
-        return left.unit == right.unit;
+        return left.unit == right.unit && left.def.module == right.def.module;
     }
-    if left.cpp == right.cpp {
-        return true;
+    match (c_linkage(left, entries), c_linkage(right, entries)) {
+        (true, true) => true,
+        (false, false) => left.def.module == right.def.module,
+        _ => false,
     }
-    let c_linkage = |entry: &Entry<'_>| {
-        !entry.cpp
-            || entry.symbol.c_linkage
-            || entries.iter().any(|declaration| {
-                declaration.unit == entry.unit
-                    && declaration.symbol.c_linkage
-                    && declaration.def.module == entry.def.module
-                    && declaration.symbol.parameters == entry.symbol.parameters
-                    && declaration.position.1 <= entry.position.1
-            })
-    };
-    c_linkage(left) && c_linkage(right)
+}
+
+fn c_linkage(entry: &Entry<'_>, entries: &[Entry<'_>]) -> bool {
+    !entry.cpp
+        || entry.symbol.c_linkage
+        || entries.iter().any(|declaration| {
+            declaration.unit == entry.unit
+                && declaration.position.0 == Active::Yes
+                && declaration.symbol.c_linkage
+                && declaration.def.module == entry.def.module
+                && declaration.symbol.parameters == entry.symbol.parameters
+                && (declaration.position.1, declaration.position.2)
+                    <= (entry.position.1, entry.position.2)
+        })
 }
