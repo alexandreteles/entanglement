@@ -11,6 +11,7 @@ mod declarations;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Data {
+    pub classes: BTreeMap<Vec<String>, Vec<Vec<String>>>,
     pub errors: Vec<(usize, usize)>,
     pub symbols: BTreeMap<(usize, String), Symbol>,
     pub calls: BTreeMap<usize, Invocation>,

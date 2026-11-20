@@ -62,8 +62,7 @@ fn overloads_and_static_functions_keep_their_own_identity() {
             .as_array()
             .unwrap()
             .iter()
-            .filter(|item| item["path"][0] == "get")
-            .last()
+            .rfind(|item| item["path"][0] == "get")
             .unwrap()["resolution"]["status"],
         "unresolved"
     );
@@ -92,4 +91,22 @@ fn a_header_edit_changes_recursion_in_an_untouched_caller() {
         function(file(&result, "client.c"), "client")["cognitive_complexity"],
         0
     );
+}
+
+#[test]
+fn virtual_calls_and_implicit_overrides_do_not_prove_recursion() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("model.cpp");
+    write(
+        &path,
+        "struct Base { virtual int f() { return f(); } }; struct Child : Base { int f() { return f(); } }; struct Plain { int f() { return f(); } };\n",
+    );
+    let result = report(&run("file", &path, None, None));
+    for (name, score) in [("Base::f()", 0), ("Child::f()", 0), ("Plain::f()", 1)] {
+        assert_eq!(
+            function(file(&result, "model.cpp"), name)["cognitive_complexity"],
+            score,
+            "{name}"
+        );
+    }
 }

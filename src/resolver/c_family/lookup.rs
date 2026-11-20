@@ -88,7 +88,7 @@ impl<'a> Index<'a> {
                     .collect();
                 let exact_body =
                     !bodies.is_empty() && bodies.iter().all(|body| body.position.0 == Active::Yes);
-                let dynamic = entry.symbol.dynamic || bodies.iter().any(|body| body.symbol.dynamic);
+                let dynamic = self.dynamic(entry) || bodies.iter().any(|body| self.dynamic(body));
                 let dispatch = if !exact_body {
                     CallDispatch::Unknown
                 } else if dynamic && call.is_none_or(|call| !call.qualified) {

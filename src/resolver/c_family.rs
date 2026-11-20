@@ -11,6 +11,7 @@ use crate::model::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
+mod hierarchy;
 mod lookup;
 pub(crate) mod modules;
 mod overload;
@@ -26,6 +27,7 @@ struct Entry<'a> {
 }
 
 struct Context<'a> {
+    reportable: bool,
     unit: usize,
     view: Option<&'a FileView>,
     store: &'a SemanticStore,
@@ -33,6 +35,7 @@ struct Context<'a> {
 }
 
 struct Index<'a> {
+    classes: hierarchy::Classes,
     names: BTreeMap<&'a str, Vec<Entry<'a>>>,
     contexts: Vec<Vec<Context<'a>>>,
     modules: modules::Modules,
@@ -102,6 +105,10 @@ impl<'a> Index<'a> {
                     .map(|item| (item.start_byte, item.path.as_slice()))
                     .collect();
                 indexed.push(Context {
+                    reportable: project
+                        .units
+                        .get(unit)
+                        .is_none_or(|unit| !unit.fallback || !project.has_includer(file.target)),
                     unit,
                     view,
                     store,
@@ -111,7 +118,9 @@ impl<'a> Index<'a> {
             contexts.push(indexed);
         }
         let modules = modules::Modules::new(&contexts);
+        let classes = hierarchy::classes(&contexts);
         Self {
+            classes,
             names,
             contexts,
             modules,
@@ -134,7 +143,9 @@ pub(super) fn resolve(
                     .map(|reference| {
                         let mut outcomes = Vec::new();
                         for context in &index.contexts[file] {
-                            if context.store.semantic.context_id != reference.context_id {
+                            if !context.reportable
+                                || context.store.semantic.context_id != reference.context_id
+                            {
                                 continue;
                             }
                             outcomes.push(

@@ -26,6 +26,17 @@ pub(super) fn capture(node: Node<'_>, source: &[u8], data: &mut Data, store: &mu
                 .and_then(|parent| parent.child_by_field_name("declarator"))
         });
         if let Some(name) = name {
+            if body && matches!(kind, "struct_specifier" | "class_specifier") {
+                let mut class = declarator::owners(node, source);
+                class.push(text(name, source));
+                let bases = named_children(node)
+                    .filter(|child| child.kind() == "base_class_clause")
+                    .flat_map(named_children)
+                    .filter(|child| !matches!(child.kind(), "access_specifier" | "comment"))
+                    .map(|base| path(&text(base, source)))
+                    .collect();
+                data.classes.insert(class, bases);
+            }
             let kind = match kind {
                 "enum_specifier" => DefinitionKind::Enum,
                 "union_specifier" => DefinitionKind::Union,
