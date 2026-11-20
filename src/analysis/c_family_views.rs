@@ -38,11 +38,7 @@ pub(super) fn collect(
         let Some(view) = unit.files.get_mut(&file.facts.target) else {
             continue;
         };
-        let cpp = if unit.fallback {
-            file.language == "source.cpp"
-        } else {
-            unit.cpp
-        };
+        let cpp = unit.cpp;
         let projection = preprocess(source, view);
         let bytes = &projection.bytes;
         let key = (

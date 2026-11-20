@@ -39,6 +39,7 @@ pub(super) fn unit(
     }
     visit.file(path, Active::Yes);
     Unit {
+        root: path.to_owned(),
         cpp: settings.cpp,
         fallback: !configured && header(path),
         files: visit.files,

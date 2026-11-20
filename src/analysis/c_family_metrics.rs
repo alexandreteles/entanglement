@@ -35,10 +35,12 @@ pub(super) fn recover(
     worker: &mut Worker,
 ) -> crate::Result<()> {
     let raw = file.facts.source.clone();
+    let has_includer = project.has_includer(&file.facts.target);
     let uses = replacements(
         project
             .units
             .iter()
+            .filter(|unit| !unit.fallback || !has_includer)
             .filter_map(|unit| unit.files.get(&file.facts.target)),
     );
     let projection = Projection::new(&raw, uses.iter());

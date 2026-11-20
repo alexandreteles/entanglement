@@ -22,6 +22,7 @@ pub(crate) struct Project {
 }
 
 pub(crate) struct Unit {
+    pub root: PathBuf,
     pub cpp: bool,
     pub fallback: bool,
     pub files: BTreeMap<PathBuf, FileView>,
@@ -114,7 +115,11 @@ struct Inventory<'a> {
 }
 
 impl Project {
-    pub fn build(parsed: &[ParsedFile], snapshot: &Snapshot) -> crate::Result<Self> {
+    pub fn build(
+        parsed: &[ParsedFile],
+        snapshot: &Snapshot,
+        mut standalone: impl FnMut(&ParsedFile) -> crate::Result<bool>,
+    ) -> crate::Result<Self> {
         let sources: BTreeMap<_, _> = parsed
             .iter()
             .filter(|file| matches!(file.language.as_str(), "source.c" | "source.cpp"))
@@ -148,27 +153,42 @@ impl Project {
                 ));
             }
         }
-        for path in paths.iter().filter(|path| header(path)) {
+        for file in parsed.iter().filter(|file| header(&file.facts.target)) {
+            let path = &file.facts.target;
             if !units.iter().any(|unit| unit.files.contains_key(path)) {
-                units.push(traversal::unit(
-                    path,
-                    &Settings::standalone(path),
-                    false,
-                    &mut inventory,
-                ));
+                let mut settings = Settings::standalone(path);
+                settings.cpp = standalone(file)?;
+                units.push(traversal::unit(path, &settings, false, &mut inventory));
             }
         }
         Ok(Self { units })
     }
 
     pub fn dialect(&self, path: &Path) -> Option<bool> {
+        let primary = self
+            .units
+            .iter()
+            .any(|unit| unit.root == path && !unit.fallback);
         let mut choices = self
             .units
             .iter()
-            .filter(|unit| unit.files.contains_key(path) && !unit.fallback)
+            .filter(|unit| {
+                !unit.fallback
+                    && if primary {
+                        unit.root == path
+                    } else {
+                        unit.files.contains_key(path)
+                    }
+            })
             .map(|unit| unit.cpp);
         let first = choices.next()?;
         choices.all(|cpp| cpp == first).then_some(first)
+    }
+
+    pub fn has_includer(&self, path: &Path) -> bool {
+        self.units
+            .iter()
+            .any(|unit| !unit.fallback && unit.files.contains_key(path))
     }
 }
 

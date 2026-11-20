@@ -9,8 +9,19 @@ pub(crate) fn prepare(
     selection: Selection,
     snapshot: &mut Snapshot,
 ) -> Result<()> {
-    snapshot.c_project = Project::build(files, snapshot)?;
     let mut worker = Worker::new(selection)?;
+    snapshot.c_project = Project::build(files, snapshot, |file| {
+        if file
+            .facts
+            .path
+            .extension()
+            .is_some_and(|ext| ext == "h" || ext == "inc")
+        {
+            prefer_cpp(&mut worker, file)
+        } else {
+            Ok(file.language == "source.cpp")
+        }
+    })?;
     for file in files
         .iter_mut()
         .filter(|file| matches!(file.language.as_str(), "source.c" | "source.cpp"))
