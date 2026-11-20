@@ -12,6 +12,7 @@ mod expressions;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Data {
+    pub tags: BTreeMap<usize, DefinitionKind>,
     pub aliases: BTreeMap<String, (usize, usize, Vec<String>)>,
     pub classes: BTreeMap<Vec<String>, Vec<Vec<String>>>,
     pub errors: Vec<(usize, usize)>,
@@ -83,7 +84,7 @@ pub(crate) fn capture(tree: &Tree, source: &[u8]) -> SemanticStore {
             | "namespace_alias_definition" => {
                 expressions::special(node, source, &mut data, &mut store)
             }
-            "type_identifier" => calls::type_reference(node, source, &mut store),
+            "type_identifier" => calls::type_reference(node, source, &mut data, &mut store),
             "qualified_identifier"
                 if node.parent().is_some_and(|parent| {
                     parent.kind() == "function_declarator"

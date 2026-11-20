@@ -23,6 +23,7 @@ pub(super) fn call(node: Node<'_>, source: &[u8], data: &mut Data, store: &mut S
     let mut receiver = receiver;
     if function.kind() == "identifier"
         && let Some(local) = binding(store, &spelling, function.start_byte())
+        && !local.callable_reference
         && local
             .type_name
             .as_deref()
@@ -60,7 +61,12 @@ pub(super) fn call(node: Node<'_>, source: &[u8], data: &mut Data, store: &mut S
     data.calls.insert(target.start_byte(), call);
 }
 
-pub(super) fn type_reference(node: Node<'_>, source: &[u8], store: &mut SemanticStore) {
+pub(super) fn type_reference(
+    node: Node<'_>,
+    source: &[u8],
+    data: &mut Data,
+    store: &mut SemanticStore,
+) {
     let Some(parent) = node.parent() else { return };
     if parent.child_by_field_name("name") == Some(node)
         && matches!(
@@ -84,6 +90,14 @@ pub(super) fn type_reference(node: Node<'_>, source: &[u8], store: &mut Semantic
     } else {
         node
     };
+    if let Some(tag) = match parent.kind() {
+        "struct_specifier" | "class_specifier" => Some(DefinitionKind::Struct),
+        "enum_specifier" => Some(DefinitionKind::Enum),
+        "union_specifier" => Some(DefinitionKind::Union),
+        _ => None,
+    } {
+        data.tags.insert(target.start_byte(), tag);
+    }
     reference(
         target,
         path(&text(target, source)),

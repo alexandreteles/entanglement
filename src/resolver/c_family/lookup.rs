@@ -36,7 +36,13 @@ impl<'a> Index<'a> {
                 || !local
                     && candidate.symbol.exported
                     && self.modules.visible(data, candidate.module, at);
+            let type_space = reference.kind != ReferenceKind::Type
+                || data.tags.get(&at).map_or(
+                    context.cpp || candidate.def.kind == DefinitionKind::TypeAlias,
+                    |tag| tag == &candidate.def.kind,
+                );
             visible
+                && type_space
                 && (reference.kind == ReferenceKind::Type)
                     == matches!(
                         candidate.def.kind,

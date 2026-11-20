@@ -188,8 +188,13 @@ pub(super) fn capture(node: Node<'_>, source: &[u8], data: &mut Data, store: &mu
             );
         } else if let Some(name) = declarator::identifier(declarator) {
             let owner = scope(node);
+            if kind.contains("parameter_declaration")
+                && !matches!(owner.kind(), "function_definition" | "lambda_expression")
+            {
+                continue;
+            }
             let name = text(name, source);
-            let type_name = node.child_by_field_name("type").map(|t| text(t, source));
+            let type_name = variable_type(node, declarator, source);
             store.locals.push(LocalBinding {
                 name,
                 start_byte: declarator.start_byte(),
@@ -197,10 +202,31 @@ pub(super) fn capture(node: Node<'_>, source: &[u8], data: &mut Data, store: &mu
                 scope_start: owner.start_byte(),
                 scope_end: owner.end_byte(),
                 type_name,
+                callable_reference: declarator.kind() == "function_declarator",
                 ..Default::default()
             });
         }
     }
+}
+
+fn variable_type(node: Node<'_>, mut declaration: Node<'_>, source: &[u8]) -> Option<String> {
+    let ty = node.child_by_field_name("type")?;
+    let mut words: Vec<_> = named_children(node)
+        .filter(|child| child.kind() == "type_qualifier")
+        .map(|child| text(child, source))
+        .collect();
+    words.push(text(ty, source));
+    let mut written = words.join(" ");
+    while let Some(child) = declaration.child_by_field_name("declarator") {
+        match declaration.kind() {
+            "pointer_declarator" => written.push('*'),
+            "reference_declarator" => written.push('&'),
+            "array_declarator" => written.push('*'),
+            _ => {}
+        }
+        declaration = child;
+    }
+    Some(written)
 }
 
 #[allow(clippy::too_many_arguments)]
