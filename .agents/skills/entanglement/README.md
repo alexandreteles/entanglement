@@ -3,7 +3,7 @@
 Use [Entanglement](https://github.com/alexandreteles/entanglement) to measure code size, complexity, and maintainability during a task.
 The skill compares changes with measurements from the start of the task.
 
-Use the skill with Rust, Python, Go, PHP 8.2–8.5, Kotlin, TypeScript/TSX, JavaScript, React, Astro, Svelte, Angular templates, HTML, and CSS.
+Use the skill with C, C++, Rust, Python, Go, PHP 8.2–8.5, Kotlin, TypeScript/TSX, JavaScript, React, Astro, Svelte, Angular templates, HTML, and CSS.
 
 ## Required tools
 

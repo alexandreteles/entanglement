@@ -1,6 +1,6 @@
 ---
 name: entanglement
-description: Use the installed Entanglement CLI during code changes to compare repository size, complexity, and structural dependencies against a baseline and enforce file maintainability. Applies to Rust, Python, Go, PHP 8.2–8.5, Kotlin, TypeScript/TSX, JavaScript, React, Astro, Svelte, Angular templates, HTML, and CSS.
+description: Use the installed Entanglement CLI during code changes to compare repository size, complexity, and structural dependencies against a baseline and enforce file maintainability. Applies to C, C++, Rust, Python, Go, PHP 8.2–8.5, Kotlin, TypeScript/TSX, JavaScript, React, Astro, Svelte, Angular templates, HTML, and CSS.
 ---
 
 # Entanglement

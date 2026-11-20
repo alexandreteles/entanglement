@@ -62,12 +62,15 @@ to resolve references. If none exists, it uses the root directory from the
 diff path.
 
 Supported manifests include `Cargo.toml`, `package.json`, `tsconfig.json`,
-`jsconfig.json`, `pyproject.toml`, `setup.py`, `setup.cfg`, and `go.mod`.
+`jsconfig.json`, `pyproject.toml`, `setup.py`, `setup.cfg`, `go.mod`,
+`compile_commands.json`, `CMakeLists.txt`, and `meson.build`.
 
 ## Languages
 
 | Language | Source files |
 | --- | --- |
+| C | `.c`, `.h`, `.inc` |
+| C++ | `.C`, `.cc`, `.cpp`, `.cxx`, `.c++`, `.H`, `.hh`, `.hpp`, `.hxx`, `.h++`, `.ipp`, `.inl`, `.tcc`, `.tpp`, `.cppm`, `.ccm`, `.cxxm`, `.c++m`, `.ixx` |
 | Rust | `.rs` |
 | Python | `.py`, `.pyi` |
 | Go | `.go` |
@@ -82,6 +85,19 @@ Supported manifests include `Cargo.toml`, `package.json`, `tsconfig.json`,
 | Angular templates | `.component.html` |
 | HTML | `.html` |
 | CSS | `.css` |
+
+C and C++ reports count each physical header once. A compiler command can select
+the language of a source file or header. Otherwise, a header uses the language of
+its includers when they agree. For a standalone or mixed-use `.h` or `.inc`,
+Entanglement compares both parses and uses C for syntax common to both languages.
+The header report shows which rule it used.
+
+Entanglement reads `compile_commands.json` from the project or its `build`
+directory. Use `--compile-commands PATH` to select a build elsewhere. Each
+command supplies a separate view of the include paths, macros, and source
+declarations. Calls with conflicting targets, unknown callbacks, or virtual
+dispatch contribute no recursion score. Structural coverage lists source ranges
+where syntax recovery was necessary.
 
 ## Select metrics
 
