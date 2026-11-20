@@ -8,6 +8,10 @@ pub(super) fn collect_locals(
 ) {
     for node in nodes.iter().copied() {
         match node.kind() {
+            "parameter"
+                if node
+                    .parent()
+                    .is_some_and(|parent| parent.kind() == "context_receiver") => {}
             "parameter" | "class_parameter" | "variable_declaration" => {
                 collect_value_binding(node, source, declared_names, result);
             }
@@ -99,32 +103,23 @@ fn is_immutable_binding(node: Node<'_>, source: &[u8]) -> bool {
 }
 
 pub(super) fn collect_context_facts(
-    nodes: &[Node<'_>],
-    contexts: &[crate::languages::kotlin::syntax::ContextParameters],
+    contexts: &[crate::languages::kotlin::syntax::ContextParameters<'_>],
     result: &mut Capture,
 ) {
-    for declaration in nodes.iter().copied().filter(|node| {
-        matches!(
-            node.kind(),
-            "function_declaration"
-                | "property_declaration"
-                | "class_declaration"
-                | "object_declaration"
-        )
-    }) {
-        let Some(context) =
-            crate::languages::kotlin::syntax::context_for_declaration(declaration, contexts)
-        else {
+    for context in contexts {
+        let Some(declaration) = context.declaration else {
             continue;
         };
-        let Some(scope) = (if matches!(
-            declaration.kind(),
-            "class_declaration" | "object_declaration"
-        ) {
-            class_body_scope(declaration)
-        } else {
-            Some(executable_body(declaration))
-        }) else {
+        let scope = match declaration.kind() {
+            "class_declaration" | "object_declaration" => class_body_scope(declaration),
+            "function_declaration"
+            | "property_declaration"
+            | "anonymous_function"
+            | "getter"
+            | "setter" => Some(executable_body(declaration)),
+            _ => None,
+        };
+        let Some(scope) = scope else {
             continue;
         };
         for parameter in &context.parameters {
@@ -181,9 +176,6 @@ pub(super) fn binding_scope(node: Node<'_>) -> Option<Range<usize>> {
             return class_body_scope(owner).or(Some(range(owner)));
         }
         return Some(executable_body(owner));
-    }
-    if node.kind() == "context_parameter" {
-        return nearest_declaration(node).map(executable_body);
     }
     let owner = nearest_declaration(node)?;
     if !is_executable_scope(owner.kind()) {

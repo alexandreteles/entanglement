@@ -31,7 +31,7 @@ tree-sitter-astro = { git = "https://github.com/alexandreteles/tree-sitter-astro
 tree-sitter-htmlx-svelte = { git = "https://github.com/Aunali321/tree-sitter-htmlx", rev = "70ea39cc6c39907a2f683a63602997bd0bf58843" }
 tree-sitter-go = "0.25.0"
 tree-sitter-php = "0.25.2"
-tree-sitter-kotlin = { path = "grammar-metadata/tree-sitter-kotlin" }
+tree-sitter-kotlin = { git = "https://github.com/fwcd/tree-sitter-kotlin.git", rev = "d6af96d2e23ef0a8ff5ab512864378cf08fba311" }
 
 tree-sitter-groovy = { path = "grammar-metadata/tree-sitter-groovy" }
 

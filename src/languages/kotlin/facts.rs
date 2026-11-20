@@ -98,7 +98,7 @@ pub(super) fn capture(scope_index: &super::scopes::ScopeIndex<'_>) -> Capture {
 
     result.imports = imports;
     collect_locals(source, nodes, &declared_names, &mut result);
-    collect_context_facts(nodes, contexts, &mut result);
+    collect_context_facts(contexts, &mut result);
     result.semantic.calls = collect_calls(nodes, source, &result.locals);
     result.references = collect_references(scope_index, nodes, &excluded);
     let conventions =

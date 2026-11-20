@@ -12,7 +12,7 @@ use crate::metrics::cyclomatic::FunctionScope;
 pub(super) struct ScopeIndex<'tree> {
     root: Node<'tree>,
     source: &'tree [u8],
-    contexts: Vec<ContextParameters>,
+    contexts: Vec<ContextParameters<'tree>>,
     recovered_types: Vec<syntax::RecoveredType>,
     nodes: Vec<Node<'tree>>,
     executable: HashMap<usize, Range<usize>>,
@@ -64,7 +64,7 @@ impl<'tree> ScopeIndex<'tree> {
         self.source
     }
 
-    pub(super) fn contexts(&self) -> &[ContextParameters] {
+    pub(super) fn contexts(&self) -> &[ContextParameters<'tree>] {
         &self.contexts
     }
 

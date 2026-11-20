@@ -319,7 +319,7 @@ context(`context`: suspend (Int, String) -> Unit)
 @Deprecated("old")
 fun contextFunctionType() { `context`(1, "a") }
 
-context() fun emptyContext() = 1
+context(number: Int) fun inlineContext() = number
 "#;
     write(&path, source_text);
 
@@ -330,7 +330,7 @@ context() fun emptyContext() = 1
     assert_context_and_token_operands(source_text, source);
     for (name, prefix) in [
         ("contextFunctionType", "context(`context`"),
-        ("emptyContext", "context()"),
+        ("inlineContext", "context(number:"),
     ] {
         let scope = function(source, name);
         assert_eq!(scope["start_byte"], source_text.find(prefix).unwrap());

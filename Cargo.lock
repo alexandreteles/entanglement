@@ -277,7 +277,7 @@ dependencies = [
  "tree-sitter-html",
  "tree-sitter-htmlx-svelte",
  "tree-sitter-javascript",
- "tree-sitter-kotlin 0.4.0",
+ "tree-sitter-kotlin",
  "tree-sitter-loader",
  "tree-sitter-php 0.25.2",
  "tree-sitter-python",
@@ -863,19 +863,7 @@ dependencies = [
 [[package]]
 name = "tree-sitter-kotlin"
 version = "0.4.0"
-dependencies = [
- "cargo_metadata",
- "cc",
- "serde_json",
- "tree-sitter-generate",
- "tree-sitter-kotlin 0.4.0 (git+https://github.com/fwcd/tree-sitter-kotlin.git?rev=1852ea17b7f60fb3f9d84e0b1555d56b46b39fb1)",
- "tree-sitter-language",
-]
-
-[[package]]
-name = "tree-sitter-kotlin"
-version = "0.4.0"
-source = "git+https://github.com/fwcd/tree-sitter-kotlin.git?rev=1852ea17b7f60fb3f9d84e0b1555d56b46b39fb1#1852ea17b7f60fb3f9d84e0b1555d56b46b39fb1"
+source = "git+https://github.com/fwcd/tree-sitter-kotlin.git?rev=d6af96d2e23ef0a8ff5ab512864378cf08fba311#d6af96d2e23ef0a8ff5ab512864378cf08fba311"
 dependencies = [
  "cc",
  "tree-sitter-language",

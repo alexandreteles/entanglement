@@ -209,7 +209,12 @@ pub(crate) fn modifier_metadata(
     modifiers: Option<Node<'_>>,
     source: &[u8],
 ) -> (SemanticVisibility, DeclarationModifiers, Vec<String>) {
-    let nodes = modifiers.map(all_nodes).unwrap_or_default();
+    let nodes = modifiers
+        .into_iter()
+        .flat_map(named_children)
+        .filter(|child| child.kind() != "context_receiver")
+        .flat_map(all_nodes)
+        .collect::<Vec<_>>();
     let words = nodes
         .iter()
         .copied()

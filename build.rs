@@ -17,7 +17,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for package in metadata.packages {
         let generated_variable = match package.name.as_str() {
             "tree-sitter-php" => Some("DEP_ENTANGLEMENT_PHP_ROOT"),
-            "tree-sitter-kotlin" => Some("DEP_ENTANGLEMENT_KOTLIN_ROOT"),
             "tree-sitter-groovy" => Some("DEP_ENTANGLEMENT_GROOVY_ROOT"),
             _ => None,
         };

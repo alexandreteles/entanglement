@@ -11,7 +11,7 @@ use super::syntax::ContextParameters;
 pub(super) fn capture(
     root: Node<'_>,
     source: &[u8],
-    contexts: &[ContextParameters],
+    contexts: &[ContextParameters<'_>],
 ) -> Vec<HalsteadToken> {
     let mut tokens = Vec::new();
     let context_names = contexts
@@ -132,7 +132,7 @@ fn normalize_leaf(
     node: Node<'_>,
     raw: &str,
     context_names: &HashSet<String>,
-    contexts: &[ContextParameters],
+    contexts: &[ContextParameters<'_>],
 ) -> (String, HalsteadTokenKind) {
     if let Some(context) = contexts.iter().find(|context| {
         context.range.start <= node.start_byte() && node.end_byte() <= context.range.end
