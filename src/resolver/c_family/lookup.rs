@@ -26,7 +26,11 @@ impl<'a> Index<'a> {
             return unknown;
         }
         let Some(entries) = self.names.get(name.as_str()) else {
-            return unknown;
+            return if external::known(&reference.path, self.headers.get(context.unit)) {
+                (Resolution::External, CallDispatch::Unknown)
+            } else {
+                unknown
+            };
         };
         let eligible = |candidate: &&Entry<'_>| {
             let local = candidate.unit == context.unit;

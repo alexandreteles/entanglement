@@ -48,3 +48,24 @@ fn a_forced_header_uses_the_build_directory_and_the_c_standard() {
         1
     );
 }
+
+#[test]
+fn standard_library_declarations_and_missing_project_headers_have_distinct_boundaries() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("use.c");
+    write(
+        &path,
+        "#include <stdio.h>\n#include <generated/api.h>\nint out(void) { return puts(\"ok\"); }\n",
+    );
+    let result = report(&run("file", &path, None, None));
+    let source = file(&result, "use.c");
+    assert!(
+        source["resolution"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["path"][0] == "puts" && item["resolution"]["status"] == "external")
+    );
+    let edges = result["structure"]["relationships"].as_array().unwrap();
+    assert!(edges.iter().any(|edge|edge["target"]=="<generated/api.h>" && edge["resolution"]=="unresolved"));
+}

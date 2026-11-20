@@ -11,6 +11,7 @@ use crate::model::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
+mod external;
 mod hierarchy;
 mod lookup;
 pub(crate) mod modules;
@@ -36,6 +37,7 @@ struct Context<'a> {
 }
 
 struct Index<'a> {
+    headers: Vec<BTreeSet<&'a str>>,
     classes: hierarchy::Classes,
     names: BTreeMap<&'a str, Vec<Entry<'a>>>,
     contexts: Vec<Vec<Context<'a>>>,
@@ -122,6 +124,7 @@ impl<'a> Index<'a> {
         let modules = modules::Modules::new(&contexts);
         let classes = hierarchy::classes(&contexts);
         Self {
+            headers: external::headers(project),
             classes,
             names,
             contexts,
