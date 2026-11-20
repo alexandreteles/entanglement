@@ -8,17 +8,17 @@ warnings = "deny"
 
 [dependencies]
 blake3 = "1.8.7"
-clap = { version = "4.6.7", features = ["derive"] }
+clap = { version = "4.6.9", features = ["derive"] }
 diffy = "0.5.2"
-ignore = "0.4.33"
+ignore = "0.4.34"
 indexmap = { version = "2.14.2", features = ["serde"] }
 memchr = "2.8.3"
 petgraph = { version = "0.8.3", default-features = false, features = ["std"] }
-tree-sitter = "0.27.1"
+tree-sitter = "0.27.2"
 rayon = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tree-sitter-loader = "0.27.1"
+tree-sitter-loader = "0.27.2"
 tree-sitter-rust = "0.24.2"
 tree-sitter-css = "0.25.0"
 tree-sitter-html = "0.23.2"
@@ -30,7 +30,7 @@ tree-sitter-astro = { git = "https://github.com/alexandreteles/tree-sitter-astro
 # Tree-sitter 0.27 and the GCC scanner fix are unreleased upstream: themixednuts/tree-sitter-htmlx#4 and #2.
 tree-sitter-htmlx-svelte = { git = "https://github.com/Aunali321/tree-sitter-htmlx", rev = "70ea39cc6c39907a2f683a63602997bd0bf58843" }
 tree-sitter-go = "0.25.0"
-tree-sitter-php = "=0.25.1"
+tree-sitter-php = "0.25.2"
 tree-sitter-kotlin = { path = "grammar-metadata/tree-sitter-kotlin" }
 
 tree-sitter-groovy = { path = "grammar-metadata/tree-sitter-groovy" }
@@ -40,7 +40,7 @@ tempfile = "3.27.0"
 
 [build-dependencies]
 cargo_metadata = "0.23"
-tree-sitter-loader = "0.27.1"
+tree-sitter-loader = "0.27.2"
 
 # Remove when Angular uses tree-sitter-language instead of a native runtime dependency.
 [patch.crates-io]
