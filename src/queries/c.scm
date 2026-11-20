@@ -19,3 +19,4 @@ _ @syntax.node
 (goto_statement) @metric.cognitive.labeled_jump
 (preproc_if condition: (_) @c.unevaluated)
 (preproc_elif condition: (_) @c.unevaluated)
+[(sizeof_expression) (alignof_expression)] @c.unevaluated

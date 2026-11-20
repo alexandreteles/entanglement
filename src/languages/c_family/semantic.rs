@@ -54,7 +54,7 @@ pub(crate) struct Invocation {
 }
 
 /// Capture declarations, bindings and references from one preprocessing view.
-pub(crate) fn capture(tree: &Tree, source: &[u8]) -> SemanticStore {
+pub(crate) fn capture(tree: &Tree, source: &[u8], cpp: bool) -> SemanticStore {
     let mut store = SemanticStore::default();
     let mut data = Data::default();
     let mut damaged = vec![tree.root_node()];
@@ -67,6 +67,14 @@ pub(crate) fn capture(tree: &Tree, source: &[u8]) -> SemanticStore {
     }
     let mut pending = vec![tree.root_node()];
     while let Some(node) = pending.pop() {
+        if cpp
+            && node.kind() == "call_expression"
+            && node
+                .child_by_field_name("function")
+                .is_some_and(|function| &source[function.byte_range()] == b"noexcept")
+        {
+            continue;
+        }
         match node.kind() {
             "function_definition"
             | "declaration"
@@ -159,7 +167,7 @@ pub(crate) fn capture(tree: &Tree, source: &[u8]) -> SemanticStore {
             "sizeof_expression"
                 | "alignof_expression"
                 | "decltype"
-                | "noexcept_expression"
+                | "noexcept"
                 | "requires_expression"
                 | "requires_clause"
                 | "static_assert_declaration"

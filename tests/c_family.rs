@@ -66,3 +66,17 @@ int Item::get(double n) const {
     }
     assert_eq!(function(source, "convert")["cyclomatic_complexity"], 2);
 }
+
+#[test]
+fn unevaluated_expressions_have_no_runtime_decisions() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("sizes.cpp");
+    write(
+        &path,
+        "int check(int x) { return sizeof(x && x) + noexcept(x || x); }\n",
+    );
+    let report = report(&run("file", &path, None, None));
+    let check = function(only_file(&report), "check(int)");
+    assert_eq!(check["cyclomatic_complexity"], 1);
+    assert_eq!(check["cognitive_complexity"], 0);
+}

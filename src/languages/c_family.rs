@@ -99,7 +99,7 @@ impl LanguageHandler for Analyzer {
                     .any(|range| range.start <= event.start_byte && event.end_byte <= range.end)
         });
         let mut captured =
-            CapturedTree::from(captured).with_semantics(semantic::capture(tree, source));
+            CapturedTree::from(captured).with_semantics(semantic::capture(tree, source, self.cpp));
         let ranges = tree
             .included_ranges()
             .into_iter()

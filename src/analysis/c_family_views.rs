@@ -54,7 +54,7 @@ pub(super) fn collect(
                     .select_injection(if cpp { "cpp" } else { "c" })?
                     .ok_or("Missing C-family grammar")?;
                 let tree = worker.parse_tree(&choice, bytes, &[], None)?;
-                let mut captured = semantic::capture(&tree, bytes);
+                let mut captured = semantic::capture(&tree, bytes, cpp);
                 if structure {
                     crate::structure::extract::capture(&tree, bytes, &choice.id, &mut captured);
                 }
