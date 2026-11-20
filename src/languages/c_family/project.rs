@@ -22,6 +22,7 @@ pub(crate) struct Project {
 }
 
 pub(crate) struct Unit {
+    pub configured: bool,
     pub root: PathBuf,
     pub cpp: bool,
     pub fallback: bool,
@@ -178,6 +179,26 @@ impl Project {
                 ));
             }
         }
+        if paths
+            .iter()
+            .any(|path| header(path) && !units.iter().any(|unit| unit.files.contains_key(path)))
+        {
+            for (path, entries) in commands.iter().filter(|(path, _)| {
+                !header(path) && is_source(path) && paths.binary_search(path).is_err()
+            }) {
+                if let Some(bytes) = snapshot.read(path)? {
+                    inventory
+                        .sources
+                        .entry(path.clone())
+                        .or_insert_with(|| Arc::new(Source::new(&bytes)));
+                    units.extend(
+                        entries
+                            .iter()
+                            .map(|entry| traversal::unit(path, entry, true, &mut inventory)),
+                    );
+                }
+            }
+        }
         for file in parsed.iter().filter(|file| header(&file.facts.target)) {
             let path = &file.facts.target;
             if !units.iter().any(|unit| unit.files.contains_key(path)) {
@@ -189,7 +210,7 @@ impl Project {
         Ok(Self { units })
     }
 
-    pub fn dialect(&self, path: &Path) -> Option<bool> {
+    pub fn dialect(&self, path: &Path) -> Option<(bool, &'static str)> {
         let primary = self
             .units
             .iter()
@@ -207,7 +228,14 @@ impl Project {
             })
             .map(|unit| unit.cpp);
         let first = choices.next()?;
-        choices.all(|cpp| cpp == first).then_some(first)
+        choices.all(|cpp| cpp == first).then_some((
+            first,
+            if primary {
+                "compile_command"
+            } else {
+                "includers"
+            },
+        ))
     }
 
     pub fn has_includer(&self, path: &Path) -> bool {

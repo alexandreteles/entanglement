@@ -29,6 +29,9 @@ pub struct FileAnalysis {
     pub hash: String,
     /// The language name from grammar metadata.
     pub language: String,
+    /// Evidence used to select the physical grammar for a C-family header.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language_selection: Option<&'static str>,
     /// The number of source rows with code.
     pub nloc: usize,
     /// Halstead operators, operands, and derived metrics for the whole file.

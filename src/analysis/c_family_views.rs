@@ -92,6 +92,11 @@ pub(super) fn collect(
     host.semantic.structure_errors = !errors.is_empty();
     if let Some(data) = host.semantic.c_family.as_mut() {
         data.errors = errors.into_iter().collect();
+        data.missing_build = project
+            .units
+            .iter()
+            .filter(|unit| unit.files.contains_key(&file.facts.target))
+            .all(|unit| !unit.configured);
     }
     host.references
         .sort_by_key(|reference| (reference.start_byte, reference.end_byte));

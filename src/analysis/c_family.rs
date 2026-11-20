@@ -26,7 +26,7 @@ pub(crate) fn prepare(
         .iter_mut()
         .filter(|file| matches!(file.language.as_str(), "source.c" | "source.cpp"))
     {
-        let cpp = match snapshot.c_project.dialect(&file.facts.target) {
+        let (cpp, reason) = match snapshot.c_project.dialect(&file.facts.target) {
             Some(mode) => mode,
             None if file
                 .facts
@@ -34,11 +34,21 @@ pub(crate) fn prepare(
                 .extension()
                 .is_some_and(|ext| ext == "h" || ext == "inc") =>
             {
-                prefer_cpp(&mut worker, file)?
+                (
+                    prefer_cpp(&mut worker, file)?,
+                    if snapshot.c_project.has_includer(&file.facts.target) {
+                        "mixed_includers"
+                    } else {
+                        "standalone_syntax"
+                    },
+                )
             }
-            None => worker
-                .select_file(&file.facts.path)?
-                .is_some_and(|choice| choice.id == "source.cpp"),
+            None => (
+                worker
+                    .select_file(&file.facts.path)?
+                    .is_some_and(|choice| choice.id == "source.cpp"),
+                "extension",
+            ),
         };
         let label = if cpp { "cpp" } else { "c" };
         if file.facts.analysis.language != label {
@@ -56,6 +66,9 @@ pub(crate) fn prepare(
         }
         super::c_family_metrics::recover(file, &snapshot.c_project, &mut worker)?;
         super::c_family_views::collect(file, &mut snapshot.c_project, &mut worker)?;
+        if crate::languages::c_family::project::header(&file.facts.path) {
+            file.facts.analysis.language_selection = Some(reason);
+        }
     }
     Ok(())
 }

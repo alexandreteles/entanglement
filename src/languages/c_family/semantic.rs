@@ -12,6 +12,7 @@ mod expressions;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Data {
+    pub missing_build: bool,
     pub visibility: BTreeMap<usize, String>,
     pub virtual_bases: std::collections::BTreeSet<usize>,
     pub tags: BTreeMap<usize, DefinitionKind>,

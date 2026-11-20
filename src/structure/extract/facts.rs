@@ -105,6 +105,14 @@ fn context_coverage(fact: &FileFacts, store: &SemanticStore) -> Coverage {
     let applicable = adapters::object_analysis(language)
         || store.semantic.structure.iter().any(|record| record.is_type);
     let mut limitations = adapters::limitations(language);
+    if store
+        .semantic
+        .c_family
+        .as_ref()
+        .is_some_and(|data| data.missing_build)
+    {
+        limitations.push("no_compile_command".into());
+    }
     if store.semantic.structure_errors {
         limitations.push("parse_error".to_owned());
         if let Some(data) = &store.semantic.c_family {

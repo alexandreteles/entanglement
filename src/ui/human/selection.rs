@@ -72,6 +72,7 @@ fn write_patch_file(
     selection: Selection,
 ) {
     let _ = writeln!(output, "{}", file.path);
+
     if file.before.is_none() && file.after.is_none() {
         let _ = writeln!(output, "No registered grammar for this file.");
         return;
@@ -106,6 +107,10 @@ fn write_file(output: &mut String, file: &FileAnalysis, selection: Selection) {
         .unwrap_or(8)
         .max(8);
     let _ = writeln!(output, "{}", file.path);
+    if let Some(reason) = file.language_selection {
+        let language = if file.language == "cpp" { "C++" } else { "C" };
+        let _ = writeln!(output, "{language} header ({})", reason.replace('_', " "));
+    }
     let _ = write!(output, "{:<name_width$}  {:>5}", "Function", "NLOC");
     for column in selected_columns(selection, &FILE_COLUMNS) {
         write_column_header(output, column);

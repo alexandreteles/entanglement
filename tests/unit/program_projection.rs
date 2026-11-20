@@ -73,6 +73,7 @@ fn fixture() -> FileFacts {
             path: "fixture.rs".into(),
             hash: String::new(),
             language: "rust".into(),
+            language_selection: None,
             nloc: 0,
             halstead: HalsteadMetrics::calculate(0, 0, 0, 0),
             maintainability_index: None,

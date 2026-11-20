@@ -115,6 +115,7 @@ pub(super) fn build_facts(
             path: path.display().to_string(),
             hash: blake3::hash(&source).to_hex().to_string(),
             language: root_choice.name.clone(),
+            language_selection: None,
             nloc: file_nloc,
             maintainability_index: selection.needs_mi().then(|| {
                 MaintainabilityIndex::calculate(file_volume, file_cyclomatic_complexity, file_nloc)

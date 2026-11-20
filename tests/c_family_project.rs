@@ -55,3 +55,35 @@ fn created_and_shared_headers_get_one_physical_report() {
     assert_eq!(file(&changed, "api.h")["nloc"], 1);
     assert!(!root.join("api.h").exists());
 }
+
+#[test]
+fn a_single_header_can_use_an_out_of_tree_compilation_database() {
+    let project = tempfile::tempdir().unwrap();
+    let build = tempfile::tempdir().unwrap();
+    let root = project.path();
+    write(&root.join("api.h"), "int read(void);\n");
+    write(&root.join("client.cpp"), "#include \"api.h\"\n");
+    let db = build.path().join("compile_commands.json");
+    write(
+        &db,
+        json!([{"directory":root,"file":"client.cpp","command":"c++ -c client.cpp"}]).to_string(),
+    );
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_entanglement"))
+        .args([
+            "--format",
+            "json",
+            "--metrics",
+            "nloc",
+            "--compile-commands",
+        ])
+        .arg(db)
+        .arg("file")
+        .arg(root.join("api.h"))
+        .output()
+        .unwrap();
+    let result = report(&output);
+    assert_eq!(result["files"].as_array().unwrap().len(), 1);
+    let header = file(&result, "api.h");
+    assert_eq!(header["language"], "cpp");
+    assert_eq!(header["language_selection"], "includers");
+}
