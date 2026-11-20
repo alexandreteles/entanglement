@@ -80,3 +80,17 @@ fn unevaluated_expressions_have_no_runtime_decisions() {
     assert_eq!(check["cyclomatic_complexity"], 1);
     assert_eq!(check["cognitive_complexity"], 0);
 }
+
+#[test]
+fn tagged_c_and_cpp_programs_have_separate_lookup_scopes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("template.js");
+    write(
+        &path,
+        "const one = c`static int hidden(void) { return 1; }`;\nconst two = c`int other(void) { return hidden(); }`;\nconst three = cpp`int value(int n) { return n; }`;\n",
+    );
+    let result = report(&run("file", &path, None, None));
+    let source = only_file(&result);
+    assert_eq!(function(source, "value(int)")["cyclomatic_complexity"], 1);
+    assert!(source["resolution"].as_array().unwrap().iter().any(|item|item["path"][0]=="hidden" && item["resolution"]["status"]=="unresolved"));
+}

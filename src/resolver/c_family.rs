@@ -18,6 +18,7 @@ pub(crate) mod modules;
 mod overload;
 
 struct Entry<'a> {
+    isolated: bool,
     id: SymbolId,
     unit: usize,
     position: (Active, usize, usize),
@@ -49,7 +50,8 @@ impl<'a> Index<'a> {
     fn new(files: &'a [FileFactsView<'a>], project: &'a Project) -> Self {
         let mut names: BTreeMap<_, Vec<_>> = BTreeMap::new();
         let mut contexts = Vec::new();
-        for (index, file) in files.iter().enumerate() {
+        let mut next_unit = project.units.len();
+        for file in files {
             let mut views = Vec::new();
             if file.resolution_family == ResolutionFamily::CFamily {
                 for (unit_id, unit) in project.units.iter().enumerate() {
@@ -60,18 +62,18 @@ impl<'a> Index<'a> {
                     }
                 }
                 if views.is_empty() {
-                    views.extend(
-                        file.semantic()
-                            .filter(|store| store.semantic.c_family.is_some())
-                            .map(|store| {
-                                (
-                                    project.units.len() + index,
-                                    None,
-                                    store,
-                                    file.analysis.language != "c",
-                                )
-                            }),
-                    );
+                    let mut guests = BTreeMap::new();
+                    for store in file.semantic() {
+                        if let Some(data) = &store.semantic.c_family {
+                            let unit =
+                                *guests.entry(store.semantic.context_id).or_insert_with(|| {
+                                    let unit = next_unit;
+                                    next_unit += 1;
+                                    unit
+                                });
+                            views.push((unit, None, store, data.cpp));
+                        }
+                    }
                 }
             }
             let mut indexed = Vec::new();
@@ -94,6 +96,7 @@ impl<'a> Index<'a> {
                         start_byte: def.start_byte,
                     };
                     names.entry(def.name.as_str()).or_default().push(Entry {
+                        isolated: view.is_none(),
                         id,
                         unit,
                         position,

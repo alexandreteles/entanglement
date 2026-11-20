@@ -193,7 +193,7 @@ fn compatible(left: &Entry<'_>, right: &Entry<'_>, entries: &[Entry<'_>]) -> boo
     {
         return false;
     }
-    if left.symbol.internal || right.symbol.internal {
+    if left.isolated || right.isolated || left.symbol.internal || right.symbol.internal {
         return left.unit == right.unit && left.def.module == right.def.module;
     }
     match (c_linkage(left, entries), c_linkage(right, entries)) {

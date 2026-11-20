@@ -13,6 +13,7 @@ mod values;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Data {
+    pub cpp: bool,
     pub lambdas: BTreeMap<usize, usize>,
     pub receivers: BTreeMap<usize, String>,
     pub missing_build: bool,
@@ -58,7 +59,10 @@ pub(crate) struct Invocation {
 /// Capture declarations, bindings and references from one preprocessing view.
 pub(crate) fn capture(tree: &Tree, source: &[u8], cpp: bool) -> SemanticStore {
     let mut store = SemanticStore::default();
-    let mut data = Data::default();
+    let mut data = Data {
+        cpp,
+        ..Default::default()
+    };
     let mut damaged = vec![tree.root_node()];
     while let Some(node) = damaged.pop() {
         if node.is_missing() || node.is_error() {
