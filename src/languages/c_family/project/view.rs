@@ -40,17 +40,17 @@ pub(super) fn replacement(name: &str, env: &Environment) -> Option<String> {
                 .filter(|t| t.kind != lex::Kind::Comment)
                 .map(|t| &value[t.range])
                 .collect();
-            let names: Vec<_> = words
-                .windows(2)
-                .filter(|pair| pair[0] == "namespace")
-                .map(|pair| pair[1])
-                .collect();
-            if !names.is_empty() && words.last() == Some(&"{") {
-                return Some(format!("namespace {}{{", names.join("::")));
+            if words.last() == Some(&"{")
+                && words.iter().all(|word| {
+                    matches!(*word, "{" | "::")
+                        || word.chars().all(|c| c.is_alphanumeric() || c == '_')
+                })
+            {
+                return Some(value.into());
             }
         }
         if value.chars().all(|ch| ch == '}' || ch.is_whitespace()) {
-            return Some("}".into());
+            return Some(value.into());
         }
         if value.starts_with("__attribute__") || value.starts_with("__declspec") {
             return Some(String::new());

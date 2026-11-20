@@ -19,7 +19,8 @@ pub(crate) fn read(source: &[u8]) -> Vec<Directive> {
         if start < skip {
             continue;
         }
-        let first = last_end == 0 || source[last_end..start].contains(&b'\n');
+        let gap = &source[last_end..start];
+        let first = last_end == 0 || lex::logical_line_end(gap) < gap.len();
         last_end = token.range.end;
         if !first || &source[token.range] != b"#" {
             continue;
@@ -28,6 +29,15 @@ pub(crate) fn read(source: &[u8]) -> Vec<Directive> {
         let line = String::from_utf8_lossy(&source[start + 1..skip])
             .replace("\\\r\n", "")
             .replace("\\\n", "");
+        let mut cleaned = line.into_bytes();
+        let comments: Vec<_> = lex::tokens(&cleaned)
+            .filter(|token| token.kind == Kind::Comment)
+            .map(|token| token.range)
+            .collect();
+        for range in comments {
+            cleaned[range].fill(b' ');
+        }
+        let line = String::from_utf8_lossy(&cleaned);
         let line = line.trim_start();
         let end = line
             .find(|ch: char| !(ch.is_alphanumeric() || ch == '_'))

@@ -64,3 +64,25 @@ fn damaged_regions_retain_intact_declarations_and_report_lost_coverage() {
             .any(|unit| unit["name"] == "Intact")
     );
 }
+
+#[test]
+fn nested_namespace_macros_keep_each_scope_in_qualified_lookup() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("api.cpp");
+    write(
+        &path,
+        "#define BEGIN namespace api { inline namespace v1 {\n#define END } } /* close both namespaces */\nBEGIN\nint get() { return 1; }\nEND\nint use() { return api::v1::get(); }\n",
+    );
+    let result = report(&run("file", &path, None, None));
+    let source = only_file(&result);
+    assert!(
+        source["resolution"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(
+                |item| item["path"] == serde_json::json!(["api", "v1", "get"])
+                    && item["resolution"]["status"] == "exact"
+            )
+    );
+}
