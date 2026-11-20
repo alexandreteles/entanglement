@@ -20,6 +20,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tree-sitter-loader = "0.27.2"
 tree-sitter-rust = "0.24.2"
+tree-sitter-c = "0.24.2"
+# This upstream revision includes C++20 module declarations and imports.
+tree-sitter-cpp = { git = "https://github.com/tree-sitter/tree-sitter-cpp.git", rev = "c009222808634c1014f82438d4883753516a2c24" }
 tree-sitter-css = "0.25.0"
 tree-sitter-html = "0.23.2"
 tree-sitter-javascript = "0.25.0"
