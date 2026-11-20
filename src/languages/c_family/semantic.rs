@@ -11,6 +11,7 @@ mod declarations;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Data {
+    pub errors: Vec<(usize, usize)>,
     pub symbols: BTreeMap<(usize, String), Symbol>,
     pub calls: BTreeMap<usize, Invocation>,
     pub using: Vec<(usize, usize, Vec<String>, bool)>,
@@ -45,6 +46,14 @@ pub(crate) struct Invocation {
 pub(crate) fn capture(tree: &Tree, source: &[u8]) -> SemanticStore {
     let mut store = SemanticStore::default();
     let mut data = Data::default();
+    let mut damaged = vec![tree.root_node()];
+    while let Some(node) = damaged.pop() {
+        if node.is_missing() || node.is_error() {
+            data.errors.push((node.start_byte(), node.end_byte()));
+        } else if node.has_error() {
+            damaged.extend((0..node.child_count()).filter_map(|index| node.child(index)));
+        }
+    }
     let mut pending = vec![tree.root_node()];
     while let Some(node) = pending.pop() {
         match node.kind() {

@@ -26,6 +26,7 @@ pub(crate) struct Worker {
 /// Keep a parsed file so a later patch can reuse its syntax trees.
 pub(crate) struct ParsedFile {
     pub language: String,
+    pub(super) recovered: bool,
     pub tree: Tree,
     pub(super) injections: Vec<ParsedInjection>,
     pub facts: FileFacts,
@@ -102,6 +103,7 @@ impl Worker {
         facts.aliases = aliases;
         Ok(ParsedFile {
             language: choice.id,
+            recovered: false,
             tree,
             injections,
             facts,

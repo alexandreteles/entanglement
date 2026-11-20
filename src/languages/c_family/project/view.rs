@@ -2,7 +2,7 @@ use super::super::lex;
 use super::*;
 
 /// Preserve byte offsets and physical newlines in every parser view.
-pub(crate) fn preprocess(source: &[u8], view: &FileView) -> Vec<u8> {
+pub(crate) fn preprocess(source: &[u8], view: &FileView) -> projection::Projection {
     let mut result = source.to_vec();
     let mut visible = vec![false; source.len()];
     for region in &view.regions {
@@ -15,19 +15,7 @@ pub(crate) fn preprocess(source: &[u8], view: &FileView) -> Vec<u8> {
             *byte = b' ';
         }
     }
-    substitute(&mut result, view.uses.values());
-    result
-}
-
-pub(crate) fn substitute<'a>(source: &mut [u8], uses: impl Iterator<Item = &'a Replacement>) {
-    for item in uses {
-        let Some(text) = &item.text else { continue };
-        let target = &mut source[item.range.clone()];
-        if text.len() <= target.len() {
-            target.fill(b' ');
-            target[..text.len()].copy_from_slice(text.as_bytes());
-        }
-    }
+    projection::Projection::new(&result, view.uses.values())
 }
 
 /// Expand only object macros that describe declaration syntax. An expansion

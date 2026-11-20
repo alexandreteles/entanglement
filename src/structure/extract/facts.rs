@@ -107,11 +107,25 @@ fn context_coverage(fact: &FileFacts, store: &SemanticStore) -> Coverage {
     let mut limitations = adapters::limitations(language);
     if store.semantic.structure_errors {
         limitations.push("parse_error".to_owned());
+        if let Some(data) = &store.semantic.c_family {
+            limitations.extend(
+                data.errors
+                    .iter()
+                    .map(|(start, end)| format!("parse_error:{start}..{end}")),
+            );
+        }
     }
     if !applicable {
         limitations.push("no_oo".to_owned());
     }
-    let status = if store.semantic.structure_errors {
+    let intact = store.semantic.c_family.as_ref().is_some_and(|data| {
+        store.definitions.iter().any(|def| {
+            data.errors
+                .iter()
+                .all(|(start, end)| def.end_byte <= *start || *end <= def.start_byte)
+        })
+    });
+    let status = if store.semantic.structure_errors && !intact {
         CoverageStatus::Unavailable
     } else {
         CoverageStatus::Partial

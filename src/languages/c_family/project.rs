@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 mod includes;
+pub(crate) mod projection;
 mod traversal;
 pub(crate) mod view;
 

@@ -26,6 +26,12 @@ pub(super) fn collect(
     };
     let mut definitions = BTreeSet::new();
     let mut references = BTreeSet::new();
+    let structure = worker
+        .selection
+        .includes(crate::metrics::selection::Metric::Structure);
+    let mut records = BTreeSet::new();
+    let mut errors = BTreeSet::new();
+    host.semantic.structure.clear();
     host.definitions.clear();
     host.references.clear();
     for unit in &mut project.units {
@@ -37,8 +43,13 @@ pub(super) fn collect(
         } else {
             unit.cpp
         };
-        let bytes = preprocess(source, view);
-        let key = (cpp, *blake3::hash(&bytes).as_bytes());
+        let projection = preprocess(source, view);
+        let bytes = &projection.bytes;
+        let key = (
+            cpp,
+            *blake3::hash(bytes).as_bytes(),
+            projection.mapping_key(),
+        );
         let store = match cache.entry(key) {
             std::collections::btree_map::Entry::Occupied(entry) => Arc::clone(entry.get()),
             std::collections::btree_map::Entry::Vacant(entry) => {
@@ -46,14 +57,41 @@ pub(super) fn collect(
                     .registry
                     .select_injection(if cpp { "cpp" } else { "c" })?
                     .ok_or("Missing C-family grammar")?;
-                let tree = worker.parse_tree(&choice, &bytes, &[], None)?;
-                let store = Arc::new(semantic::capture(&tree, &bytes));
+                let tree = worker.parse_tree(&choice, bytes, &[], None)?;
+                let mut captured = semantic::capture(&tree, bytes);
+                if structure {
+                    crate::structure::extract::capture(&tree, bytes, &choice.id, &mut captured);
+                }
+                projection.semantic(&mut captured);
+                if let Some(data) = captured.semantic.c_family.as_ref() {
+                    errors.extend(data.errors.iter().copied());
+                }
+                host.semantic.structure.extend(
+                    captured
+                        .semantic
+                        .structure
+                        .iter()
+                        .filter(|record| {
+                            records.insert((
+                                record.start,
+                                record.name.clone(),
+                                record.owner.clone(),
+                                record.kind.clone(),
+                            ))
+                        })
+                        .cloned(),
+                );
+                let store = Arc::new(captured);
                 merge(host, &store, &mut definitions, &mut references);
                 entry.insert(Arc::clone(&store));
                 store
             }
         };
         view.semantic = Some(store);
+    }
+    host.semantic.structure_errors = !errors.is_empty();
+    if let Some(data) = host.semantic.c_family.as_mut() {
+        data.errors = errors.into_iter().collect();
     }
     host.references
         .sort_by_key(|reference| (reference.start_byte, reference.end_byte));

@@ -19,4 +19,3 @@ _ @syntax.node
 (goto_statement) @metric.cognitive.labeled_jump
 (preproc_if condition: (_) @c.unevaluated)
 (preproc_elif condition: (_) @c.unevaluated)
-(primitive_type) @c.keyword
