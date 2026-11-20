@@ -1,4 +1,10 @@
+mod build;
+pub(crate) mod conditional;
 pub(crate) mod declarator;
+mod directives;
+mod flags;
+mod lex;
+pub(crate) mod project;
 
 use super::query::QueryAnalyzer;
 use super::syntax::{named_children, text};

@@ -42,11 +42,12 @@ fn main() -> std::process::ExitCode {
     use clap::Parser;
     let arguments = cli::Cli::parse();
     let selection = Selection::new(&arguments.metrics);
-    let report =
-        commands::run(arguments.command, selection).and_then(|result| match arguments.format {
+    let report = commands::run(arguments.command, selection, arguments.compile_commands).and_then(
+        |result| match arguments.format {
             cli::OutputFormat::Human => Ok(ui::human::render(&result, selection)),
             cli::OutputFormat::Json => ui::json::render(&result, selection),
-        });
+        },
+    );
     match report {
         Ok(report) => {
             use std::io::Write;

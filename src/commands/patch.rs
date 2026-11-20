@@ -19,6 +19,7 @@ pub(super) fn analyze(
     diff: &Path,
     single: bool,
     selection: Selection,
+    mut before_snapshot: snapshot::Snapshot,
 ) -> crate::Result<model::AnalysisResult> {
     let scope = if single || path.is_file() {
         "local"
@@ -32,18 +33,19 @@ pub(super) fn analyze(
     if single && parsed.is_empty() {
         return Err("The selected file has no supported language".into());
     }
+    analysis::c_family::prepare(&mut parsed, selection, &mut before_snapshot)?;
     let mut before: Vec<_> = parsed.iter().map(|file| file.facts.clone()).collect();
-    let before_snapshot = snapshot::Snapshot::default();
     resolver::resolve_with_snapshot(&mut before, selection, &before_snapshot);
     let before_structure = selection
         .includes(crate::metrics::selection::Metric::Structure)
         .then(|| crate::structure::analyze(&before, scope, &before_snapshot));
-    let after_snapshot = before_snapshot.clone();
+    let mut after_snapshot = before_snapshot.clone();
     let mut worker = analysis::Worker::new(selection)?;
     let changes: Vec<_> = patches
         .iter()
         .map(|patch| apply_file_patch(&mut worker, &mut parsed, &root, patch, &after_snapshot))
         .collect::<crate::Result<_>>()?;
+    analysis::c_family::prepare(&mut parsed, selection, &mut after_snapshot)?;
     let mut after: Vec<_> = parsed.into_iter().map(|file| file.facts).collect();
     after.sort_by(|left, right| left.path.cmp(&right.path));
     resolver::resolve_with_snapshot(&mut after, selection, &after_snapshot);

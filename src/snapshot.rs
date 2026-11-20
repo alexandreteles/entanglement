@@ -11,18 +11,37 @@ type Contents = std::result::Result<Option<Arc<[u8]>>, String>;
 
 #[derive(Default)]
 pub(crate) struct Snapshot {
+    pub compile_commands: Option<PathBuf>,
+    pub c_project: crate::languages::c_family::project::Project,
     files: Mutex<BTreeMap<PathBuf, Contents>>,
 }
 
 impl Clone for Snapshot {
     fn clone(&self) -> Self {
         Self {
+            compile_commands: self.compile_commands.clone(),
+            c_project: Default::default(),
             files: Mutex::new(self.files.lock().expect("snapshot lock").clone()),
         }
     }
 }
 
 impl Snapshot {
+    /// Keep the selected compilation database in both sides of a candidate.
+    pub(crate) fn new(database: Option<PathBuf>) -> Self {
+        let compile_commands = database.map(|path| {
+            if path.is_dir() {
+                path.join("compile_commands.json")
+            } else {
+                path
+            }
+        });
+        Self {
+            compile_commands,
+            ..Self::default()
+        }
+    }
+
     /// Observe each physical file once, including missing and unreadable files.
     pub(crate) fn read(&self, path: &Path) -> Contents {
         let key = crate::input::path_identity(path).map_err(|error| error.to_string())?;

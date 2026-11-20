@@ -14,6 +14,9 @@ impl Registry {
         let selected = self.loader.language_configuration_for_file_name(path)?;
         let selected = match selected {
             Some(selected) => Some(selected),
+            None if path.extension().is_some_and(|extension| extension == "inc") => {
+                return self.select_injection("c");
+            }
             None if path.is_file() => self.select_first_line(path)?,
             None => None,
         };

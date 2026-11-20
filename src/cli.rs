@@ -13,6 +13,10 @@ use crate::metrics::selection::Metric;
 #[derive(Debug, Parser)]
 #[command(name = "entanglement", version, about = "Analyze source code metrics")]
 pub struct Cli {
+    /// Read C and C++ compiler settings from this compilation database or directory.
+    #[arg(long, global = true, value_name = "PATH")]
+    pub compile_commands: Option<PathBuf>,
+
     /// Select report metrics (repeatable and comma-delimited; defaults to all).
     #[arg(
         long,

@@ -82,6 +82,22 @@ fn validate_patches(root: &Path, patches: &[input::FilePatch]) -> crate::Result<
 
 fn nearest_project_root<'a>(target: &'a Path, fallback: &'a Path) -> crate::Result<&'a Path> {
     let manifests = crate::languages::Registry::shared()?.project_manifests();
+    if crate::languages::c_family::project::is_source(target) {
+        for directory in target.ancestors().skip(1) {
+            if directory.join(".git").exists()
+                || directory.join("compile_commands.json").is_file()
+                || directory.join("build/compile_commands.json").is_file()
+            {
+                return Ok(directory);
+            }
+        }
+        return Ok(target
+            .ancestors()
+            .skip(1)
+            .filter(|dir| is_project_root(dir, &["CMakeLists.txt", "meson.build"]))
+            .last()
+            .unwrap_or(fallback));
+    }
     Ok(target
         .ancestors()
         .skip(1)
