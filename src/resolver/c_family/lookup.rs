@@ -28,33 +28,52 @@ impl<'a> Index<'a> {
         let Some(entries) = self.names.get(name.as_str()) else {
             return unknown;
         };
-        let paths = overload::owners(context.store, reference, call, data);
+        let eligible = |candidate: &&Entry<'_>| {
+            let local = candidate.unit == context.unit;
+            let visible = local
+                && ((candidate.position.1, candidate.position.2) <= (order, at)
+                    || candidate.symbol.member && candidate.def.module == reference.module)
+                || !local
+                    && candidate.symbol.exported
+                    && self.modules.visible(data, candidate.module, at);
+            visible
+                && (reference.kind == ReferenceKind::Type)
+                    == matches!(
+                        candidate.def.kind,
+                        DefinitionKind::Struct
+                            | DefinitionKind::Union
+                            | DefinitionKind::Enum
+                            | DefinitionKind::TypeAlias
+                    )
+        };
+        let candidates: Vec<_> = entries.iter().filter(eligible).collect();
         let mut selected = Vec::new();
-        for owner in paths {
-            selected = entries
-                .iter()
-                .filter(|candidate| {
-                    let local = candidate.unit == context.unit;
-                    let visible = local
-                        && ((candidate.position.1, candidate.position.2) <= (order, at)
-                            || candidate.symbol.member && candidate.def.module == reference.module)
-                        || !local
-                            && candidate.symbol.exported
-                            && self.modules.visible(data, candidate.module, at);
-                    visible
-                        && candidate.def.module.0 == owner
-                        && (reference.kind == ReferenceKind::Type)
-                            == matches!(
-                                candidate.def.kind,
-                                DefinitionKind::Struct
-                                    | DefinitionKind::Union
-                                    | DefinitionKind::Enum
-                                    | DefinitionKind::TypeAlias
-                            )
-                })
-                .collect();
+        for owner in overload::owners(context.store, reference, call, data) {
+            selected.extend(
+                candidates
+                    .iter()
+                    .copied()
+                    .filter(|candidate| candidate.def.module.0 == owner),
+            );
             if !selected.is_empty() {
                 break;
+            }
+        }
+        if let Some(call) = call {
+            let associated = overload::associated(data, reference, call);
+            selected.extend(
+                candidates
+                    .iter()
+                    .copied()
+                    .filter(|candidate| associated.contains(&candidate.def.module.0)),
+            );
+            if selected.is_empty() || call.constructor {
+                let constructor = overload::expand(data, &reference.path, at);
+                selected.extend(candidates.iter().copied().filter(|entry| {
+                    entry.def.module.0.ends_with(&constructor)
+                        && entry.symbol.member
+                        && entry.def.module.0.last() == Some(name)
+                }));
             }
         }
         let selected = overload::select(selected, call);

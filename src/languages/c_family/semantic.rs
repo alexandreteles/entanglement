@@ -8,9 +8,11 @@ use tree_sitter::Node;
 
 pub(crate) mod calls;
 mod declarations;
+mod expressions;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Data {
+    pub aliases: BTreeMap<String, (usize, usize, Vec<String>)>,
     pub classes: BTreeMap<Vec<String>, Vec<Vec<String>>>,
     pub errors: Vec<(usize, usize)>,
     pub symbols: BTreeMap<(usize, String), Symbol>,
@@ -37,6 +39,8 @@ pub(crate) struct Symbol {
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Invocation {
+    pub constructor: bool,
+    pub operator: bool,
     pub arguments: Vec<Option<String>>,
     pub receiver: Option<String>,
     pub indirect: bool,
@@ -73,6 +77,12 @@ pub(crate) fn capture(tree: &Tree, source: &[u8]) -> SemanticStore {
                 declarations::capture(node, source, &mut data, &mut store)
             }
             "call_expression" => calls::call(node, source, &mut data, &mut store),
+            "init_declarator"
+            | "binary_expression"
+            | "pointer_expression"
+            | "namespace_alias_definition" => {
+                expressions::special(node, source, &mut data, &mut store)
+            }
             "type_identifier" => calls::type_reference(node, source, &mut store),
             "qualified_identifier"
                 if node.parent().is_some_and(|parent| {

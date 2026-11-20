@@ -105,6 +105,9 @@ impl Projection {
             for (start, end, _, _) in data.using.iter_mut() {
                 self.range(start, end);
             }
+            for (start, end, _) in data.aliases.values_mut() {
+                self.range(start, end);
+            }
             for (start, end) in &mut data.errors {
                 self.range(start, end);
             }

@@ -209,12 +209,13 @@ fn add(
     name: String,
     owners: Vec<String>,
     kind: DefinitionKind,
-    symbol: Symbol,
+    mut symbol: Symbol,
     source: &[u8],
     data: &mut Data,
     store: &mut SemanticStore,
 ) {
     let local = scope(node);
+    symbol.exported |= exported(node);
     store.definitions.push(Definition {
         name: name.clone(),
         kind,

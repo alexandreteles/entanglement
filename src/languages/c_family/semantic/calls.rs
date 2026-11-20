@@ -19,7 +19,17 @@ pub(super) fn call(node: Node<'_>, source: &[u8], data: &mut Data, store: &mut S
         .child_by_field_name("name")
         .filter(|_| matches!(member.kind(), "template_method" | "template_function"))
         .unwrap_or(member);
-    let spelling = text(name, source);
+    let mut spelling = text(name, source);
+    let mut receiver = receiver;
+    if function.kind() == "identifier"
+        && let Some(local) = binding(store, &spelling, function.start_byte())
+        && local
+            .type_name
+            .as_deref()
+            .is_some_and(expressions::class_type)
+    {
+        receiver = Some(std::mem::replace(&mut spelling, "operator()".into()));
+    }
     let args = node.child_by_field_name("arguments");
     let arguments = args
         .into_iter()
@@ -39,6 +49,7 @@ pub(super) fn call(node: Node<'_>, source: &[u8], data: &mut Data, store: &mut S
         receiver,
         indirect,
         qualified,
+        ..Default::default()
     };
     let kind = if call.receiver.is_some() {
         ReferenceKind::Method
@@ -108,7 +119,7 @@ pub(super) fn reference(
     });
 }
 
-fn type_of(node: Node<'_>, source: &[u8], store: &SemanticStore) -> Option<String> {
+pub(super) fn type_of(node: Node<'_>, source: &[u8], store: &SemanticStore) -> Option<String> {
     let literal = text(node, source);
     match node.kind() {
         "true" | "false" => Some("bool".into()),

@@ -26,6 +26,7 @@ pub(super) fn owners(
             }
         }
     }
+    relative = expand(data, &relative, reference.start_byte);
     let mut paths: Vec<_> = (0..=reference.module.0.len())
         .rev()
         .map(|length| [&reference.module.0[..length], relative.as_slice()].concat())
@@ -56,12 +57,19 @@ pub(super) fn select<'a>(
     call: Option<&Invocation>,
 ) -> Vec<&'a Entry<'a>> {
     let Some(call) = call else { return entries };
+    let args = |entry: &Entry<'_>| {
+        if call.operator && entry.symbol.member {
+            &call.arguments[1..]
+        } else {
+            call.arguments.as_slice()
+        }
+    };
     let arity: Vec<_> = entries
         .into_iter()
         .filter(|entry| {
             entry.symbol.parameters.as_ref().is_some_and(|params| {
-                entry.symbol.minimum <= call.arguments.len()
-                    && (entry.symbol.variadic || call.arguments.len() <= params.len())
+                entry.symbol.minimum <= args(entry).len()
+                    && (entry.symbol.variadic || args(entry).len() <= params.len())
             })
         })
         .collect();
@@ -70,7 +78,7 @@ pub(super) fn select<'a>(
         .copied()
         .filter(|entry| {
             let params = entry.symbol.parameters.as_deref().unwrap_or_default();
-            call.arguments.iter().zip(params).all(|(arg, param)| {
+            args(entry).iter().zip(params).all(|(arg, param)| {
                 arg.as_deref().is_none_or(|arg| {
                     arg == param || param.trim_start_matches("const ").trim_end_matches('&') == arg
                 })
@@ -78,4 +86,47 @@ pub(super) fn select<'a>(
         })
         .collect();
     if exact.is_empty() { arity } else { exact }
+}
+
+pub(super) fn expand(data: &Data, path: &[String], at: usize) -> Vec<String> {
+    let mut path = path.to_vec();
+    let mut visited = BTreeSet::new();
+    while let Some(first) = path.first()
+        && visited.insert(first.clone())
+        && let Some((start, end, target)) = data.aliases.get(first)
+        && *start < at
+        && at < *end
+    {
+        path = [target.as_slice(), &path[1..]].concat();
+    }
+    path
+}
+
+pub(super) fn associated(
+    data: &Data,
+    reference: &Reference,
+    call: &Invocation,
+) -> BTreeSet<Vec<String>> {
+    let mut result = BTreeSet::new();
+    if call.qualified || call.receiver.is_some() {
+        return result;
+    }
+    for (index, argument) in call.arguments.iter().enumerate() {
+        let Some(ty) = argument else { continue };
+        let path: Vec<_> = ty
+            .trim_start_matches("const ")
+            .trim_end_matches(['&', '*', ' '])
+            .split("::")
+            .map(str::to_owned)
+            .collect();
+        let mut path = expand(data, &path, reference.start_byte);
+        if call.operator && index == 0 {
+            result.insert(path.clone());
+        }
+        if path.len() > 1 {
+            path.pop();
+            result.insert(path);
+        }
+    }
+    result
 }
