@@ -86,3 +86,20 @@ fn nested_namespace_macros_keep_each_scope_in_qualified_lookup() {
             )
     );
 }
+
+#[test]
+fn a_verified_function_header_survives_a_damaged_body() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("damaged.c");
+    write(&path, "int compute(int n) { int x = ; return n; }\n");
+    let result = report(&run("file", &path, None, Some("structure")));
+    let coverage = &result["structure"]["coverage"][0];
+    assert_eq!(coverage["status"], "partial");
+    assert!(
+        coverage["limitations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item == "parse_error")
+    );
+}
