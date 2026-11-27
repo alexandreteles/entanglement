@@ -32,10 +32,19 @@ fn qualified_lookup_preserves_the_global_and_nested_namespaces() {
     let path = project.path().join("names.cpp");
     write(
         &path,
-        "int f() {return 1;}\nnamespace a::b { int f(){return 2;} int inside(){ int f = 0; return ::f(); } }\nint use(){return a::b::f();}\n",
+        r#"int f() { return 1; }
+struct Item { Item() {} };
+namespace a::b {
+    struct Item { Item() {} };
+    int f() { return 2; }
+    int inside() { int f = 0; ::Item(); return ::f(); }
+}
+int use() { return a::b::f(); }
+"#,
     );
     let report = report(&run("file", &path, None, None));
-    let uses = references_to(only_file(&report), "f");
+    let file = only_file(&report);
+    let uses = references_to(file, "f");
     assert_eq!(uses.len(), 2);
     assert_eq!(
         uses[0]["resolution"]["symbols"]["module"],
@@ -44,5 +53,11 @@ fn qualified_lookup_preserves_the_global_and_nested_namespaces() {
     assert_eq!(
         uses[1]["resolution"]["symbols"]["module"],
         serde_json::json!(["a", "b"])
+    );
+    let constructors = references_to(file, "Item");
+    assert_eq!(constructors.len(), 1);
+    assert_eq!(
+        constructors[0]["resolution"]["symbols"]["module"],
+        serde_json::json!(["Item"])
     );
 }

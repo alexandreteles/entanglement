@@ -13,6 +13,7 @@ impl<'a> Index<'a> {
             return unknown;
         };
         let call = data.calls.get(&reference.start_byte);
+        let global = data.global_names.contains(&at);
         if active != Active::Yes {
             return unknown;
         }
@@ -31,7 +32,7 @@ impl<'a> Index<'a> {
         }
         if call.is_some_and(|call| call.receiver.is_none())
             && reference.path.len() == 1
-            && !data.global_names.contains(&at)
+            && !global
             && let Some(local) = binding(context.store, name, at)
         {
             let Some(start) = data.lambdas.get(&local.start_byte) else {
@@ -81,7 +82,7 @@ impl<'a> Index<'a> {
                 );
             visible
                 && type_space
-                && candidate.visible_constant(context, at, data.global_names.contains(&at))
+                && candidate.visible_constant(context, at, global)
                 && (reference.kind == ReferenceKind::Type)
                     == matches!(
                         candidate.def.kind,
@@ -132,9 +133,13 @@ impl<'a> Index<'a> {
             if selected.is_empty() || call.constructor {
                 let constructor = overload::expand(data, &reference.path, at);
                 selected.extend(candidates.iter().copied().filter(|entry| {
-                    entry.def.module.0.ends_with(&constructor)
-                        && entry.symbol.member
+                    entry.symbol.member
                         && entry.def.module.0.last() == Some(name)
+                        && if global {
+                            entry.def.module.0 == reference.path
+                        } else {
+                            entry.def.module.0.ends_with(&constructor)
+                        }
                 }));
             }
         }
