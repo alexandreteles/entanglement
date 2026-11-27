@@ -7,6 +7,9 @@ pub(super) fn owners(
     data: &Data,
 ) -> Vec<Vec<String>> {
     let explicit = &reference.path[..reference.path.len().saturating_sub(1)];
+    if data.global_names.contains(&reference.start_byte) {
+        return vec![explicit.to_vec()];
+    }
     let mut relative = explicit.to_vec();
     if let Some(receiver) = call.and_then(|call| call.receiver.as_deref()) {
         match receiver {

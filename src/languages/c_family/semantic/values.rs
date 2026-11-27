@@ -31,9 +31,14 @@ pub(super) fn capture(node: Node<'_>, source: &[u8], data: &mut Data, store: &mu
                 | "conditional_expression"
                 | "unary_expression"
         ) || parent.child_by_field_name("value") == Some(node)
-            && parent.kind() == "init_declarator";
+            && parent.kind() == "init_declarator"
+            || parent.kind() == "for_range_loop"
+                && parent.child_by_field_name("right") == Some(node);
         let name = text(node, source);
-        if !expression || calls::binding(store, &name, node.start_byte()).is_some() {
+        if !expression
+            || node.kind() == "identifier"
+                && calls::binding(store, &name, node.start_byte()).is_some()
+        {
             return;
         }
         (name, node)

@@ -16,6 +16,7 @@ pub(crate) struct Data {
     pub cpp: bool,
     pub lambdas: BTreeMap<usize, usize>,
     pub receivers: BTreeMap<usize, String>,
+    pub global_names: std::collections::BTreeSet<usize>,
     pub missing_build: bool,
     pub visibility: BTreeMap<usize, String>,
     pub virtual_bases: std::collections::BTreeSet<usize>,
@@ -81,6 +82,9 @@ pub(crate) fn capture(tree: &Tree, source: &[u8], cpp: bool) -> SemanticStore {
     }
     let mut pending = vec![tree.root_node()];
     while let Some(node) = pending.pop() {
+        if node.kind() == "qualified_identifier" && source[node.byte_range()].starts_with(b"::") {
+            data.global_names.insert(node.start_byte());
+        }
         if cpp
             && node.kind() == "call_expression"
             && node
@@ -100,6 +104,7 @@ pub(crate) fn capture(tree: &Tree, source: &[u8], cpp: bool) -> SemanticStore {
             | "enum_specifier"
             | "union_specifier"
             | "lambda_expression"
+            | "for_range_loop"
             | "parameter_declaration"
             | "optional_parameter_declaration" => {
                 declarations::capture(node, source, &mut data, &mut store)
@@ -142,6 +147,7 @@ pub(crate) fn capture(tree: &Tree, source: &[u8], cpp: bool) -> SemanticStore {
                     );
                 }
             }
+            "qualified_identifier" => values::capture(node, source, &mut data, &mut store),
             "using_declaration" => {
                 let written = text(node, source);
                 let value = written
@@ -219,6 +225,12 @@ fn scope(node: Node<'_>) -> Node<'_> {
             matches!(
                 parent.kind(),
                 "compound_statement"
+                    | "for_statement"
+                    | "for_range_loop"
+                    | "if_statement"
+                    | "while_statement"
+                    | "switch_statement"
+                    | "catch_clause"
                     | "function_definition"
                     | "lambda_expression"
                     | "field_declaration_list"

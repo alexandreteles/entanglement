@@ -24,6 +24,7 @@ impl<'a> Index<'a> {
         }
         if call.is_some_and(|call| call.receiver.is_none())
             && reference.path.len() == 1
+            && !data.global_names.contains(&at)
             && let Some(local) = binding(context.store, name, at)
         {
             let Some(start) = data.lambdas.get(&local.start_byte) else {

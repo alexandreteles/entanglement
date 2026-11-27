@@ -12,7 +12,13 @@ impl Index<'_> {
             .into_iter()
             .flatten()
             .filter(|entry| entry.unit == context.unit);
-        if reference.path.len() == 1 {
+        let global = context
+            .store
+            .semantic
+            .c_family
+            .as_ref()
+            .is_some_and(|data| data.global_names.contains(&reference.start_byte));
+        if reference.path.len() == 1 && !global {
             let fields: Vec<_> = entries
                 .clone()
                 .filter(|entry| entry.symbol.instance_field && entry.def.module.0 == *owner)
@@ -46,7 +52,11 @@ impl Index<'_> {
             let qualified = [&entry.def.module.0[..], std::slice::from_ref(name)].concat();
             entry.def.kind == DefinitionKind::Struct
                 && entry.symbol.body
-                && qualified.ends_with(&reference.path)
+                && if global {
+                    qualified == reference.path
+                } else {
+                    qualified.ends_with(&reference.path)
+                }
                 && allowed.contains(&qualified)
         });
         combine(types.map(initializer_target).collect())

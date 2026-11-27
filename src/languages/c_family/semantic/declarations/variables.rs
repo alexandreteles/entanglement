@@ -10,14 +10,34 @@ impl Records<'_> {
     ) {
         let source = self.source;
         let kind = node.kind();
-        let owner = scope(node);
+        let owner = if kind == "for_range_loop" {
+            node
+        } else {
+            scope(node)
+        };
         if kind.contains("parameter_declaration")
-            && !matches!(owner.kind(), "function_definition" | "lambda_expression")
+            && !matches!(
+                owner.kind(),
+                "function_definition" | "lambda_expression" | "catch_clause"
+            )
         {
             return;
         }
+        let type_name = if name
+            .parent()
+            .is_some_and(|parent| parent.kind() == "structured_binding_declarator")
+        {
+            None
+        } else {
+            variable_type(node, declarator, source)
+        };
+        let scope_start = if kind == "for_range_loop" {
+            node.child_by_field_name("body")
+                .map_or(node.end_byte(), |body| body.start_byte())
+        } else {
+            name.end_byte()
+        };
         let name = text(name, source);
-        let type_name = variable_type(node, declarator, source);
         if matches!(owner.kind(), "translation_unit" | "field_declaration_list")
             && !kind.contains("parameter_declaration")
         {
@@ -47,7 +67,7 @@ impl Records<'_> {
             name,
             start_byte: declarator.start_byte(),
             end_byte: declarator.end_byte(),
-            scope_start: owner.start_byte(),
+            scope_start,
             scope_end: owner.end_byte(),
             type_name,
             callable_reference: declarator.kind() == "function_declarator",

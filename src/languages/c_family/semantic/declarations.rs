@@ -44,7 +44,15 @@ pub(super) fn capture(node: Node<'_>, source: &[u8], data: &mut Data, store: &mu
                 {
                     records.function(node, range, declaration, callable);
                 } else if let Some(name) = declarator::identifier(declaration) {
-                    records.variable(node, range, declaration, name);
+                    if name.kind() == "structured_binding_declarator" {
+                        for binding in
+                            named_children(name).filter(|child| child.kind() == "identifier")
+                        {
+                            records.variable(node, binding, declaration, binding);
+                        }
+                    } else {
+                        records.variable(node, range, declaration, name);
+                    }
                 }
             }
         }

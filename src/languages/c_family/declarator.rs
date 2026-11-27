@@ -94,7 +94,7 @@ pub(crate) fn callable(mut node: Node<'_>, source: &[u8]) -> Option<Callable> {
 }
 
 pub(crate) fn owners(node: Node<'_>, source: &[u8]) -> Vec<String> {
-    let mut owners: Vec<_> = ancestors(node)
+    let parents: Vec<_> = ancestors(node)
         .skip(1)
         .filter(|parent| {
             matches!(
@@ -103,10 +103,22 @@ pub(crate) fn owners(node: Node<'_>, source: &[u8]) -> Vec<String> {
             )
         })
         .filter_map(|parent| parent.child_by_field_name("name"))
-        .map(|name| text(name, source))
         .collect();
-    owners.reverse();
+    let mut owners = Vec::new();
+    for name in parents.into_iter().rev() {
+        append_owner(name, source, &mut owners);
+    }
     owners
+}
+
+fn append_owner(name: Node<'_>, source: &[u8], owners: &mut Vec<String>) {
+    if name.kind() == "nested_namespace_specifier" {
+        for part in named_children(name).filter(|child| child.kind() != "comment") {
+            append_owner(part, source, owners);
+        }
+    } else {
+        owners.push(text(name, source));
+    }
 }
 
 pub(crate) fn identifier(mut node: Node<'_>) -> Option<Node<'_>> {
