@@ -3,6 +3,45 @@ use serde_json::json;
 use support::{file, function, patch, report, run, write};
 
 #[test]
+fn fallback_uses_cpp_syntax_in_damaged_headers() {
+    let project = tempfile::tempdir().unwrap();
+    let root = project.path();
+    write(
+        &root.join("queue.h"),
+        "typedef TAILQ_HEAD(queue, node, ) queue_t;\n",
+    );
+    write(
+        &root.join("view.h"),
+        "struct options { int depth; };\nbool prepare(const options &selected = {});\n",
+    );
+    let result = report(&run("repo", root, None, Some("nloc")));
+    assert_eq!(file(&result, "queue.h")["language"], "c");
+    assert_eq!(file(&result, "view.h")["language"], "cpp");
+}
+
+#[test]
+fn fallback_keeps_a_standalone_guarded_c_api_in_c() {
+    let project = tempfile::tempdir().unwrap();
+    let root = project.path();
+    let guarded = "#ifdef __cplusplus\nextern \"C\" {\n#endif\nint shared(int value);\n#ifdef __cplusplus\n} // extern \"C\"\n#endif\n";
+    for name in ["api.h", "api.hpp"] {
+        write(&root.join(name), guarded);
+    }
+    let result = report(&run("repo", root, None, Some("structure")));
+    assert_eq!(file(&result, "api.h")["language"], "c");
+    assert_eq!(file(&result, "api.hpp")["language"], "cpp");
+    for item in result["structure"]["coverage"].as_array().unwrap() {
+        assert!(
+            !item["limitations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|code| code == "parse_error")
+        );
+    }
+}
+
+#[test]
 fn header_units_use_the_virtual_include_search_path() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();

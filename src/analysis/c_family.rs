@@ -90,9 +90,9 @@ fn prefer_cpp(worker: &mut Worker, file: &ParsedFile) -> Result<bool> {
             .ok_or("Missing C-family grammar")?;
         worker.parse_tree(&choice, &file.facts.source, &[], None)
     };
-    let c = quality(tree(worker, "c")?.root_node());
-    let cpp = quality(tree(worker, "cpp")?.root_node());
-    Ok(cpp.0 < c.0 || cpp.0 == c.0 && cpp.1)
+    let (c_errors, _) = quality(tree(worker, "c")?.root_node());
+    let (cpp_errors, cpp_syntax) = quality(tree(worker, "cpp")?.root_node());
+    Ok(cpp_errors < c_errors || cpp_syntax && (c_errors > 0 || cpp_errors == 0))
 }
 
 fn quality(root: Node<'_>) -> (usize, bool) {
@@ -100,9 +100,7 @@ fn quality(root: Node<'_>) -> (usize, bool) {
     let mut cpp = false;
     let mut pending = vec![root];
     while let Some(node) = pending.pop() {
-        if node.is_error() || node.is_missing() {
-            errors += 1;
-        }
+        errors += usize::from(node.is_error() || node.is_missing());
         cpp |= matches!(
             node.kind(),
             "namespace_definition"
@@ -111,8 +109,12 @@ fn quality(root: Node<'_>) -> (usize, bool) {
                 | "access_specifier"
                 | "concept_definition"
                 | "lambda_expression"
+                | "alias_declaration"
+                | "qualified_identifier"
+                | "reference_declarator"
+                | "using_declaration"
         );
-        pending.extend((0..node.child_count()).filter_map(|index| node.child(index)));
+        pending.extend(node.children(&mut node.walk()));
     }
     (errors, cpp)
 }
