@@ -11,6 +11,7 @@ use crate::model::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
+mod enumerators;
 mod external;
 mod hierarchy;
 mod initializers;

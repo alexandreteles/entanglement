@@ -31,7 +31,7 @@ pub(super) fn capture(node: Node<'_>, source: &[u8], data: &mut Data, store: &mu
                 | "conditional_expression"
                 | "unary_expression"
         ) || parent.child_by_field_name("value") == Some(node)
-            && parent.kind() == "init_declarator"
+            && matches!(parent.kind(), "init_declarator" | "enumerator")
             || parent.kind() == "for_range_loop"
                 && parent.child_by_field_name("right") == Some(node);
         let name = text(node, source);

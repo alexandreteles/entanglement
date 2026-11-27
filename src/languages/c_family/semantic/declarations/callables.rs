@@ -91,9 +91,9 @@ impl Records<'_> {
             dynamic: modifiers("virtual")
                 || named_children(declarator).any(|child| child.kind() == "virtual_specifier"),
             member,
-            instance_field: false,
             exported: exported(node),
             result: node.child_by_field_name("type").map(|t| text(t, source)),
+            ..Default::default()
         };
         self.add(
             range,

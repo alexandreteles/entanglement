@@ -1,7 +1,8 @@
 use super::*;
 
 pub(super) fn compatible(left: &Entry<'_>, right: &Entry<'_>, entries: &[Entry<'_>]) -> bool {
-    if left.symbol.parameters != right.symbol.parameters
+    if right.def.kind == DefinitionKind::Constant
+        || left.symbol.parameters != right.symbol.parameters
         || left.symbol.qualifiers != right.symbol.qualifiers
         || left.module != right.module
     {

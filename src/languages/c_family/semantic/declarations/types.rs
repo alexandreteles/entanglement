@@ -1,6 +1,32 @@
 use super::*;
 
 impl Records<'_> {
+    pub(super) fn enumerator(&mut self, node: Node<'_>) {
+        let Some(name) = node.child_by_field_name("name") else {
+            return;
+        };
+        let enumeration = ancestors(node).find(|parent| parent.kind() == "enum_specifier");
+        let qualifier = enumeration
+            .filter(|parent| self.data.cpp && !declarator::scoped_enum(*parent))
+            .and_then(|parent| parent.child_by_field_name("name"))
+            .map(|name| text(name, self.source));
+        self.add(
+            node,
+            text(name, self.source),
+            declarator::owners(node, self.source),
+            DefinitionKind::Constant,
+            Symbol {
+                body: true,
+                internal: !matches!(
+                    scope(node).kind(),
+                    "translation_unit" | "field_declaration_list"
+                ),
+                enum_qualifier: qualifier,
+                ..Default::default()
+            },
+        );
+    }
+
     pub(super) fn aggregate(&mut self, node: Node<'_>) {
         let source = self.source;
         let kind = node.kind();

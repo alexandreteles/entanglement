@@ -97,10 +97,14 @@ pub(crate) fn owners(node: Node<'_>, source: &[u8]) -> Vec<String> {
     let parents: Vec<_> = ancestors(node)
         .skip(1)
         .filter(|parent| {
-            matches!(
-                parent.kind(),
-                "namespace_definition" | "class_specifier" | "struct_specifier" | "union_specifier"
-            )
+            scoped_enum(*parent)
+                || matches!(
+                    parent.kind(),
+                    "namespace_definition"
+                        | "class_specifier"
+                        | "struct_specifier"
+                        | "union_specifier"
+                )
         })
         .filter_map(|parent| parent.child_by_field_name("name"))
         .collect();
@@ -109,6 +113,13 @@ pub(crate) fn owners(node: Node<'_>, source: &[u8]) -> Vec<String> {
         append_owner(name, source, &mut owners);
     }
     owners
+}
+
+pub(super) fn scoped_enum(node: Node<'_>) -> bool {
+    node.kind() == "enum_specifier"
+        && node
+            .children(&mut node.walk())
+            .any(|child| matches!(child.kind(), "class" | "struct"))
 }
 
 fn append_owner(name: Node<'_>, source: &[u8], owners: &mut Vec<String>) {

@@ -74,6 +74,7 @@ impl<'a> Index<'a> {
                 );
             visible
                 && type_space
+                && candidate.visible_constant(context, at, data.global_names.contains(&at))
                 && (reference.kind == ReferenceKind::Type)
                     == matches!(
                         candidate.def.kind,
@@ -95,7 +96,7 @@ impl<'a> Index<'a> {
                     candidates
                         .iter()
                         .copied()
-                        .filter(|candidate| candidate.def.module.0 == class),
+                        .filter(|candidate| candidate.in_scope(&class)),
                 );
                 if !selected.is_empty() {
                     break;
@@ -104,6 +105,14 @@ impl<'a> Index<'a> {
             if !selected.is_empty() {
                 break;
             }
+        }
+        if let Some(start) = selected
+            .iter()
+            .filter(|entry| entry.local_constant())
+            .map(|entry| entry.def.scope_start)
+            .max()
+        {
+            selected.retain(|entry| entry.local_constant() && entry.def.scope_start == start);
         }
         if let Some(call) = call {
             let associated = overload::associated(data, reference, call);
@@ -136,7 +145,9 @@ impl<'a> Index<'a> {
                 answers.push(unknown.clone());
                 continue;
             }
-            if reference.kind == ReferenceKind::Type {
+            if entry.def.kind == DefinitionKind::Constant {
+                answers.push((Resolution::Exact(entry.id.clone()), CallDispatch::Unknown));
+            } else if reference.kind == ReferenceKind::Type {
                 let complete = entries.iter().filter(|candidate| {
                     candidate.unit == entry.unit
                         && candidate.def.module == entry.def.module

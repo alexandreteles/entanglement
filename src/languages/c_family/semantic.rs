@@ -44,6 +44,7 @@ pub(crate) struct Symbol {
     pub dynamic: bool,
     pub member: bool,
     pub instance_field: bool,
+    pub enum_qualifier: Option<String>,
     pub exported: bool,
     pub result: Option<String>,
 }
@@ -102,6 +103,7 @@ pub(crate) fn capture(tree: &Tree, source: &[u8], cpp: bool) -> SemanticStore {
             | "struct_specifier"
             | "class_specifier"
             | "enum_specifier"
+            | "enumerator"
             | "union_specifier"
             | "lambda_expression"
             | "for_range_loop"

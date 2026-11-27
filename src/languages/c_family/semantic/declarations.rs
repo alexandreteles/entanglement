@@ -21,6 +21,7 @@ pub(super) fn capture(node: Node<'_>, source: &[u8], data: &mut Data, store: &mu
             records.aggregate(node)
         }
         "lambda_expression" => records.lambda(node),
+        "enumerator" => records.enumerator(node),
         "alias_declaration" => {
             if let Some(name) = node.child_by_field_name("name") {
                 records.alias(node, name);
