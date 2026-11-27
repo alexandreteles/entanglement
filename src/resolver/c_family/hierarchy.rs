@@ -1,6 +1,8 @@
 use super::*;
 
-pub(super) type Classes = BTreeMap<(usize, Vec<String>), BTreeSet<Vec<String>>>;
+use crate::languages::c_family::semantic::Base;
+
+pub(super) type Classes = BTreeMap<(usize, Vec<String>), BTreeSet<Base>>;
 
 pub(super) fn classes(contexts: &[Vec<Context<'_>>]) -> Classes {
     let mut classes: Classes = BTreeMap::new();
@@ -18,19 +20,25 @@ pub(super) fn classes(contexts: &[Vec<Context<'_>>]) -> Classes {
 }
 
 impl Index<'_> {
+    pub(super) fn base_path(&self, unit: usize, owner: &[String], base: &Base) -> Vec<String> {
+        if !base.global {
+            for depth in (0..owner.len()).rev() {
+                let path = [&owner[..depth], &base.name].concat();
+                if self.classes.contains_key(&(unit, path.clone())) {
+                    return path;
+                }
+            }
+        }
+        base.name.clone()
+    }
+
     pub(super) fn single_bases(&self, unit: usize, owner: Vec<String>) -> Vec<Vec<String>> {
         let mut classes = vec![owner];
         while let Some(current) = classes.last()
             && let Some(bases) = self.classes.get(&(unit, current.clone()))
             && bases.len() == 1
         {
-            let base = bases.first().unwrap();
-            let relative = [&current[..current.len().saturating_sub(1)], base.as_slice()].concat();
-            let next = if self.classes.contains_key(&(unit, relative.clone())) {
-                relative
-            } else {
-                base.clone()
-            };
+            let next = self.base_path(unit, current, bases.first().unwrap());
             if classes.contains(&next) {
                 break;
             }
@@ -52,13 +60,7 @@ impl Index<'_> {
             }
             if let Some(bases) = self.classes.get(&(entry.unit, owner.clone())) {
                 for base in bases {
-                    let outer = &owner[..owner.len().saturating_sub(1)];
-                    let relative = [outer, base.as_slice()].concat();
-                    let base = if self.classes.contains_key(&(entry.unit, relative.clone())) {
-                        relative
-                    } else {
-                        base.clone()
-                    };
+                    let base = self.base_path(entry.unit, &owner, base);
                     if !self.classes.contains_key(&(entry.unit, base.clone())) {
                         return true;
                     }

@@ -32,6 +32,7 @@ impl Records<'_> {
                 body: !storage("extern") || declarator.kind() == "init_declarator",
                 internal: !member && storage("static"),
                 member,
+                instance_field: member && !storage("static"),
                 ..Default::default()
             };
             let kind = if member {

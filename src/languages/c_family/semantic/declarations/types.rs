@@ -29,9 +29,7 @@ impl Records<'_> {
                 class.push(text(name, source));
                 let bases = named_children(node)
                     .filter(|child| child.kind() == "base_class_clause")
-                    .flat_map(named_children)
-                    .filter(|child| !matches!(child.kind(), "access_specifier" | "comment"))
-                    .map(|base| path(&text(base, source)))
+                    .flat_map(|clause| bases(clause, source))
                     .collect();
                 self.data.classes.insert(class, bases);
             }
@@ -64,4 +62,25 @@ impl Records<'_> {
             },
         );
     }
+}
+
+fn bases(clause: Node<'_>, source: &[u8]) -> Vec<Base> {
+    let mut bases = Vec::new();
+    let mut virtual_base = false;
+    for child in clause.children(&mut clause.walk()) {
+        match child.kind() {
+            "virtual" => virtual_base = true,
+            "," => virtual_base = false,
+            "qualified_identifier" | "type_identifier" | "template_type" => {
+                let spelling = text(child, source);
+                bases.push(Base {
+                    name: path(&spelling),
+                    global: spelling.starts_with("::"),
+                    virtual_base,
+                });
+            }
+            _ => {}
+        }
+    }
+    bases
 }

@@ -45,6 +45,21 @@ pub fn file<'a>(report: &'a Value, suffix: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("missing file {suffix}"))
 }
 
+/// Return the references to a name in source order, including qualified uses.
+pub fn references_to<'a>(file: &'a Value, name: &str) -> Vec<&'a Value> {
+    file["resolution"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|item| {
+            item["path"]
+                .as_array()
+                .and_then(|path| path.last())
+                .is_some_and(|part| part == name)
+        })
+        .collect()
+}
+
 /// Run a JSON command with optional diff and metric selection.
 pub fn run(mode: &str, path: &Path, diff: Option<&Path>, metrics: Option<&str>) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_entanglement"));

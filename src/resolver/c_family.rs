@@ -13,6 +13,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 mod external;
 mod hierarchy;
+mod initializers;
+mod linkage;
 mod lookup;
 pub(crate) mod modules;
 mod overload;

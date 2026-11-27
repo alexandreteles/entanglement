@@ -4,12 +4,8 @@ fn target(
     fact: &FileFacts,
     reference: &Reference,
     symbols: &SymbolTargets,
+    resolved: Option<&crate::model::ReferenceAnalysis>,
 ) -> (ResolutionStatus, String, Option<String>) {
-    let resolved = fact.analysis.resolution.iter().find(|item| {
-        item.start_byte == reference.start_byte
-            && item.end_byte == reference.end_byte
-            && item.path == reference.path
-    });
     let written = reference.path.join("::");
     if fact.resolution_family == crate::languages::ResolutionFamily::CFamily
         && matches!(reference.kind, ReferenceKind::Call | ReferenceKind::Method)
@@ -39,7 +35,12 @@ pub(super) fn reference_relationships(
     reference: &Reference,
 ) -> Vec<Relationship> {
     let source_module = module_id(&fact.analysis.path);
-    let (resolution, target_module, target_type) = target(fact, reference, symbols);
+    let resolved = fact.analysis.resolution.iter().find(|item| {
+        item.start_byte == reference.start_byte
+            && item.end_byte == reference.end_byte
+            && item.path == reference.path
+    });
+    let (resolution, target_module, target_type) = target(fact, reference, symbols, resolved);
     let owner = store
         .semantic
         .structure
@@ -61,6 +62,9 @@ pub(super) fn reference_relationships(
         .unwrap_or(match reference.kind {
             ReferenceKind::Call | ReferenceKind::Method => RelationshipKind::Call,
             ReferenceKind::Type => RelationshipKind::Type,
+            ReferenceKind::MemberInitializer if resolved.is_some_and(|item| {
+                matches!(&item.resolution, Resolution::Exact(symbol) if symbol.kind == crate::model::DefinitionKind::Other)
+            }) => RelationshipKind::Field,
             ReferenceKind::Qualified | ReferenceKind::Value if reference.access.is_some() => {
                 RelationshipKind::Field
             }

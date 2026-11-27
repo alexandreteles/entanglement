@@ -21,7 +21,7 @@ pub(crate) struct Data {
     pub virtual_bases: std::collections::BTreeSet<usize>,
     pub tags: BTreeMap<usize, DefinitionKind>,
     pub aliases: BTreeMap<String, (usize, usize, Vec<String>)>,
-    pub classes: BTreeMap<Vec<String>, Vec<Vec<String>>>,
+    pub classes: BTreeMap<Vec<String>, Vec<Base>>,
     pub errors: Vec<(usize, usize)>,
     pub symbols: BTreeMap<(usize, String), Symbol>,
     pub calls: BTreeMap<usize, Invocation>,
@@ -42,8 +42,16 @@ pub(crate) struct Symbol {
     pub c_linkage: bool,
     pub dynamic: bool,
     pub member: bool,
+    pub instance_field: bool,
     pub exported: bool,
     pub result: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct Base {
+    pub name: Vec<String>,
+    pub global: bool,
+    pub virtual_base: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -97,6 +105,17 @@ pub(crate) fn capture(tree: &Tree, source: &[u8], cpp: bool) -> SemanticStore {
                 declarations::capture(node, source, &mut data, &mut store)
             }
             "call_expression" => calls::call(node, source, &mut data, &mut store),
+            "field_initializer" => {
+                if let Some(target) = named_children(node).find(|child| child.kind() != "comment") {
+                    calls::reference(
+                        target,
+                        path(&text(target, source)),
+                        ReferenceKind::MemberInitializer,
+                        source,
+                        &mut store,
+                    );
+                }
+            }
             "identifier" | "field_expression" => {
                 values::capture(node, source, &mut data, &mut store)
             }

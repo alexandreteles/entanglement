@@ -528,4 +528,6 @@ pub(crate) enum ReferenceKind {
     Value,
     /// A source reference to a callable, without invoking or reading its body.
     CallableReference,
+    /// The member or base named in a C++ constructor initializer.
+    MemberInitializer,
 }
