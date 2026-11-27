@@ -128,19 +128,25 @@ fn context_coverage(fact: &FileFacts, store: &SemanticStore) -> Coverage {
     }
     let intact = !store.semantic.structure_errors
         || store.semantic.c_family.as_ref().is_some_and(|data| {
-            store.definitions.iter().any(|def| {
-                let header_end = store
-                    .semantic
-                    .structure
-                    .iter()
-                    .filter(|record| record.start == def.start_byte && record.end == def.end_byte)
-                    .filter_map(|record| record.body_start)
-                    .min()
-                    .unwrap_or(def.end_byte);
-                data.errors.iter().all(|(start, end)| {
-                    header_end <= *start || (*end <= def.start_byte && *start < def.start_byte)
+            store
+                .definitions
+                .iter()
+                .filter(|def| def.kind != crate::model::DefinitionKind::Macro)
+                .any(|def| {
+                    let header_end = store
+                        .semantic
+                        .structure
+                        .iter()
+                        .filter(|record| {
+                            record.start == def.start_byte && record.end == def.end_byte
+                        })
+                        .filter_map(|record| record.body_start)
+                        .min()
+                        .unwrap_or(def.end_byte);
+                    data.errors.iter().all(|(start, end)| {
+                        header_end <= *start || (*end <= def.start_byte && *start < def.start_byte)
+                    })
                 })
-            })
         });
     let status = if store.semantic.structure_errors && !intact {
         CoverageStatus::Unavailable

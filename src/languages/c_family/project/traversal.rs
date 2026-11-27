@@ -28,6 +28,7 @@ pub(super) fn unit(
         inventory,
         predefined: macros.clone(),
         env: Environment { macros, configured },
+        origins: BTreeMap::new(),
         stack: BTreeSet::new(),
         once: BTreeSet::new(),
         files: BTreeMap::new(),
@@ -58,6 +59,7 @@ struct Traversal<'a, 's> {
     settings: &'a Settings,
     inventory: &'a mut Inventory<'s>,
     env: Environment,
+    origins: BTreeMap<String, Arc<MacroSite>>,
     predefined: BTreeMap<String, Macro>,
     stack: BTreeSet<PathBuf>,
     once: BTreeSet<PathBuf>,
@@ -66,47 +68,28 @@ struct Traversal<'a, 's> {
 }
 
 impl Traversal<'_, '_> {
-    fn region(&mut self, path: &Path, source: &Source, range: Range<usize>, active: Active) {
+    fn region(
+        &mut self,
+        path: &Path,
+        source: &Source,
+        range: Range<usize>,
+        active: Active,
+        revisited: bool,
+    ) {
         if range.is_empty() {
             return;
         }
         let file = self.files.get_mut(path).unwrap();
+        if active != Active::No {
+            let repeated = revisited && file.position(range.start).is_some();
+            file.record_uses(&source.words, &range, &self.env, &self.origins, repeated);
+        }
         self.order += 1;
         file.regions.push(Region {
-            range: range.clone(),
+            range,
             active,
             order: self.order,
         });
-        if active == Active::No {
-            return;
-        }
-        let first = source
-            .words
-            .partition_point(|(word, _)| word.start < range.start);
-        for (span, name) in source.words[first..]
-            .iter()
-            .take_while(|(word, _)| word.start < range.end)
-        {
-            if self
-                .env
-                .macros
-                .get(name)
-                .is_some_and(|value| !matches!(value, Macro::Undefined))
-            {
-                let replacement = Replacement {
-                    range: span.clone(),
-                    text: view::replacement(name, &self.env),
-                };
-                file.uses
-                    .entry(span.start)
-                    .and_modify(|old| {
-                        if *old != replacement {
-                            old.text = None
-                        }
-                    })
-                    .or_insert(replacement);
-            }
-        }
     }
 
     fn file(&mut self, path: &Path, active: Active) {
@@ -114,6 +97,7 @@ impl Traversal<'_, '_> {
             return;
         }
         let source = Arc::clone(&self.inventory.sources[path]);
+        let revisited = self.files.contains_key(path);
         self.files.entry(path.into()).or_default();
         if let Some(guard) = &source.guard {
             self.env
@@ -125,7 +109,13 @@ impl Traversal<'_, '_> {
         let mut branches = Vec::new();
         let mut start = 0;
         for directive in &source.directives {
-            self.region(path, &source, start..directive.range.start, state);
+            self.region(
+                path,
+                &source,
+                start..directive.range.start,
+                state,
+                revisited,
+            );
             start = directive.range.end;
             let name = directive.name.as_str();
             match name {
@@ -154,7 +144,7 @@ impl Traversal<'_, '_> {
                 _ => {}
             }
         }
-        self.region(path, &source, start..source.length, state);
+        self.region(path, &source, start..source.length, state, revisited);
         self.stack.remove(path);
     }
 
@@ -187,7 +177,9 @@ impl Traversal<'_, '_> {
                         let caller =
                             std::mem::replace(&mut self.env.macros, self.predefined.clone());
                         let once = std::mem::take(&mut self.once);
+                        let origins = std::mem::take(&mut self.origins);
                         self.file(&target, state);
+                        self.origins = origins;
                         self.once = once;
                         self.env.macros = caller;
                     }
@@ -207,7 +199,25 @@ impl Traversal<'_, '_> {
                 } else {
                     Macro::Defined(value[end..].trim().to_owned())
                 };
-                self.env.macros.insert(value[..end].into(), definition);
+                let name = &value[..end];
+                if directive.name == "define" {
+                    self.files.get_mut(path).unwrap().definitions.insert(
+                        directive.range.start,
+                        (name.to_owned(), directive.range.end),
+                    );
+                }
+                if state == Active::Yes && directive.name == "define" {
+                    self.origins.insert(
+                        name.to_owned(),
+                        Arc::new(MacroSite {
+                            file: path.to_owned(),
+                            start: directive.range.start,
+                        }),
+                    );
+                } else {
+                    self.origins.remove(name);
+                }
+                self.env.macros.insert(name.into(), definition);
             }
             _ => {}
         }

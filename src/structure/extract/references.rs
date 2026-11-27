@@ -34,6 +34,9 @@ pub(super) fn reference_relationships(
     symbols: &SymbolTargets,
     reference: &Reference,
 ) -> Vec<Relationship> {
+    if reference.kind == ReferenceKind::Macro {
+        return Vec::new();
+    }
     let source_module = module_id(&fact.analysis.path);
     let resolved = fact.analysis.resolution.iter().find(|item| {
         item.start_byte == reference.start_byte

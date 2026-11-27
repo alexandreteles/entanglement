@@ -530,4 +530,6 @@ pub(crate) enum ReferenceKind {
     CallableReference,
     /// The member or base named in a C++ constructor initializer.
     MemberInitializer,
+    /// A source use of a C-family preprocessor macro.
+    Macro,
 }

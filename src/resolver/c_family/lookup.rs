@@ -13,10 +13,17 @@ impl<'a> Index<'a> {
             return unknown;
         };
         let call = data.calls.get(&reference.start_byte);
-        if active != Active::Yes
-            || context.view.is_some_and(|view| view.uses.contains_key(&at))
-            || call.is_some_and(|call| call.indirect)
-        {
+        if active != Active::Yes {
+            return unknown;
+        }
+        if let Some(usage) = context.view.and_then(|view| view.uses.get(&at)) {
+            return if reference.kind == ReferenceKind::Macro {
+                self.macro_reference(name, usage)
+            } else {
+                unknown
+            };
+        }
+        if reference.kind == ReferenceKind::Macro || call.is_some_and(|call| call.indirect) {
             return unknown;
         }
         if reference.kind == ReferenceKind::MemberInitializer {
@@ -184,6 +191,30 @@ impl<'a> Index<'a> {
             }
         }
         combine(answers)
+    }
+
+    fn macro_reference(
+        &self,
+        name: &str,
+        usage: &crate::languages::c_family::project::Replacement,
+    ) -> Outcome {
+        let targets = usage.origins.iter().map(|origin| {
+            let resolution = origin.as_ref().map_or(Resolution::Unresolved, |site| {
+                let file = self.paths.get(site.file.as_path()).map_or_else(
+                    || site.file.to_string_lossy().into_owned(),
+                    |file| (*file).to_owned(),
+                );
+                Resolution::Exact(SymbolId {
+                    file,
+                    module: Default::default(),
+                    name: name.to_owned(),
+                    kind: DefinitionKind::Macro,
+                    start_byte: site.start,
+                })
+            });
+            (resolution, CallDispatch::Unknown)
+        });
+        combine(targets.collect())
     }
 }
 

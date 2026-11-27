@@ -38,10 +38,11 @@ struct Context<'a> {
     unit: usize,
     view: Option<&'a FileView>,
     store: &'a SemanticStore,
-    references: BTreeSet<(usize, &'a [String])>,
+    references: BTreeMap<(usize, usize, &'a [String]), &'a Reference>,
 }
 
 struct Index<'a> {
+    paths: BTreeMap<&'a std::path::Path, &'a str>,
     headers: Vec<BTreeSet<&'a str>>,
     classes: hierarchy::Classes,
     names: BTreeMap<&'a str, Vec<Entry<'a>>>,
@@ -112,7 +113,7 @@ impl<'a> Index<'a> {
                 let references = store
                     .references
                     .iter()
-                    .map(|item| (item.start_byte, item.path.as_slice()))
+                    .map(|item| ((item.start_byte, item.end_byte, item.path.as_slice()), item))
                     .collect();
                 indexed.push(Context {
                     file: &file.analysis.path,
@@ -132,6 +133,10 @@ impl<'a> Index<'a> {
         let modules = modules::Modules::new(&contexts);
         let classes = hierarchy::classes(&contexts);
         Self {
+            paths: files
+                .iter()
+                .map(|file| (file.target.as_path(), file.analysis.path.as_str()))
+                .collect(),
             headers: external::headers(project),
             classes,
             names,
@@ -168,11 +173,12 @@ pub(super) fn resolve(
                                 continue;
                             }
                             outcomes.push(
-                                if context
-                                    .references
-                                    .contains(&(reference.start_byte, reference.path.as_slice()))
-                                {
-                                    index.lookup(context, reference)
+                                if let Some(written) = context.references.get(&(
+                                    reference.start_byte,
+                                    reference.end_byte,
+                                    reference.path.as_slice(),
+                                )) {
+                                    index.lookup(context, written)
                                 } else {
                                     (Resolution::Unresolved, CallDispatch::Unknown)
                                 },

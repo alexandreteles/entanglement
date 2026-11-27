@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 mod includes;
+mod macros;
 pub(crate) mod projection;
 mod traversal;
 pub(crate) mod view;
@@ -33,6 +34,7 @@ pub(crate) struct Unit {
 pub(crate) struct FileView {
     pub regions: Vec<Region>,
     pub uses: BTreeMap<usize, Replacement>,
+    pub definitions: BTreeMap<usize, (String, usize)>,
     pub includes: BTreeMap<usize, Include>,
     pub semantic: Option<Arc<crate::model::SemanticStore>>,
 }
@@ -47,6 +49,13 @@ pub(crate) struct Region {
 pub(crate) struct Replacement {
     pub range: Range<usize>,
     pub text: Option<String>,
+    pub origins: Vec<Option<Arc<MacroSite>>>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct MacroSite {
+    pub file: PathBuf,
+    pub start: usize,
 }
 
 pub(crate) struct Include {
@@ -72,7 +81,7 @@ struct Source {
     directives: Vec<Directive>,
     guard: Option<String>,
     length: usize,
-    words: Vec<(Range<usize>, String)>,
+    words: Vec<macros::Word>,
 }
 
 impl Source {
@@ -122,15 +131,7 @@ impl Source {
             }
             _ => None,
         };
-        let words = super::lex::tokens(bytes)
-            .filter(|token| token.kind == super::lex::Kind::Word)
-            .map(|token| {
-                (
-                    token.range.clone(),
-                    String::from_utf8_lossy(&bytes[token.range]).into_owned(),
-                )
-            })
-            .collect();
+        let words = macros::words(bytes);
         Self {
             directives,
             guard,

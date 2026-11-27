@@ -1,9 +1,11 @@
 use super::{ParsedFile, Worker};
 use crate::languages::c_family::{
-    project::{Project, view::preprocess},
+    project::{FileView, Project, view::preprocess},
     semantic,
 };
-use crate::model::SemanticStore;
+use crate::model::{
+    Definition, DefinitionKind, ModulePath, Reference, ReferenceKind, SemanticStore,
+};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -45,6 +47,8 @@ pub(super) fn collect(
             cpp,
             *blake3::hash(bytes).as_bytes(),
             projection.mapping_key(),
+            view.definitions.keys().copied().collect::<Vec<_>>(),
+            view.uses.keys().copied().collect::<Vec<_>>(),
         );
         let store = match cache.entry(key) {
             std::collections::btree_map::Entry::Occupied(entry) => Arc::clone(entry.get()),
@@ -59,6 +63,7 @@ pub(super) fn collect(
                     crate::structure::extract::capture(&tree, bytes, &choice.id, &mut captured);
                 }
                 projection.semantic(&mut captured);
+                capture_macros(view, source, &mut captured);
                 if let Some(data) = captured.semantic.c_family.as_ref() {
                     errors.extend(data.errors.iter().copied());
                     if let Some(physical) = host.semantic.c_family.as_mut() {
@@ -121,4 +126,51 @@ fn merge(
             .filter(|item| references.insert((item.start_byte, item.end_byte, item.path.clone())))
             .cloned(),
     );
+}
+
+/// Record written macro uses after mapping parser offsets back to the source.
+fn capture_macros(view: &FileView, source: &[u8], store: &mut SemanticStore) {
+    store.definitions.extend(
+        view.definitions
+            .iter()
+            .map(|(&start, (name, end))| Definition {
+                name: name.clone(),
+                kind: DefinitionKind::Macro,
+                module: ModulePath::default(),
+                start_byte: start,
+                end_byte: *end,
+                scope_start: 0,
+                scope_end: source.len(),
+                is_public: true,
+                inline_module: false,
+                external_module: false,
+                context_id: 0,
+                declaration: None,
+            }),
+    );
+    if view.uses.is_empty() {
+        return;
+    }
+    store.references.retain(|item| {
+        !view.uses.get(&item.start_byte).is_some_and(|usage| {
+            usage.range.end == item.end_byte
+                && item.path.len() == 1
+                && item.path[0].as_bytes() == &source[usage.range.clone()]
+        })
+    });
+    store
+        .references
+        .extend(view.uses.values().map(|usage| Reference {
+            path: vec![String::from_utf8_lossy(&source[usage.range.clone()]).into_owned()],
+            module: ModulePath::default(),
+            kind: ReferenceKind::Macro,
+            start_byte: usage.range.start,
+            end_byte: usage.range.end,
+            scope_start: 0,
+            scope_end: source.len(),
+            call_owner: None,
+            execution_owner: None,
+            access: None,
+            context_id: 0,
+        }));
 }

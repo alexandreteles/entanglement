@@ -18,7 +18,10 @@ fn replacements<'a>(views: impl Iterator<Item = &'a FileView>) -> Vec<Replacemen
         if !result.contains_key(&item.range.start)
             && views.iter().all(|view| {
                 view.position(item.range.start).is_none()
-                    || view.uses.get(&item.range.start) == Some(item)
+                    || view
+                        .uses
+                        .get(&item.range.start)
+                        .is_some_and(|other| other.text == item.text)
             })
         {
             result.insert(item.range.start, item.clone());
