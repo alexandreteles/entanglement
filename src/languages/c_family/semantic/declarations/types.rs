@@ -10,6 +10,7 @@ impl Records<'_> {
             .filter(|parent| self.data.cpp && !declarator::scoped_enum(*parent))
             .and_then(|parent| parent.child_by_field_name("name"))
             .map(|name| text(name, self.source));
+        let scope = scope(node).kind();
         self.add(
             node,
             text(name, self.source),
@@ -17,10 +18,8 @@ impl Records<'_> {
             DefinitionKind::Constant,
             Symbol {
                 body: true,
-                internal: !matches!(
-                    scope(node).kind(),
-                    "translation_unit" | "field_declaration_list"
-                ),
+                internal: !matches!(scope, "translation_unit" | "field_declaration_list"),
+                member: self.data.cpp && scope == "field_declaration_list",
                 enum_qualifier: qualifier,
                 ..Default::default()
             },

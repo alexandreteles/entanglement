@@ -71,7 +71,7 @@ impl<'a> Index<'a> {
             let local = candidate.unit == context.unit;
             let visible = local
                 && ((candidate.position.1, candidate.position.2) <= (order, at)
-                    || candidate.symbol.member && candidate.def.module == reference.module)
+                    || candidate.visible_member(context, reference))
                 || !local
                     && candidate.symbol.exported
                     && self.modules.visible(data, candidate.module, at);

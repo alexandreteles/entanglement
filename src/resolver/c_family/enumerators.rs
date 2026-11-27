@@ -1,6 +1,19 @@
 use super::*;
 
 impl Entry<'_> {
+    pub(super) fn visible_member(&self, context: &Context<'_>, reference: &Reference) -> bool {
+        self.symbol.member
+            && match self.def.kind {
+                DefinitionKind::Constant => {
+                    self.id.file == context.file
+                        && reference.call_owner.is_some_and(|start| {
+                            (self.def.scope_start..self.def.scope_end).contains(&start)
+                        })
+                }
+                _ => self.def.module == reference.module,
+            }
+    }
+
     pub(super) fn local_constant(&self) -> bool {
         self.def.kind == DefinitionKind::Constant && self.symbol.internal
     }

@@ -280,7 +280,7 @@ pub(crate) fn visibility(node: Node<'_>, source: &[u8]) -> &'static str {
 fn owner_path(node: Node<'_>, source: &[u8]) -> Vec<String> {
     ancestors(node)
         .skip(1)
-        .find(|parent| parent.kind() == "function_definition")
+        .find(|parent| parent.kind() == "function_definition" || declarator::scoped_enum(*parent))
         .and_then(|parent| parent.child_by_field_name("declarator"))
         .and_then(|declaration| declarator::callable(declaration, source))
         .map(|mut callable| {

@@ -29,11 +29,25 @@ fn cpp_scoped_and_unscoped_enumerators_keep_their_qualified_names() {
     let path = project.path().join("state.cpp");
     write(
         &path,
-        "enum class Color { red, blue = red }; enum Plain { green };\nColor read(){return Color::red;}\nPlain a(){return Plain::green;}\nPlain b(){return green;}\n",
+        r#"enum class Color { red, blue = red };
+enum Plain { green };
+Color read() { return Color::red; }
+Plain a() { return Plain::green; }
+Plain b() { return green; }
+void local() {
+    enum class State { off, on = off };
+    auto value = State::off;
+}
+struct Group {
+    int read() { return first + static_cast<int>(Mode::cold); }
+    enum { first };
+    enum class Mode { cold };
+};
+"#,
     );
     let report = report(&run("file", &path, None, None));
     let file = only_file(&report);
-    for name in ["red", "green"] {
+    for name in ["red", "green", "off"] {
         let uses = references_to(file, name);
         assert_eq!(uses.len(), 2);
         assert!(
@@ -41,5 +55,13 @@ fn cpp_scoped_and_unscoped_enumerators_keep_their_qualified_names() {
                 .all(|item| item["resolution"]["symbols"]["kind"] == "constant")
         );
         assert_eq!(uses[0]["resolution"], uses[1]["resolution"]);
+    }
+    for name in ["first", "cold"] {
+        let uses = references_to(file, name);
+        assert_eq!(uses.len(), 1);
+        assert_eq!(
+            uses[0]["resolution"]["symbols"]["kind"], "constant",
+            "{name}"
+        );
     }
 }
