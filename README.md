@@ -63,13 +63,15 @@ diff path.
 
 Supported manifests include `Cargo.toml`, `package.json`, `tsconfig.json`,
 `jsconfig.json`, `pyproject.toml`, `setup.py`, `setup.cfg`, `go.mod`,
-`compile_commands.json`, `CMakeLists.txt`, and `meson.build`.
+`compile_commands.json`, `CMakeLists.txt`, `meson.build`, and `.csproj` files.
 
 ## Languages
 
 | Language | Source files |
 | --- | --- |
 | C | `.c`, `.h`, `.inc` |
+| C# | `.cs`, `.csx` |
+| Razor | `.razor`, `.cshtml` |
 | C++ | `.C`, `.cc`, `.cpp`, `.cxx`, `.c++`, `.H`, `.hh`, `.hpp`, `.hxx`, `.h++`, `.ipp`, `.inl`, `.tcc`, `.tpp`, `.cppm`, `.ccm`, `.cxxm`, `.c++m`, `.ixx` |
 | Rust | `.rs` |
 | Python | `.py`, `.pyi` |
@@ -85,6 +87,11 @@ Supported manifests include `Cargo.toml`, `package.json`, `tsconfig.json`,
 | Angular templates | `.component.html` |
 | HTML | `.html` |
 | CSS | `.css` |
+
+C# reports use project references, linked sources, and conditional compilation.
+Each physical file appears once. A partial type can have source evidence in
+several files. Entanglement reads project files without running a build.
+[C# analysis and its limits](docs/csharp.md)
 
 C and C++ reports count each physical header once. A compiler command can select
 the language of a source file or header. Otherwise, a header uses the language of
