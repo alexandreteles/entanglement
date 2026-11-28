@@ -88,17 +88,6 @@ Supported manifests include `Cargo.toml`, `package.json`, `tsconfig.json`,
 | HTML | `.html` |
 | CSS | `.css` |
 
-C# reports use project references, linked sources, and conditional compilation.
-Each physical file appears once. A partial type can have source evidence in
-several files. Entanglement reads project files without running a build.
-[C# analysis and its limits](docs/csharp.md)
-
-C and C++ reports count each physical header once. A compiler command can select
-the language of a source file or header. Otherwise, a header uses the language of
-its includers when they agree. For a standalone or mixed-use `.h` or `.inc`,
-Entanglement compares both parses and uses C for syntax common to both languages.
-The header report shows which rule it used.
-
 Entanglement reads `compile_commands.json` from the project or its `build`
 directory. Use `--compile-commands PATH` to select a build elsewhere. Each
 command supplies a separate view of the include paths, macros, and source
