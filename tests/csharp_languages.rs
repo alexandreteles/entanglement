@@ -36,3 +36,20 @@ fn candidate_and_patch_match_a_fresh_source_analysis() {
     let fresh = report(&run("repo", dir.path(), None, Some("cc,mi")));
     assert_eq!(candidate["files"], fresh["files"]);
 }
+
+#[test]
+fn constant_fields_do_not_create_executable_functions() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("Fields.cs");
+    write(
+        &path,
+        "class Fields { public const int Capacity = 12; int count = Start(); static int Start() => 0; }",
+    );
+    let output = report(&run("file", &path, None, Some("cc")));
+    let code = only_file(&output);
+    assert_eq!(code["functions"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        function(code, "count initializer")["cyclomatic_complexity"],
+        1
+    );
+}

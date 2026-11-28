@@ -80,7 +80,18 @@ fn validate_patches(root: &Path, patches: &[input::FilePatch]) -> crate::Result<
     Ok(())
 }
 
-fn nearest_project_root<'a>(target: &'a Path, fallback: &'a Path) -> crate::Result<&'a Path> {
+pub(super) fn nearest_project_root<'a>(
+    target: &'a Path,
+    fallback: &'a Path,
+) -> crate::Result<&'a Path> {
+    if crate::languages::csharp::is_source(target) {
+        let project = crate::languages::csharp::project::root(target).unwrap_or(fallback);
+        return Ok(if project.starts_with(fallback) {
+            fallback
+        } else {
+            project
+        });
+    }
     let manifests = crate::languages::Registry::shared()?.project_manifests();
     if crate::languages::c_family::project::is_source(target) {
         for directory in target.ancestors().skip(1) {

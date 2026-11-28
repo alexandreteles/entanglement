@@ -11,6 +11,8 @@ type Contents = std::result::Result<Option<Arc<[u8]>>, String>;
 
 #[derive(Default)]
 pub(crate) struct Snapshot {
+    pub csharp_root: Option<PathBuf>,
+    pub csharp: crate::languages::csharp::project::Project,
     pub compile_commands: Option<PathBuf>,
     pub c_project: crate::languages::c_family::project::Project,
     files: Mutex<BTreeMap<PathBuf, Contents>>,
@@ -19,6 +21,8 @@ pub(crate) struct Snapshot {
 impl Clone for Snapshot {
     fn clone(&self) -> Self {
         Self {
+            csharp_root: self.csharp_root.clone(),
+            csharp: Default::default(),
             compile_commands: self.compile_commands.clone(),
             c_project: Default::default(),
             files: Mutex::new(self.files.lock().expect("snapshot lock").clone()),
@@ -27,6 +31,32 @@ impl Clone for Snapshot {
 }
 
 impl Snapshot {
+    /// Discover project files in the current physical or virtual source state.
+    pub(crate) fn paths_with_extension(
+        &self,
+        root: &Path,
+        extension: &str,
+    ) -> Result<std::collections::BTreeSet<PathBuf>> {
+        let matches = |path: &Path| crate::languages::csharp::project::extension(path, extension);
+        let mut paths = std::collections::BTreeSet::new();
+        for entry in crate::input::discover(root)? {
+            let entry = entry?;
+            if matches(&entry) {
+                paths.insert(entry);
+            }
+        }
+        for (path, contents) in self.files.lock().expect("snapshot lock").iter() {
+            if path.starts_with(root) && matches(path) {
+                if matches!(contents, Ok(Some(_))) {
+                    paths.insert(path.clone());
+                } else {
+                    paths.remove(path);
+                }
+            }
+        }
+        Ok(paths)
+    }
+
     /// Keep the selected compilation database in both sides of a candidate.
     pub(crate) fn new(database: Option<PathBuf>) -> Self {
         let compile_commands = database.map(|path| {

@@ -4,7 +4,7 @@
     "camelcase": "CSharp",
     "scope": "source.cs",
     "path": ".",
-    "file-types": ["cs"],
+    "file-types": ["cs", "csx"],
     "highlights": "queries/highlights.scm",
     "tags": "queries/tags.scm",
     "injection-regex": "^(cs|csharp|c-sharp|c#)$"

@@ -51,6 +51,8 @@ pub(super) fn complete(root: Node<'_>, source: &[u8], captured: &mut CapturedTre
             "variable_declarator"
                 if node.parent().and_then(|p| p.parent()).is_some_and(|p| {
                     matches!(p.kind(), "field_declaration" | "event_field_declaration")
+                        && !named_children(p)
+                            .any(|m| m.kind() == "modifier" && text(m, source) == "const")
                 }) =>
             {
                 if let (Some(name), Some(value)) = (field("name"), named_children(node).nth(1))
@@ -85,12 +87,15 @@ pub(super) fn complete(root: Node<'_>, source: &[u8], captured: &mut CapturedTre
     }
     let mut statements = named_children(root).filter(|node| {
         node.kind() == "global_statement"
-            && !named_children(*node).any(|item| item.kind() == "local_function_statement")
+            && !named_children(*node).any(|item| {
+                item.kind() == "local_function_statement"
+                    || super::facts::declarations::partial_union(item, source)
+            })
     });
     if let Some(first) = statements.next() {
         add(
             first,
-            statements.last().unwrap_or(first),
+            statements.next_back().unwrap_or(first),
             "<Main>".into(),
             captured,
         );

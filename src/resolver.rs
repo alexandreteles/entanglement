@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 use rayon::prelude::*;
 pub(crate) mod c_family;
+mod csharp;
 
 use crate::graph::{CallDispatch, FileFactsView, ProgramGraph};
 use crate::model::{FileFacts, Reference, ReferenceAnalysis, Resolution, SymbolId};
@@ -100,7 +101,7 @@ pub(crate) fn resolve_with_snapshot(
         .zip(resolutions)
         .for_each(|(fact, resolved)| fact.analysis.resolution = resolved);
     if let Some(calls) = calls {
-        crate::metrics::recursion::annotate(facts, &calls);
+        crate::metrics::recursion::annotate(facts, &calls, &snapshot.csharp);
     }
 }
 
@@ -117,6 +118,7 @@ fn resolve_references(
     let package_resolutions = packages::resolve(facts, snapshot, graph);
     let php_resolutions = php::resolve(facts, snapshot, graph);
     let c_resolutions = c_family::resolve(facts, &snapshot.c_project);
+    let csharp_resolutions = csharp::resolve(facts, &snapshot.csharp);
     facts
         .iter()
         .enumerate()
@@ -126,6 +128,7 @@ fn resolve_references(
                 .or(kotlin_resolutions[file_index].as_ref())
                 .or(php_resolutions[file_index].as_ref())
                 .or(c_resolutions[file_index].as_ref())
+                .or(csharp_resolutions[file_index].as_ref())
                 .or(package_resolutions[file_index].as_ref());
             resolve_fact(&index, file_index, fact, resolved)
         })

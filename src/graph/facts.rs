@@ -11,6 +11,7 @@ pub(crate) use php::*;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct SemanticFacts {
+    pub csharp: Option<Box<crate::languages::csharp::facts::Data>>,
     pub c_family: Option<Box<crate::languages::c_family::semantic::Data>>,
     pub structure_fingerprint: Option<String>,
     pub structure_resources: Vec<crate::structure::resources::ResourceFact>,

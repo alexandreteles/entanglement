@@ -103,6 +103,13 @@ pub(super) fn limitations(language: &str) -> Vec<String> {
         ]
     } else if language == "source.c" {
         &["build_variants", "macro_output", "indirect_calls"]
+    } else if language == "source.cs" {
+        &[
+            "external_assemblies",
+            "source_generators",
+            "dynamic_dispatch",
+            "generic_subst",
+        ]
     } else if language.contains("python") {
         &["runtime_structure"]
     } else if language.contains("go") {

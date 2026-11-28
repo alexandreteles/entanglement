@@ -72,7 +72,14 @@ impl Worker {
             injections::collect_old_trees(&previous.injections, edits, &mut old_trees);
         }
         let old_root = reusable.map(|file| injections::edit_tree(file.tree.clone(), edits));
-        let tree = self.parse_tree(&choice, &source, &[], old_root.as_ref())?;
+        let mut tree = self.parse_tree(&choice, &source, &[], old_root.as_ref())?;
+        if choice.id == "source.cs" && crate::languages::csharp::project::extension(path, "csx") {
+            let directives =
+                crate::languages::csharp::conditional::lines(tree.root_node(), &source);
+            if let Some(bytes) = crate::languages::csharp::script::projected(&directives, &source) {
+                tree = self.parse_tree(&choice, &bytes, &[], None)?;
+            }
+        }
         let mut active = HashSet::from([(choice.id.clone(), 0, source.len())]);
         let mut next_node_id = 0;
         let mut next_context_id = 0;

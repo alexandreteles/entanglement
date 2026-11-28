@@ -1,5 +1,6 @@
 //! Analyze source dependencies without a composite quality score.
 
+mod csharp;
 pub(crate) mod delta;
 pub(crate) mod effective;
 pub(crate) mod extract;
@@ -60,9 +61,12 @@ pub(crate) fn analyze(
     scope: &str,
     source_snapshot: &crate::snapshot::Snapshot,
 ) -> StructuralReport {
-    let snapshot = extract::snapshot(facts, scope, source_snapshot);
+    let mut snapshot = extract::snapshot(facts, scope, source_snapshot);
+    let csharp = csharp::collect(facts, &source_snapshot.csharp, &mut snapshot);
     let graphs = graph::analyze(&snapshot);
-    let effective = effective::analyze(facts, &snapshot, source_snapshot);
+    let mut effective = effective::analyze(facts, &snapshot, source_snapshot);
+    effective.extend(csharp);
+    effective.sort_by(|a, b| a.unit.cmp(&b.unit));
     StructuralReport {
         state: StructuralState {
             snapshot,

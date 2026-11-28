@@ -29,11 +29,19 @@ pub(super) fn analyze(
     let diff = input::read_diff(diff)?;
     let patches = input::parse_diff(&diff)?;
     let (root, source_paths) = paths::patch_sources(path, &patches, single)?;
+    let target = std::path::absolute(path)?;
+    before_snapshot.csharp_root = Some(
+        if target.is_file() && crate::languages::csharp::is_source(&target) {
+            paths::nearest_project_root(&target, &root)?.to_owned()
+        } else {
+            root.clone()
+        },
+    );
     let mut parsed = analysis::analyze_paths(source_paths, selection, std::convert::identity)?;
     if single && parsed.is_empty() {
         return Err("The selected file has no supported language".into());
     }
-    analysis::c_family::prepare(&mut parsed, selection, &mut before_snapshot)?;
+    analysis::prepare(&mut parsed, &[], selection, &mut before_snapshot)?;
     let mut before: Vec<_> = parsed.iter().map(|file| file.facts.clone()).collect();
     resolver::resolve_with_snapshot(&mut before, selection, &before_snapshot);
     let before_structure = selection
@@ -45,7 +53,7 @@ pub(super) fn analyze(
         .iter()
         .map(|patch| apply_file_patch(&mut worker, &mut parsed, &root, patch, &after_snapshot))
         .collect::<crate::Result<_>>()?;
-    analysis::c_family::prepare(&mut parsed, selection, &mut after_snapshot)?;
+    analysis::prepare(&mut parsed, &[], selection, &mut after_snapshot)?;
     let mut after: Vec<_> = parsed.into_iter().map(|file| file.facts).collect();
     after.sort_by(|left, right| left.path.cmp(&right.path));
     resolver::resolve_with_snapshot(&mut after, selection, &after_snapshot);

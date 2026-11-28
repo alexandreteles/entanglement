@@ -73,6 +73,7 @@ pub(crate) fn snapshot(
         .flat_map(|fact| {
             fact.contexts
                 .iter()
+                .filter(|store| store.semantic.csharp.is_none())
                 .flat_map(|store| capture_relationships(facts, fact, store, &symbols))
         })
         .collect();
@@ -167,7 +168,7 @@ fn resolved_key(symbol: &SymbolId) -> (String, usize, String) {
     (symbol.file.clone(), symbol.start_byte, symbol.name.clone())
 }
 
-fn deduplicate(relationships: Vec<Relationship>) -> Vec<Relationship> {
+pub(super) fn deduplicate(relationships: Vec<Relationship>) -> Vec<Relationship> {
     let mut edges = BTreeMap::<_, Relationship>::new();
     for relationship in relationships {
         let key = (

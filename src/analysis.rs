@@ -3,6 +3,7 @@
 pub(crate) mod c_family;
 mod c_family_metrics;
 mod c_family_views;
+mod csharp;
 mod facts;
 mod injections;
 mod metrics;
@@ -18,6 +19,17 @@ use rayon::prelude::*;
 use crate::Result;
 use crate::input;
 use crate::metrics::selection::Selection;
+
+/// Prepare configured language views after all source and manifest edits are present.
+pub(crate) fn prepare(
+    files: &mut [ParsedFile],
+    other: &[crate::model::FileFacts],
+    selection: Selection,
+    snapshot: &mut crate::snapshot::Snapshot,
+) -> Result<()> {
+    c_family::prepare(files, selection, snapshot)?;
+    csharp::prepare(files, other, selection, snapshot)
+}
 
 /// Analyze each supported target once and keep its logical paths as aliases.
 pub(crate) fn analyze_paths<I, T: Send>(

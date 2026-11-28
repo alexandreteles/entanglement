@@ -57,3 +57,21 @@ fn append(fingerprint: &mut blake3::Hasher, bytes: &[u8]) {
     fingerprint.update(&(bytes.len() as u64).to_le_bytes());
     fingerprint.update(bytes);
 }
+
+pub(super) fn csharp(root: Node<'_>, source: &[u8], facts: &mut crate::model::SemanticStore) {
+    let Some(data) = facts.semantic.csharp.as_deref_mut() else {
+        return;
+    };
+    for declaration in data.declarations.values_mut().filter(|decl| decl.is_type) {
+        if let Some(node) =
+            root.named_descendant_for_byte_range(declaration.range.start, declaration.range.end)
+        {
+            declaration.fingerprint = Some(syntax(
+                node,
+                node.child_by_field_name("name"),
+                source,
+                std::slice::from_ref(&declaration.owner),
+            ));
+        }
+    }
+}

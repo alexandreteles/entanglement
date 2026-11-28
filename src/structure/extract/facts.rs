@@ -127,6 +127,14 @@ fn context_coverage(fact: &FileFacts, store: &SemanticStore) -> Coverage {
         limitations.push("no_oo".to_owned());
     }
     let intact = !store.semantic.structure_errors
+        || store.semantic.csharp.as_deref().is_some_and(|data| {
+            data.declarations.values().any(|decl| {
+                !data.errors.iter().any(|error| {
+                    error.start < decl.body.as_ref().map_or(decl.range.end, |body| body.start)
+                        && decl.range.start < error.end
+                })
+            })
+        })
         || store.semantic.c_family.as_ref().is_some_and(|data| {
             store
                 .definitions
