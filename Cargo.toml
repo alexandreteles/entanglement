@@ -22,6 +22,8 @@ shlex = "2.0.1"
 tree-sitter-loader = "0.27.2"
 tree-sitter-rust = "0.24.2"
 tree-sitter-c = "0.24.2"
+# This revision includes the upstream C# 15 grammar.
+tree-sitter-c-sharp = { git = "https://github.com/tree-sitter/tree-sitter-c-sharp.git", rev = "f802dfbeedc4a6102cff8a71b43e1b2453795ccf" }
 # This upstream revision includes C++20 module declarations and imports.
 tree-sitter-cpp = { git = "https://github.com/tree-sitter/tree-sitter-cpp.git", rev = "c009222808634c1014f82438d4883753516a2c24" }
 tree-sitter-css = "0.25.0"
