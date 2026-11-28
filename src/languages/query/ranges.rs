@@ -55,7 +55,7 @@ pub(super) fn fully_included(node: Node<'_>, ranges: &[Range]) -> bool {
     ranges.iter().any(|range| contains(*range, node))
 }
 
-pub(super) fn subtract(content: Range, exclusions: &[Range]) -> Vec<Range> {
+pub(crate) fn subtract(content: Range, exclusions: &[Range]) -> Vec<Range> {
     let mut exclusions = exclusions
         .iter()
         .filter_map(|range| intersect(content, *range))

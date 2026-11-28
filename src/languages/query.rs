@@ -164,13 +164,30 @@ impl QueryAnalyzer {
         tree: &'tree Tree,
         source: &'tree [u8],
         include_tokens: bool,
+        on_match: impl FnMut(usize, &[QueryCapture<'tree>], &[u8]),
+    ) -> QueryFacts {
+        self.capture_node(
+            tree.root_node(),
+            source,
+            include_tokens,
+            &ranges::included(tree),
+            on_match,
+        )
+    }
+
+    /// Capture one grammatical fragment with its original source coordinates.
+    pub(crate) fn capture_node<'tree>(
+        &self,
+        root: tree_sitter::Node<'tree>,
+        source: &'tree [u8],
+        include_tokens: bool,
+        included: &[tree_sitter::Range],
         mut on_match: impl FnMut(usize, &[QueryCapture<'tree>], &[u8]),
     ) -> QueryFacts {
         let mut facts = QueryFacts::default();
-        let included = ranges::included(tree);
         let mut cursor = QueryCursor::new();
-        let mut matches = cursor.matches(&self.query, tree.root_node(), source);
-        let has_errors = tree.root_node().has_error();
+        let mut matches = cursor.matches(&self.query, root, source);
+        let has_errors = root.has_error();
         while let Some(query_match) = matches.next() {
             let captures = query_match.captures();
             let retained;
@@ -187,11 +204,11 @@ impl QueryAnalyzer {
             } else {
                 captures
             };
-            facts.record_syntax(self, captures, &included, source);
+            facts.record_syntax(self, captures, included, source);
             facts.record_injections(self, query_match.pattern_index, captures, source);
             on_match(query_match.pattern_index, captures, source);
         }
-        facts.finish(tree, source, include_tokens, &included);
+        facts.finish(root, source, include_tokens, included);
         facts
     }
 
@@ -204,7 +221,7 @@ impl QueryAnalyzer {
 impl QueryFacts {
     fn finish(
         &mut self,
-        tree: &Tree,
+        root: tree_sitter::Node<'_>,
         source: &[u8],
         include_tokens: bool,
         included: &[tree_sitter::Range],
@@ -212,7 +229,7 @@ impl QueryFacts {
         self.deduplicate();
         injections::merge(&mut self.injections);
         if include_tokens {
-            self.tokens = tokens::capture(tree.root_node(), source, included);
+            self.tokens = tokens::capture(root, source, included);
             let comments = self
                 .events
                 .iter()

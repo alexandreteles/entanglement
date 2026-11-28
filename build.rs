@@ -67,7 +67,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         for entry in fs::read_dir(package_root)? {
             let entry = entry?;
-            if entry.file_name().to_string_lossy().starts_with("LICENSE") {
+            let name = entry.file_name();
+            if name.to_string_lossy().starts_with("LICENSE") || name == "NOTICE" {
                 collect(
                     package_root,
                     entry.path().strip_prefix(package_root)?,

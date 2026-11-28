@@ -38,13 +38,14 @@ pub(crate) fn run(
                 crate::input::discover(&path)?,
                 selection,
                 |parsed| {
-                    if matches!(parsed.language.as_str(), "source.c" | "source.cpp")
-                        || parsed.facts.contexts.iter().any(|s| {
-                            s.semantic.csharp.as_ref().is_some_and(|data| {
-                                data.directives.iter().any(|line| line.command == "if")
-                            })
+                    if matches!(
+                        parsed.language.as_str(),
+                        "source.c" | "source.cpp" | "source.razor"
+                    ) || parsed.facts.contexts.iter().any(|s| {
+                        s.semantic.csharp.as_ref().is_some_and(|data| {
+                            data.directives.iter().any(|line| line.command == "if")
                         })
-                    {
+                    }) {
                         Either::Left(parsed)
                     } else {
                         Either::Right(parsed.facts)

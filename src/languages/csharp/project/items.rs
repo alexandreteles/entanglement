@@ -19,14 +19,22 @@ pub(super) fn path(base: &Path, value: &str) -> PathBuf {
 
 #[derive(Clone, Debug)]
 pub(super) struct CompileRule {
+    pub item: String,
     pub include: bool,
     paths: GlobSet,
     excluded: GlobSet,
 }
 
 impl CompileRule {
-    pub(super) fn new(base: &Path, paths: &str, excluded: &str, include: bool) -> Option<Self> {
+    pub(super) fn new(
+        base: &Path,
+        item: &str,
+        paths: &str,
+        excluded: &str,
+        include: bool,
+    ) -> Option<Self> {
         Some(Self {
+            item: item.into(),
             include,
             paths: patterns(base, paths)?,
             excluded: patterns(base, excluded)?,

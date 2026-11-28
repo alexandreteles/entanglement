@@ -12,7 +12,7 @@ pub(super) fn prepare(
 ) -> Result<()> {
     let paths = files
         .iter()
-        .filter(|f| f.language == "source.cs")
+        .filter(|f| matches!(f.language.as_str(), "source.cs" | "source.razor"))
         .map(|file| &file.facts)
         .chain(
             other
@@ -141,6 +141,21 @@ pub(super) fn prepare(
         }
         host.semantic.csharp = merged.semantic.csharp;
         host.semantic.structure_errors = merged.semantic.structure_errors;
+    }
+    for file in files.iter_mut().filter(|f| f.language == "source.razor") {
+        if file.facts.contexts[0].semantic.csharp.is_some() {
+            let choice = worker
+                .select_file(&file.facts.path)?
+                .ok_or("Missing Razor grammar")?;
+            *file = worker.analyze_selected_source(
+                &file.facts.path,
+                file.facts.source.to_vec(),
+                Some(file),
+                &[],
+                choice,
+            )?;
+        }
+        crate::languages::csharp::razor::bind(&mut file.facts, &file.tree, &project, snapshot);
     }
     snapshot.csharp = project;
     Ok(())

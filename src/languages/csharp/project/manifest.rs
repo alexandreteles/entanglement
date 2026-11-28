@@ -12,6 +12,7 @@ pub(super) struct Evaluation {
     pub usings: Vec<(String, String, bool)>,
     pub limitations: BTreeSet<String>,
     pub sdk: bool,
+    pub razor_sdk: bool,
 }
 
 impl Evaluation {
@@ -79,7 +80,9 @@ impl Evaluation {
             .and_then(|s| roxmltree::Document::parse(s.trim_start_matches('\u{feff}')).ok());
         if let Some(document) = document {
             let root = document.root_element();
-            self.sdk |= root.attribute("Sdk").is_some();
+            if let Some(sdk) = root.attribute("Sdk") {
+                self.sdk(sdk);
+            }
             let directory = file.parent().unwrap_or(base);
             let previous = self.properties.insert(
                 "msbuildthisfiledirectory".into(),
@@ -112,7 +115,14 @@ impl Evaluation {
                 continue;
             }
             match node.tag_name().name() {
-                "Import" if node.attribute("Sdk").is_some() => self.sdk = true,
+                "Sdk" => {
+                    if let Some(name) = node.attribute("Name") {
+                        self.sdk(name);
+                    }
+                }
+                "Import" if node.attribute("Sdk").is_some() => {
+                    self.sdk(node.attribute("Sdk").unwrap())
+                }
                 "Import" => {
                     if let Some(name) = node
                         .attribute("Project")
@@ -156,6 +166,21 @@ impl Evaluation {
         )
     }
 
+    fn sdk(&mut self, names: &str) {
+        self.sdk = true;
+        self.razor_sdk |= names
+            .split(';')
+            .map(|s| s.trim().split('/').next().unwrap_or(""))
+            .any(|name| {
+                matches!(
+                    name.to_ascii_lowercase().as_str(),
+                    "microsoft.net.sdk.razor"
+                        | "microsoft.net.sdk.web"
+                        | "microsoft.net.sdk.blazorwebassembly"
+                )
+            });
+    }
+
     fn properties(&mut self, group: roxmltree::Node<'_, '_>, dir: &Path, snapshot: &Snapshot) {
         for node in group.children().filter(|n| n.is_element()) {
             let key = node.tag_name().name().to_ascii_lowercase();
@@ -187,10 +212,11 @@ impl Evaluation {
                     .and_then(|s| expand(s, &self.properties))
             };
             match node.tag_name().name() {
-                "Compile" => {
+                item @ ("Compile" | "Content" | "RazorComponent" | "RazorGenerate") => {
                     if let Some(value) = attribute("Include").or_else(|| attribute("Remove")) {
                         if let Some(rule) = CompileRule::new(
                             base,
+                            item,
                             &value,
                             &attribute("Exclude").unwrap_or_default(),
                             node.attribute("Include").is_some(),

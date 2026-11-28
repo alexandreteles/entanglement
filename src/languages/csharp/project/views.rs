@@ -48,6 +48,11 @@ pub(super) fn read(project: &Path, snapshot: &Snapshot) -> Vec<View> {
                 && !["enabledefaultcompileitems", "enabledefaultitems"]
                     .iter()
                     .any(|k| property(k).eq_ignore_ascii_case("false"));
+            let enabled = |name| !property(name).eq_ignore_ascii_case("false");
+            let default_content =
+                enabled("enabledefaultitems") && enabled("enabledefaultcontentitems");
+            let razor_components = data.razor_sdk && enabled("enabledefaultrazorcomponentitems");
+            let razor_views = data.razor_sdk && enabled("enabledefaultrazorgenerateitems");
             let mut usings = data.usings.clone();
             if matches!(
                 property("implicitusings").to_ascii_lowercase().as_str(),
@@ -66,6 +71,17 @@ pub(super) fn read(project: &Path, snapshot: &Snapshot) -> Vec<View> {
                     .map(|name| (String::new(), name.into(), false)),
                 );
             }
+            let namespace = data
+                .properties
+                .get("rootnamespace")
+                .cloned()
+                .unwrap_or_else(|| {
+                    project
+                        .file_stem()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .replace('-', "_")
+                });
             result.push(View {
                 excludes: items::patterns(
                     project.parent().unwrap_or(project),
@@ -82,10 +98,14 @@ pub(super) fn read(project: &Path, snapshot: &Snapshot) -> Vec<View> {
                 configuration: configuration.into(),
                 framework: framework.into(),
                 symbols,
+                namespace,
                 references: data.references,
                 usings,
                 limits: data.limitations,
                 default_items,
+                default_content,
+                razor_components,
+                razor_views,
                 rules: data.rules,
             });
         }

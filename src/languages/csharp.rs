@@ -7,11 +7,12 @@ use tree_sitter::{Language, Tree};
 pub(crate) mod conditional;
 pub(crate) mod facts;
 pub(crate) mod project;
+pub(crate) mod razor;
 mod scopes;
 pub(crate) mod script;
 
 pub(crate) fn is_source(path: &std::path::Path) -> bool {
-    ["cs", "csx"]
+    ["cs", "csx", "razor", "cshtml"]
         .iter()
         .any(|suffix| project::extension(path, suffix))
 }

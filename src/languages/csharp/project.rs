@@ -14,11 +14,15 @@ pub(crate) struct View {
     pub project: PathBuf,
     pub configuration: String,
     pub framework: String,
+    pub namespace: String,
     pub symbols: BTreeSet<String>,
     pub references: Vec<PathBuf>,
     pub usings: Vec<(String, String, bool)>,
     pub limits: BTreeSet<String>,
     default_items: bool,
+    default_content: bool,
+    razor_components: bool,
+    razor_views: bool,
     excludes: globset::GlobSet,
     rules: Vec<items::CompileRule>,
 }
@@ -28,16 +32,30 @@ impl View {
         let relative = source
             .strip_prefix(self.project.parent().unwrap_or(&self.project))
             .ok();
-        let default = self.default_items
-            && !self.excludes.is_match(source)
-            && extension(source, "cs")
+        let default = !self.excludes.is_match(source)
             && relative.is_some_and(|p| {
                 !p.components()
                     .any(|c| c.as_os_str().to_string_lossy().starts_with('.'))
             });
+        let (item, enabled) = if extension(source, "razor") {
+            ("RazorComponent", self.razor_components)
+        } else if extension(source, "cshtml") {
+            ("RazorGenerate", self.razor_views)
+        } else {
+            return self.item(
+                "Compile",
+                source,
+                default && self.default_items && extension(source, "cs"),
+            );
+        };
+        let content = enabled && self.item("Content", source, default && self.default_content);
+        self.item(item, source, content)
+    }
+
+    fn item(&self, name: &str, source: &Path, default: bool) -> bool {
         self.rules
             .iter()
-            .rfind(|r| r.applies(source))
+            .rfind(|r| r.item == name && r.applies(source))
             .map_or(default, |r| r.include)
     }
 }

@@ -85,6 +85,7 @@ impl Worker {
         inherited_scope: Option<Range<usize>>,
         inherited_context: Option<usize>,
         metric_id: String,
+        fragment: Option<crate::languages::CapturedTree>,
         active: &mut HashSet<(String, usize, usize)>,
         next_node_id: &mut usize,
         next_context_id: &mut usize,
@@ -96,15 +97,25 @@ impl Worker {
             *next_context_id += 1;
             id
         });
-        let mut captured =
-            self.registry
-                .capture(&choice.id, tree, source, self.selection.needs_halstead())?;
+        let fragment_errors = fragment
+            .as_ref()
+            .map(|capture| capture.facts.semantic.structure_errors);
+        let mut captured = match fragment {
+            Some(facts) => facts,
+            None => {
+                self.registry
+                    .capture(&choice.id, tree, source, self.selection.needs_halstead())?
+            }
+        };
         if self
             .selection
             .includes(crate::metrics::selection::Metric::Structure)
         {
             crate::structure::extract::capture(tree, source, &choice.id, &mut captured.facts);
             crate::structure::resources::capture(tree, source, &choice.id, &mut captured.facts);
+            if let Some(errors) = fragment_errors {
+                captured.facts.semantic.structure_errors = errors;
+            }
         }
         remap_node_ids(&mut captured, next_node_id);
         let requests = self.injection_requests(std::mem::take(&mut captured.injections))?;
@@ -187,6 +198,19 @@ impl Worker {
         } else {
             child_id.clone()
         };
+        let fragment = if layer.choice.id == "source.razor" && child_id == "source.cs" {
+            crate::languages::csharp::razor::fragment::capture(
+                layer.tree,
+                &request,
+                &included_ranges,
+                layer.source,
+                &child_choice.language,
+                self.selection.needs_halstead(),
+                |bytes| self.parse_tree(&child_choice, bytes, &[], None),
+            )?
+        } else {
+            None
+        };
         let (children, mut child_summaries) = self.analyze_layer(
             &child_choice,
             &child_tree,
@@ -206,6 +230,7 @@ impl Worker {
                 })
             .then_some(layer.context_id),
             child_metric_id,
+            fragment,
             &mut *state.active,
             &mut *state.next_node_id,
             &mut *state.next_context_id,

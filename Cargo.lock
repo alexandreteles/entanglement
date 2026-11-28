@@ -131,9 +131,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.11.2"
+version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33ef9e3e8154a45c7a95cff4c1299702106ad94062d7bb85fdc5d3a5afd91d45"
+checksum = "86e055fa6e3e40ad6187ba25b6855eeb635d5271f8e0f0e1e9a5826b8d75bea0"
 dependencies = [
  "find-msvc-tools",
  "shlex",
@@ -287,6 +287,7 @@ dependencies = [
  "tree-sitter-loader",
  "tree-sitter-php 0.25.2",
  "tree-sitter-python",
+ "tree-sitter-razor-modern",
  "tree-sitter-rust",
  "tree-sitter-typescript",
 ]
@@ -966,6 +967,16 @@ name = "tree-sitter-python"
 version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6bf85fd39652e740bf60f46f4cda9492c3a9ad75880575bf14960f775cb74a1c"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-razor-modern"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b7db60aaa1931ae8efcb79e39b526c4f03f86430bf68aa47727e37be6bfa238a"
 dependencies = [
  "cc",
  "tree-sitter-language",

@@ -68,6 +68,7 @@ fn registered_specs() -> Result<HashMap<&'static str, &'static LanguageSpec>> {
     let mut specs = HashMap::new();
     for spec in std::iter::once(&rust::LANGUAGE_SPEC)
         .chain(std::iter::once(&csharp::LANGUAGE_SPEC))
+        .chain(std::iter::once(&csharp::razor::LANGUAGE_SPEC))
         .chain(std::iter::once(&python::LANGUAGE_SPEC))
         .chain(std::iter::once(&php::LANGUAGE_SPEC))
         .chain(std::iter::once(&go::LANGUAGE_SPEC))

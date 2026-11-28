@@ -92,6 +92,7 @@ impl Worker {
             None,
             None,
             choice.id.clone(),
+            None,
             &mut active,
             &mut next_node_id,
             &mut next_context_id,
