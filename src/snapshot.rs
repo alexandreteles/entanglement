@@ -47,7 +47,7 @@ impl Snapshot {
         }
         for (path, contents) in self.files.lock().expect("snapshot lock").iter() {
             if path.starts_with(root) && matches(path) {
-                if matches!(contents, Ok(Some(_))) {
+                if contents.as_ref().is_ok_and(Option::is_some) {
                     paths.insert(path.clone());
                 } else {
                     paths.remove(path);
